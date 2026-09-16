@@ -233,8 +233,13 @@ class ControllerListContent(
      */
     fun section(key: Any? = null, content: @Composable SectionScope.() -> Unit) {
         val index = allocIndex()
+        // Hoisted: the item{} lambda's scope receiver shadows this class,
+        // so its private members are unreachable via implicit receiver inside.
+        val eng = engine
+        val disp = dispatcher
+        val init = initialFocus
         item(key = key) {
-            SectionScope(engine, dispatcher, index, initialFocus).content()
+            SectionScope(eng, disp, index, init).content()
         }
     }
 
@@ -353,8 +358,11 @@ class ControllerGridContent(
     private val engine: ControllerScrollEngine,
     private val dispatcher: FocusDispatcher,
     private val initialFocus: (Any?) -> Boolean,
-    lazyGridScope: LazyGridScope,
-) : LazyGridScope by lazyGridScope {
+    private val gridScope: LazyGridScope,
+) {
+    // NOTE: LazyGridScope is a sealed interface and cannot be implemented
+    // (even via `by` delegation) outside its module, so the scope is held
+    // and used explicitly instead of delegated.
 
     private var nextIndex = 0
 
@@ -369,17 +377,21 @@ class ControllerGridContent(
         testTag: String? = null,
     ) {
         val index = nextIndex++
-        item(key = key) {
+        // Hoisted: the item{} lambda's scope receiver shadows this class,
+        // so its private members are unreachable via implicit receiver inside.
+        val eng = engine
+        val disp = dispatcher
+        gridScope.item(key = key) {
             CrystalButton(
                 key = key,
                 label = label,
                 onClick = onClick,
-                dispatcher = dispatcher,
+                dispatcher = disp,
                 modifier = modifier,
                 enabled = enabled,
                 requestInitialFocus = requestInitialFocus,
                 danger = danger,
-                scrollEngine = engine,
+                scrollEngine = eng,
                 scrollIndex = index,
                 testTag = testTag,
             )
