@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
@@ -86,9 +87,10 @@ import kotlinx.coroutines.launch
  * [handleControllerBoundaryKey] closes that gap: [ControllerList] and
  * [ControllerGrid] intercept DPAD_UP/DOWN in the preview phase. When the
  * focused control sits on the first/last visible row and more items exist
- * beyond it, the key is consumed, the next row is scrolled to the
+ * beyond it, the key is consumed, the next row is snapped to the
  * comfortable (centered) position via
- * [ControllerScrollEngine.scrollToComfortable], and focus is then moved in
+ * [ControllerScrollEngine.snapToComfortable] so it is composed, a frame
+ * passes, and focus is then moved in
  * that direction — default traversal finds the freshly composed row.
  * Anything else falls through to default traversal untouched.
  *
@@ -163,9 +165,32 @@ class ControllerScrollEngine internal constructor(
         animateTo(index, comfortableOffset(index))
     }
 
+    /**
+     * Instant (non-animated) version of [scrollToComfortable]. The D-pad
+     * boundary handler uses this instead of the animated scroll: the
+     * animated scroll needs many frames to finish, but the focus handoff
+     * must happen deterministically — snap the target row into place
+     * (centered, so the currently focused row stays visible and focus is
+     * never stranded on a disposed node), let a frame pass so the lazy
+     * layout composes it, then move focus. The focus-triggered
+     * [requestScroll] animates any residual offset to the exact
+     * comfortable position afterwards.
+     */
+    suspend fun snapToComfortable(
+        index: Int,
+        snapTo: suspend (index: Int, scrollOffset: Int) -> Unit,
+    ) {
+        if (index < 0) return
+        snapTo(index, comfortableOffset(index))
+    }
+
     private fun comfortableOffset(index: Int): Int {
         val vp = viewportHeightPx
+        // The target row is usually not measured yet (that is the whole
+        // point of the boundary handler); rows on one screen are uniform,
+        // so the average measured height is a good proxy.
         val h = itemHeights[index]
+            ?: itemHeights.values.takeIf { it.isNotEmpty() }?.average()?.toInt()
         return if (vp > 0 && h != null && h > 0) {
             // Center the item: never flush to an edge, never invisible.
             ((vp - h) / 2).coerceAtLeast(0)
@@ -216,6 +241,8 @@ class ControllerGridState internal constructor(
  *   (== [visibleLastIndex] for a list; derived from item offsets for a grid).
  * @param columnsPerRow items per row (1 for a list); how far to step the
  *   scroll target when crossing into the next row.
+ * @param snapToComfortable instantly positions a row at the comfortable
+ *   centered offset (no animation) so it is composed before focus moves.
  */
 internal fun handleControllerBoundaryKey(
     event: KeyEvent,
@@ -227,7 +254,7 @@ internal fun handleControllerBoundaryKey(
     columnsPerRow: Int,
     scope: CoroutineScope,
     focusManager: FocusManager,
-    scrollToComfortable: suspend (Int) -> Unit,
+    snapToComfortable: suspend (Int) -> Unit,
 ): Boolean {
     if (event.type != KeyEventType.KeyDown) return false
     val index = focusedIndex ?: return false
@@ -247,11 +274,14 @@ internal fun handleControllerBoundaryKey(
         (index - step).coerceAtLeast(0)
     }
     scope.launch {
-        // Scroll first (the row becomes composed), then let default
-        // traversal move focus onto it. Rapid D-pad repeats cancel the
-        // in-flight scroll via the list state's mutator mutex, so focus
-        // never lags behind and a cancelled scroll never moves focus.
-        scrollToComfortable(target)
+        // Snap first (frameless: the row is positioned immediately), then
+        // let frames pass so the lazy layout composes the revealed row,
+        // then move focus onto it. Rapid D-pad repeats cancel the
+        // in-flight snap via the list state's mutator mutex, so focus
+        // never lags behind and a cancelled snap never moves focus.
+        snapToComfortable(target)
+        withFrameNanos { }
+        withFrameNanos { }
         focusManager.moveFocus(if (forward) FocusDirection.Down else FocusDirection.Up)
     }
     return true
@@ -484,7 +514,11 @@ fun ControllerList(
                     columnsPerRow = 1,
                     scope = boundaryScope,
                     focusManager = focusManager,
-                    scrollToComfortable = { index -> state.engine.scrollToComfortable(index) },
+                    snapToComfortable = { index ->
+                        state.engine.snapToComfortable(index) { i, off ->
+                            state.lazyListState.scrollToItem(i, off)
+                        }
+                    },
                 )
             },
         contentPadding = contentPadding,
@@ -590,7 +624,11 @@ fun ControllerGrid(
                     columnsPerRow = bottomRow.size,
                     scope = boundaryScope,
                     focusManager = focusManager,
-                    scrollToComfortable = { index -> state.engine.scrollToComfortable(index) },
+                    snapToComfortable = { index ->
+                        state.engine.snapToComfortable(index) { i, off ->
+                            state.lazyGridState.scrollToItem(i, off)
+                        }
+                    },
                 )
             },
         contentPadding = contentPadding,
