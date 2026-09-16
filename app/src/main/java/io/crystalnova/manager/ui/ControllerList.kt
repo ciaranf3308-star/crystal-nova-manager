@@ -19,7 +19,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.LocalFocusManager
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEvent
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
@@ -62,6 +69,26 @@ import kotlinx.coroutines.launch
  * Rapid D-pad movement cancels the in-flight scroll animation before
  * starting the next one, so focus never lags behind the animation
  * queue.
+ *
+ * ## The viewport-boundary problem (and its fix)
+ *
+ * Scroll-on-focus alone is not enough: on Android, `LazyColumn` /
+ * `LazyVerticalGrid` compose **zero** items beyond the viewport
+ * (`defaultLazyListBeyondBoundsItemCount() == 0`). Compose's 2D focus
+ * search does ask the lazy layout to compose beyond-bounds items when
+ * D-pad focus moves past the visible edge, but the budget is 0 — so the
+ * next row is never composed, focus search finds nothing, and focus gets
+ * stuck on the last visible row even though more rows exist below. The
+ * engine above never fires because focus never arrives.
+ *
+ * [handleControllerBoundaryKey] closes that gap: [ControllerList] and
+ * [ControllerGrid] intercept DPAD_UP/DOWN in the preview phase. When the
+ * focused control sits on the first/last visible row and more items exist
+ * beyond it, the key is consumed, the next row is scrolled to the
+ * comfortable (centered) position via
+ * [ControllerScrollEngine.scrollToComfortable], and focus is then moved in
+ * that direction — default traversal finds the freshly composed row.
+ * Anything else falls through to default traversal untouched.
  *
  * ## Why animateScrollToItem and not BringIntoViewRequester
  *
@@ -119,15 +146,30 @@ class ControllerScrollEngine internal constructor(
             val vp = viewportHeightPx
             val inset = (vp / 6).coerceAtLeast(0)
             if (vp > 0 && isComfortablyVisible(index, inset)) return@launch
-            val h = itemHeights[index]
-            val offset = if (vp > 0 && h != null && h > 0) {
-                // Center the item: never flush to an edge, never invisible.
-                ((vp - h) / 2).coerceAtLeast(0)
-            } else {
-                // Heights not measured yet — comfortable inset fallback.
-                (vp / 4).coerceAtLeast(0)
-            }
-            animateTo(index, offset)
+            scrollToComfortable(index)
+        }
+    }
+
+    /**
+     * The centered placement [requestScroll] uses, as a suspend call.
+     * Used by the D-pad boundary handler, which scrolls the *next* row
+     * into view *before* moving focus to it (focus can never land on a
+     * row the lazy list has not composed yet).
+     */
+    suspend fun scrollToComfortable(index: Int) {
+        if (index < 0) return
+        animateTo(index, comfortableOffset(index))
+    }
+
+    private fun comfortableOffset(index: Int): Int {
+        val vp = viewportHeightPx
+        val h = itemHeights[index]
+        return if (vp > 0 && h != null && h > 0) {
+            // Center the item: never flush to an edge, never invisible.
+            ((vp - h) / 2).coerceAtLeast(0)
+        } else {
+            // Heights not measured yet — comfortable inset fallback.
+            (vp / 4).coerceAtLeast(0)
         }
     }
 }
@@ -143,6 +185,75 @@ class ControllerGridState internal constructor(
     val lazyGridState: LazyGridState,
     val engine: ControllerScrollEngine,
 )
+
+/**
+ * D-pad boundary crossing for [ControllerList]/[ControllerGrid].
+ *
+ * The deep reason this exists: on Android, `LazyColumn`/`LazyVerticalGrid`
+ * compose **zero** items beyond the viewport
+ * (`defaultLazyListBeyondBoundsItemCount() == 0`). Compose's 2D focus
+ * search *does* ask the lazy layout to compose beyond-bounds items when
+ * D-pad focus moves past the visible edge (`searchBeyondBounds`), but the
+ * budget is 0 — so the next row is never composed, focus search finds
+ * nothing, and focus gets stuck on the last visible row even though more
+ * rows exist. The scroll-on-focus engine never fires because focus never
+ * arrives. On the Nova this meant D-pad DOWN at the bottom of the visible
+ * list was a dead end: below-fold rows (e.g. UPDATE APP) were unreachable.
+ *
+ * The fix: intercept DPAD_UP/DOWN at the list level (preview phase, before
+ * default traversal). When the focused control sits on the first/last
+ * visible row and more items exist beyond it, consume the key, scroll the
+ * next row to the comfortable (centered) position, then move focus in that
+ * direction — default traversal now finds the freshly composed row.
+ * Anything else (focus not on a known control, not at the edge, no more
+ * items) returns false so default traversal behaves exactly as before.
+ *
+ * @param focusedIndex scroll-index of the focused control, or null when
+ *   focus is not on one of this list/grid's controls.
+ * @param bottomRowFirstIndex first scroll-index of the last visible row
+ *   (== [visibleLastIndex] for a list; derived from item offsets for a grid).
+ * @param columnsPerRow items per row (1 for a list); how far to step the
+ *   scroll target when crossing into the next row.
+ */
+internal fun handleControllerBoundaryKey(
+    event: KeyEvent,
+    focusedIndex: Int?,
+    totalItemsCount: Int,
+    visibleFirstIndex: Int,
+    visibleLastIndex: Int,
+    bottomRowFirstIndex: Int,
+    columnsPerRow: Int,
+    scope: CoroutineScope,
+    focusManager: FocusManager,
+    scrollToComfortable: suspend (Int) -> Unit,
+): Boolean {
+    if (event.type != KeyEventType.KeyDown) return false
+    val index = focusedIndex ?: return false
+    if (visibleLastIndex < visibleFirstIndex) return false
+    val forward = when (event.key) {
+        Key.DirectionDown -> true
+        Key.DirectionUp -> false
+        else -> return false
+    }
+    val atEdge = if (forward) index >= bottomRowFirstIndex else index <= visibleFirstIndex
+    val hasMore = if (forward) index < totalItemsCount - 1 else index > 0
+    if (!atEdge || !hasMore) return false
+    val step = columnsPerRow.coerceAtLeast(1)
+    val target = if (forward) {
+        (index + step).coerceAtMost(totalItemsCount - 1)
+    } else {
+        (index - step).coerceAtLeast(0)
+    }
+    scope.launch {
+        // Scroll first (the row becomes composed), then let default
+        // traversal move focus onto it. Rapid D-pad repeats cancel the
+        // in-flight scroll via the list state's mutator mutex, so focus
+        // never lags behind and a cancelled scroll never moves focus.
+        scrollToComfortable(target)
+        focusManager.moveFocus(if (forward) FocusDirection.Down else FocusDirection.Up)
+    }
+    return true
+}
 
 @Composable
 fun rememberControllerListState(): ControllerListState {
@@ -220,6 +331,7 @@ class ControllerListContent(
     private val engine: ControllerScrollEngine,
     private val dispatcher: FocusDispatcher,
     private val initialFocus: (Any?) -> Boolean,
+    private val keyToIndex: MutableMap<Any?, Int>,
     lazyListScope: LazyListScope,
 ) : LazyListScope by lazyListScope {
 
@@ -233,13 +345,15 @@ class ControllerListContent(
      */
     fun section(key: Any? = null, content: @Composable SectionScope.() -> Unit) {
         val index = allocIndex()
+        if (key != null) keyToIndex[key] = index
         // Hoisted: the item{} lambda's scope receiver shadows this class,
         // so its private members are unreachable via implicit receiver inside.
         val eng = engine
         val disp = dispatcher
         val init = initialFocus
+        val keyIdx = keyToIndex
         item(key = key) {
-            SectionScope(eng, disp, index, init).content()
+            SectionScope(eng, disp, index, init, keyIdx).content()
         }
     }
 
@@ -280,6 +394,7 @@ class SectionScope(
     val dispatcher: FocusDispatcher,
     private val itemIndex: Int,
     private val initialFocus: (Any?) -> Boolean,
+    private val keyToIndex: MutableMap<Any?, Int>,
 ) {
     @Composable
     fun control(
@@ -292,6 +407,7 @@ class SectionScope(
         modifier: Modifier = Modifier,
         testTag: String? = null,
     ) {
+        if (key != null) keyToIndex[key] = itemIndex
         CrystalButton(
             key = key,
             label = label,
@@ -338,15 +454,42 @@ fun ControllerList(
     verticalArrangement: Arrangement.Vertical = Arrangement.spacedBy(12.dp),
     content: ControllerListContent.() -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val boundaryScope = rememberCoroutineScope()
+    // Scroll-index per control key, rebuilt as the content DSL runs.
+    // The D-pad boundary handler reads it to find the focused control's
+    // index; entries for disposed items are never read (only the focused
+    // key is looked up) and are dropped on the next content pass.
+    val keyToIndex = remember { mutableMapOf<Any?, Int>() }
     LazyColumn(
         state = state.lazyListState,
         modifier = modifier
             .fillMaxSize()
-            .onSizeChanged { size -> state.engine.viewportHeightPx = size.height },
+            .onSizeChanged { size -> state.engine.viewportHeightPx = size.height }
+            .onPreviewKeyEvent { event ->
+                val layout = state.lazyListState.layoutInfo
+                val visible = layout.visibleItemsInfo
+                if (visible.isEmpty()) return@onPreviewKeyEvent false
+                handleControllerBoundaryKey(
+                    event = event,
+                    focusedIndex = keyToIndex[dispatcher.focusedKey],
+                    totalItemsCount = layout.totalItemsCount,
+                    visibleFirstIndex = visible.minOf { it.index },
+                    visibleLastIndex = visible.maxOf { it.index },
+                    // A list row is one item: the last visible row starts
+                    // at the last visible item.
+                    bottomRowFirstIndex = visible.maxOf { it.index },
+                    columnsPerRow = 1,
+                    scope = boundaryScope,
+                    focusManager = focusManager,
+                    scrollToComfortable = { index -> state.engine.scrollToComfortable(index) },
+                )
+            },
         contentPadding = contentPadding,
         verticalArrangement = verticalArrangement,
     ) {
-        ControllerListContent(state.engine, dispatcher, initialFocus, this).content()
+        keyToIndex.clear()
+        ControllerListContent(state.engine, dispatcher, initialFocus, keyToIndex, this).content()
     }
 }
 
@@ -358,6 +501,7 @@ class ControllerGridContent(
     private val engine: ControllerScrollEngine,
     private val dispatcher: FocusDispatcher,
     private val initialFocus: (Any?) -> Boolean,
+    private val keyToIndex: MutableMap<Any?, Int>,
     private val gridScope: LazyGridScope,
 ) {
     // NOTE: LazyGridScope is a sealed interface and cannot be implemented
@@ -377,6 +521,7 @@ class ControllerGridContent(
         testTag: String? = null,
     ) {
         val index = nextIndex++
+        if (key != null) keyToIndex[key] = index
         // Hoisted: the item{} lambda's scope receiver shadows this class,
         // so its private members are unreachable via implicit receiver inside.
         val eng = engine
@@ -416,16 +561,41 @@ fun ControllerGrid(
     horizontalArrangement: Arrangement.Horizontal = Arrangement.spacedBy(12.dp),
     content: ControllerGridContent.() -> Unit,
 ) {
+    val focusManager = LocalFocusManager.current
+    val boundaryScope = rememberCoroutineScope()
+    val keyToIndex = remember { mutableMapOf<Any?, Int>() }
     LazyVerticalGrid(
         columns = columns,
         state = state.lazyGridState,
         modifier = modifier
             .fillMaxSize()
-            .onSizeChanged { size -> state.engine.viewportHeightPx = size.height },
+            .onSizeChanged { size -> state.engine.viewportHeightPx = size.height }
+            .onPreviewKeyEvent { event ->
+                val layout = state.lazyGridState.layoutInfo
+                val visible = layout.visibleItemsInfo
+                if (visible.isEmpty()) return@onPreviewKeyEvent false
+                // Items sharing the last row's vertical offset form the
+                // last visible row; their count is the row stride.
+                val lastRowY = visible.maxOf { it.offset.y }
+                val bottomRow = visible.filter { it.offset.y == lastRowY }
+                handleControllerBoundaryKey(
+                    event = event,
+                    focusedIndex = keyToIndex[dispatcher.focusedKey],
+                    totalItemsCount = layout.totalItemsCount,
+                    visibleFirstIndex = visible.minOf { it.index },
+                    visibleLastIndex = visible.maxOf { it.index },
+                    bottomRowFirstIndex = bottomRow.minOf { it.index },
+                    columnsPerRow = bottomRow.size,
+                    scope = boundaryScope,
+                    focusManager = focusManager,
+                    scrollToComfortable = { index -> state.engine.scrollToComfortable(index) },
+                )
+            },
         contentPadding = contentPadding,
         verticalArrangement = verticalArrangement,
         horizontalArrangement = horizontalArrangement,
     ) {
-        ControllerGridContent(state.engine, dispatcher, initialFocus, this).content()
+        keyToIndex.clear()
+        ControllerGridContent(state.engine, dispatcher, initialFocus, keyToIndex, this).content()
     }
 }
