@@ -75,3 +75,20 @@ data class IndexEntry(
     val real: Int,
     val generated: Int,
 )
+
+/**
+ * Point-in-time diagnostics for the hidden Diagnostics screen.
+ * Assembled by ScraperManager; every field is safe to render as-is.
+ */
+data class ScraperDiagnostics(
+    val gamesFolderUri: String?,
+    val indexFound: Boolean,
+    val indexParseOk: Boolean,
+    val indexGames: Int,
+    val scannedGames: Int,
+    val systems: List<DiscoveredSystem>,
+    val stats: ScraperStats,
+    val notice: String?,
+    val lastError: String?,
+    val lastProgress: ScrapeProgress?,
+)

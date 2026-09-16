@@ -29,6 +29,8 @@ import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.ui.Crystal
 import io.crystalnova.manager.ui.CrystalButton
+import io.crystalnova.manager.diag.DiagnosticsInfo
+import io.crystalnova.manager.ui.DiagnosticsScreen
 import io.crystalnova.manager.ui.FocusDispatcher
 import io.crystalnova.manager.ui.ScraperScreen
 import io.crystalnova.manager.ui.ThemeUpdateScreen
@@ -39,7 +41,9 @@ import io.crystalnova.manager.updater.ManagerEvent
 import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.UpdateManager
 import kotlinx.coroutines.MainScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import java.io.File
 
 private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueStore {
@@ -70,6 +74,10 @@ class MainActivity : ComponentActivity() {
     private lateinit var storage: SafThemeStorage
     private lateinit var scraper: ScraperManager
     private val scope = MainScope()
+
+    /** Hidden diagnostics overlay state (5 taps on the version label). */
+    private val showDiagnostics = mutableStateOf(false)
+    private var diagnosticsInfo: DiagnosticsInfo? by mutableStateOf(null)
 
     private enum class Section { THEME, SCRAPER }
 
@@ -203,6 +211,21 @@ class MainActivity : ComponentActivity() {
         setContent {
             var section by remember { mutableStateOf(Section.THEME) }
             val tabDispatcher = remember { FocusDispatcher() }
+            val diagDispatcher = remember { FocusDispatcher() }
+            val diagOpen by showDiagnostics
+            val diagInfo = diagnosticsInfo
+            if (diagOpen && diagInfo != null) {
+                DiagnosticsScreen(
+                    info = diagInfo,
+                    dispatcher = diagDispatcher,
+                    onRefresh = {
+                        scope.launch(Dispatchers.IO) {
+                            diagnosticsInfo = buildDiagnostics()
+                        }
+                    },
+                    onClose = { showDiagnostics.value = false },
+                )
+            } else {
             Column(
                 modifier = Modifier
                     .fillMaxSize()
@@ -247,6 +270,14 @@ class MainActivity : ComponentActivity() {
                             appVersion = BuildConfig.VERSION_NAME,
                             appUpdate = appUpdate,
                             onUpdateApp = { onUpdateApp() },
+                            onDiagnostics = {
+                                // SAF index read happens here; keep it off
+                                // the main thread for large libraries.
+                                scope.launch(Dispatchers.IO) {
+                                    diagnosticsInfo = buildDiagnostics()
+                                    showDiagnostics.value = true
+                                }
+                            },
                         )
                     }
                     Section.SCRAPER -> {
@@ -265,8 +296,21 @@ class MainActivity : ComponentActivity() {
                     }
                 }
             }
+            }
         }
     }
+
+    /**
+     * Assembles the hidden Diagnostics screen payload. Runs on open and
+     * on REFRESH; the screen itself never touches storage or network.
+     */
+    private fun buildDiagnostics(): DiagnosticsInfo = DiagnosticsInfo(
+        managerVersion = "v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})",
+        managerState = manager.state.value,
+        appUpdate = manager.appUpdate.value,
+        themesRoot = storage.treeUri,
+        scraper = scraper.diagnosticsSnapshot(),
+    )
 
     /**
      * Self-update button handler. The manager owns check/download state;
@@ -298,6 +342,10 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun handleBack() {
+        if (showDiagnostics.value) {
+            showDiagnostics.value = false
+            return
+        }
         when (manager.state.value) {
             is ManagerState.Ready,
             is ManagerState.NeedsFolder,

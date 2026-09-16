@@ -14,6 +14,7 @@ import io.crystalnova.manager.scraper.store.ScraperStorage
 import io.crystalnova.manager.scraper.work.IndexEntry
 import io.crystalnova.manager.scraper.work.ScrapeJob
 import io.crystalnova.manager.scraper.work.ScrapeProgress
+import io.crystalnova.manager.scraper.work.ScraperDiagnostics
 import io.crystalnova.manager.scraper.work.ScraperStats
 import io.crystalnova.manager.storage.SafThemeFs
 import kotlinx.coroutines.CoroutineScope
@@ -49,6 +50,7 @@ class ScraperManager(
 ) {
     companion object {
         const val KEY_GAMES_TREE_URI = "games_tree_uri"
+        const val KEY_LAST_ERROR = "scraper_last_error"
     }
 
     private val _state = MutableStateFlow(ScraperUiState())
@@ -62,6 +64,53 @@ class ScraperManager(
         ScraperStorage(SafThemeFs(context, themesTreeUri))
 
     fun hasGamesFolder(): Boolean = prefs.getString(KEY_GAMES_TREE_URI) != null
+
+    /** Raw SAF tree URI of the picked games/ROMs folder, for Diagnostics. */
+    fun gamesFolderUri(): String? = prefs.getString(KEY_GAMES_TREE_URI)
+
+    /** Last persisted scraper failure, surviving restarts. Null when clean. */
+    fun lastError(): String? = prefs.getString(KEY_LAST_ERROR)
+
+    private fun recordError(message: String) {
+        prefs.putString(KEY_LAST_ERROR, message)
+    }
+
+    private fun clearError() {
+        prefs.remove(KEY_LAST_ERROR)
+    }
+
+    /**
+     * Point-in-time diagnostics for the hidden Diagnostics screen.
+     * Never throws: every read is guarded so a broken index or revoked
+     * permission shows up as a status, not a crash.
+     */
+    fun diagnosticsSnapshot(): ScraperDiagnostics {
+        val (indexFound, indexParseOk, indexGames) = readIndexStatus()
+        val s = _state.value
+        return ScraperDiagnostics(
+            gamesFolderUri = prefs.getString(KEY_GAMES_TREE_URI),
+            indexFound = indexFound,
+            indexParseOk = indexParseOk,
+            indexGames = indexGames,
+            scannedGames = lastScan.size,
+            systems = s.systems,
+            stats = s.stats,
+            notice = s.notice,
+            lastError = prefs.getString(KEY_LAST_ERROR),
+            lastProgress = s.progress,
+        )
+    }
+
+    private fun readIndexStatus(): Triple<Boolean, Boolean, Int> {
+        return try {
+            val text = storage().loadIndexJson() ?: return Triple(false, false, 0)
+            val root = JSONObject(text) // throws on malformed JSON
+            val games = root.optJSONObject("games")
+            Triple(true, true, games?.length() ?: 0)
+        } catch (_: Exception) {
+            Triple(true, false, 0)
+        }
+    }
 
     fun setGamesFolder(uri: String) {
         prefs.putString(KEY_GAMES_TREE_URI, uri)
@@ -128,11 +177,14 @@ class ScraperManager(
                     stats = ScraperStats.fromEntries(entries).copy(systems = result.systems),
                     notice = if (result.games.isEmpty()) "NO GAMES FOUND IN THIS FOLDER" else null,
                 )
+                clearError()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
+                val msg = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
+                recordError(msg)
                 _state.value = _state.value.copy(
                     scanning = false,
-                    notice = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}",
+                    notice = msg,
                 )
             }
         }
@@ -182,14 +234,16 @@ class ScraperManager(
                 )
                 if (result.cancelled) {
                     _state.value = _state.value.copy(notice = "SCRAPE CANCELLED")
+                } else {
+                    clearError()
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
                     _state.value = _state.value.copy(notice = "SCRAPE CANCELLED")
                 } else {
-                    _state.value = _state.value.copy(
-                        notice = "SCRAPE FAILED: ${(e.message ?: "unknown").uppercase().take(80)}",
-                    )
+                    val msg = "SCRAPE FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
+                    recordError(msg)
+                    _state.value = _state.value.copy(notice = msg)
                 }
             } finally {
                 val entries = readIndexEntries()
