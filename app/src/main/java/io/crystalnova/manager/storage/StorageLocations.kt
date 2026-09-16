@@ -34,13 +34,17 @@ data class StorageSummary(val rom: LocationState, val media: LocationState)
  * a file write — no theme changes required.
  *
  * [bridgeWriter]/[bridgeDeleter] are seams for unit tests; null means
- * the SAF-backed defaults.
+ * the SAF-backed defaults. [logger] is a seam for the same reason:
+ * android.util.Log throws under JVM unit tests, so tests inject a
+ * no-op while production keeps Logcat.
  */
 class StorageLocations(
     private val context: Context?,
     private val prefs: KeyValueStore,
     internal var bridgeWriter: ((themesTreeUri: String, bytes: ByteArray) -> Boolean)? = null,
     internal var bridgeDeleter: ((themesTreeUri: String) -> Boolean)? = null,
+    private val logger: (tag: String, msg: String, err: Throwable?) -> Unit =
+        { tag, msg, err -> Log.w(tag, msg, err) },
 ) {
     companion object {
         /**
@@ -167,10 +171,10 @@ class StorageLocations(
             )
             adoptTreeUriString(uri.toString(), kind, themesTreeUri)
         } catch (e: SecurityException) {
-            Log.w(TAG, "persistable permission denied for $kind", e)
+            logger(TAG, "persistable permission denied for $kind", e)
             false
         } catch (e: Exception) {
-            Log.w(TAG, "adopt $kind failed", e)
+            logger(TAG, "adopt $kind failed", e)
             false
         }
     }
@@ -187,7 +191,7 @@ class StorageLocations(
             if (kind == LocationKind.MEDIA) writeBridge(themesTreeUri)
             true
         } catch (e: Exception) {
-            Log.w(TAG, "adoptTreeUriString failed", e)
+            logger(TAG, "adoptTreeUriString failed", e)
             false
         }
     }
@@ -198,7 +202,7 @@ class StorageLocations(
             prefs.remove(keyFor(kind))
             if (kind == LocationKind.MEDIA) writeBridge(themesTreeUri)
         } catch (e: Exception) {
-            Log.w(TAG, "clearLocation failed", e)
+            logger(TAG, "clearLocation failed", e)
         }
     }
 
@@ -259,12 +263,12 @@ class StorageLocations(
             }
             val path = canonicalPath(mediaUri)
                 ?: return false.also {
-                    Log.w(TAG, "writeBridge: media path unavailable — leaving existing bridge")
+                    logger(TAG, "writeBridge: media path unavailable — leaving existing bridge", null)
                 }
             val bytes = bridgeJson(path).toByteArray()
             (bridgeWriter ?: ::defaultBridgeWrite)(themes, bytes)
         } catch (e: Exception) {
-            Log.w(TAG, "writeBridge failed", e)
+            logger(TAG, "writeBridge failed", e)
             false
         }
     }
@@ -287,7 +291,7 @@ class StorageLocations(
             fs.find(root, BRIDGE_FILE_NAME)?.let { fs.deleteRecursively(it) }
             fs.rename(tmp, BRIDGE_FILE_NAME)
         } catch (e: Exception) {
-            Log.w(TAG, "bridge write failed", e)
+            logger(TAG, "bridge write failed", e)
             false
         }
     }
@@ -299,7 +303,7 @@ class StorageLocations(
             fs.find(root, BRIDGE_FILE_NAME)?.let { fs.deleteRecursively(it) }
             true
         } catch (e: Exception) {
-            Log.w(TAG, "bridge delete failed", e)
+            logger(TAG, "bridge delete failed", e)
             false
         }
     }

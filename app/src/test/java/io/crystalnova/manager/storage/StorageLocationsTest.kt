@@ -41,7 +41,9 @@ class StorageLocationsTest {
         store: KeyValueStore = FakeStore(),
         writer: ((String, ByteArray) -> Boolean)? = null,
         deleter: ((String) -> Boolean)? = null,
-    ) = StorageLocations(null as Context?, store, writer, deleter)
+        // android.util.Log throws under JVM unit tests; swallow it here.
+        logger: (String, String, Throwable?) -> Unit = { _, _, _ -> },
+    ) = StorageLocations(null as Context?, store, writer, deleter, logger)
 
     // ---------- canonicalPath ----------
 
