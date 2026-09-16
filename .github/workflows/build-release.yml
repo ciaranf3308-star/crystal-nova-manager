@@ -1,8 +1,12 @@
 name: Build and release
 
 # Tag pushes (v*) build the APK, run the unit tests, and publish a
-# GitHub Release with the APK attached. The sandbox cannot run Gradle
-# (daemon TCP handshake stalls), so CI is the build machine.
+# GitHub Release with the APK attached. Manual workflow_dispatch builds
+# the same signed release APK but uploads it ONLY as a workflow
+# artifact — no tag, no GitHub Release, nothing published (used for
+# sideloading test builds, e.g. Nova validation, without shipping).
+# The sandbox cannot run Gradle (daemon TCP handshake stalls), so CI is
+# the build machine.
 on:
   push:
     tags:
@@ -11,6 +15,7 @@ on:
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   build:
@@ -85,7 +90,19 @@ jobs:
           cp app/build/outputs/apk/release/app-release.apk "${{ env.APK_NAME }}"
           ls -la "${{ env.APK_NAME }}"
 
+      - name: Upload signed APK as artifact
+        # On manual dispatch this is the ONLY delivery: no tag, no
+        # GitHub Release, nothing published. The artifact APK is the
+        # normal signed release build (io.crystalnova.manager), safe to
+        # sideload over an existing install to test the upgrade path.
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.APK_NAME }}
+          path: ${{ env.APK_NAME }}
+          retention-days: 14
+
       - name: Publish GitHub Release
+        if: github.ref_type == 'tag'
         uses: softprops/action-gh-release@v2
         with:
           name: Crystal Nova Manager ${{ env.RELEASE_VERSION }}
