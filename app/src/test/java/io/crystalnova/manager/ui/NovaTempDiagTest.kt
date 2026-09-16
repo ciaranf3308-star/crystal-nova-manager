@@ -29,6 +29,9 @@ class NovaTempDiagTest : NovaUiTest() {
         val tags = Regex("TestTag = '([^']+)'").findAll(tree).map { it.groupValues[1] }.toList()
         println("CNM-DIAG 25-system tags (${tags.size}): $tags")
         println("CNM-DIAG tree length: ${tree.length}")
+        tree.chunked(1500).forEachIndexed { i, chunk ->
+            println("CNM-TREE[$i]: $chunk")
+        }
     }
 
     @Test
