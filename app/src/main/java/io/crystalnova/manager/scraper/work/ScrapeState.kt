@@ -67,6 +67,53 @@ data class ScraperStats(
     }
 }
 
+/** Per-platform dashboard stats: index completeness joined with the live scan for label + game count. */
+data class SystemStats(
+    val slug: String,
+    val label: String,
+    val games: Int,
+    val complete: Int,
+    val partial: Int,
+    val unmatched: Int,
+) {
+    companion object {
+        /**
+         * Builds one [SystemStats] per discovered system from index
+         * [entries] (completeness via the same mapping as
+         * [ScraperStats.fromEntries]) joined with [systems] for label and
+         * live game count. Systems with no index entries yet report zeros.
+         */
+        fun perSystem(
+            entries: Collection<IndexEntry>,
+            systems: List<DiscoveredSystem>,
+        ): Map<String, SystemStats> {
+            val byPlatform = entries.groupBy { it.platform }
+            return systems.associate { system ->
+                val platformEntries = byPlatform[system.platformSlug].orEmpty()
+                var complete = 0
+                var partial = 0
+                var unmatched = 0
+                for (e in platformEntries) {
+                    when (e.completeness) {
+                        Completeness.COMPLETE_CASE,
+                        Completeness.COMPLETE_CASE_AND_MEDIA -> complete++
+                        Completeness.NO_MATCH -> unmatched++
+                        else -> partial++
+                    }
+                }
+                system.platformSlug to SystemStats(
+                    slug = system.platformSlug,
+                    label = system.label,
+                    games = system.gameCount,
+                    complete = complete,
+                    partial = partial,
+                    unmatched = unmatched,
+                )
+            }
+        }
+    }
+}
+
 data class IndexEntry(
     val key: String,
     val title: String,
@@ -82,6 +129,7 @@ data class IndexEntry(
  */
 data class ScraperDiagnostics(
     val gamesFolderUri: String?,
+    val mediaFolderUri: String? = null,
     val indexFound: Boolean,
     val indexParseOk: Boolean,
     val indexGames: Int,

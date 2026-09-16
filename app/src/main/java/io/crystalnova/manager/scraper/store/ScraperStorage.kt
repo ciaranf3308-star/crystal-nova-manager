@@ -17,8 +17,17 @@ import org.json.JSONObject
  * - USER assets are never overwritten automatically.
  * - REAL assets are never replaced by GENERATED ones.
  * - REAL assets MAY replace GENERATED fallbacks.
+ *
+ * [rootSubdir] is the subdirectory of the SAF tree that roots all data
+ * (`crystal-nova-data` beside the theme for the legacy install). Pass
+ * null to root the data tree directly at the SAF tree root — used when a
+ * dedicated media folder is picked, where the layout is exactly
+ * `games/<platform>/<gameId>/`, `cache/`, `index.json`, manifests.
  */
-class ScraperStorage(private val fs: ThemeFs) {
+class ScraperStorage(
+    private val fs: ThemeFs,
+    private val rootSubdir: String? = DATA_DIR_NAME,
+) {
 
     companion object {
         const val DATA_DIR_NAME = "crystal-nova-data"
@@ -73,7 +82,10 @@ class ScraperStorage(private val fs: ThemeFs) {
         // propagate — degrading to null here would masquerade revocation
         // as an empty library downstream.
         val root = fs.root() ?: return null
-        return fs.find(root, DATA_DIR_NAME) ?: fs.mkdir(root, DATA_DIR_NAME)
+        // A null rootSubdir roots the data tree directly at the SAF tree
+        // root (dedicated media folder): games/, cache/, index.json.
+        val sub = rootSubdir ?: return root
+        return fs.find(root, sub) ?: fs.mkdir(root, sub)
     }
 
     /**

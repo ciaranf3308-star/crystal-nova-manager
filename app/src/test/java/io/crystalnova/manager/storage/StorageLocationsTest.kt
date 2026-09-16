@@ -1,0 +1,245 @@
+package io.crystalnova.manager.storage
+
+import android.content.Context
+import io.crystalnova.manager.data.KeyValueStore
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
+import org.junit.Test
+
+/** In-memory KeyValueStore; no Android, no persistence. */
+private class FakeStore : KeyValueStore {
+    private val map = mutableMapOf<String, String>()
+    override fun getString(key: String): String? = map[key]
+    override fun putString(key: String, value: String?) {
+        if (value == null) map.remove(key) else map[key] = value
+    }
+    override fun remove(key: String) {
+        map.remove(key)
+    }
+}
+
+/**
+ * Pure-JVM tests for [StorageLocations]: URI parsing, friendly paths,
+ * bridge JSON, and the adopt/clear persistence round-trip. No
+ * Robolectric; the ContentResolver permission take is exercised only
+ * through [StorageLocations.adoptTreeUri] on device, so the tests use
+ * [StorageLocations.adoptTreeUriString]. Context is never touched here.
+ */
+class StorageLocationsTest {
+
+    private val internalMediaTree =
+        "content://com.android.externalstorage.documents/tree/primary%3ACrystalNova%2FMedia"
+    private val sdMediaTree =
+        "content://com.android.externalstorage.documents/tree/1234-ABCD%3AMedia"
+    private val themesTree =
+        "content://com.android.externalstorage.documents/tree/primary%3Athemes"
+
+    private fun locations(
+        store: KeyValueStore = FakeStore(),
+        writer: ((String, ByteArray) -> Boolean)? = null,
+        deleter: ((String) -> Boolean)? = null,
+    ) = StorageLocations(null as Context, store, writer, deleter)
+
+    // ---------- canonicalPath ----------
+
+    @Test
+    fun `canonicalPath maps primary volume to emulated storage`() {
+        assertEquals(
+            "/storage/emulated/0/CrystalNova/Media",
+            locations().canonicalPath(internalMediaTree),
+        )
+    }
+
+    @Test
+    fun `canonicalPath maps UUID volume to removable storage`() {
+        assertEquals(
+            "/storage/1234-ABCD/Media",
+            locations().canonicalPath(sdMediaTree),
+        )
+    }
+
+    @Test
+    fun `canonicalPath returns null for garbage`() {
+        assertNull(locations().canonicalPath("not-a-uri"))
+    }
+
+    @Test
+    fun `canonicalPath returns null for empty string`() {
+        assertNull(locations().canonicalPath(""))
+    }
+
+    @Test
+    fun `canonicalPath returns null for tree uri without document id`() {
+        assertNull(
+            locations().canonicalPath("content://com.android.externalstorage.documents/tree/"),
+        )
+    }
+
+    @Test
+    fun `canonicalPath returns null for non-tree content uri`() {
+        assertNull(
+            locations().canonicalPath("content://com.android.externalstorage.documents/document/primary%3Afoo"),
+        )
+    }
+
+    // ---------- isRemovable ----------
+
+    @Test
+    fun `isRemovable false for primary`() {
+        assertFalse(locations().isRemovable(internalMediaTree))
+    }
+
+    @Test
+    fun `isRemovable true for UUID volume`() {
+        assertTrue(locations().isRemovable(sdMediaTree))
+    }
+
+    @Test
+    fun `isRemovable false for garbage`() {
+        assertFalse(locations().isRemovable("garbage"))
+    }
+
+    // ---------- displayPath ----------
+
+    @Test
+    fun `displayPath labels internal storage`() {
+        assertEquals(
+            "INTERNAL STORAGE /CrystalNova/Media",
+            locations().displayPath(internalMediaTree),
+        )
+    }
+
+    @Test
+    fun `displayPath labels SD card`() {
+        assertEquals("SD CARD /Media", locations().displayPath(sdMediaTree))
+    }
+
+    @Test
+    fun `displayPath reports unavailable for unparseable uri`() {
+        assertEquals("LOCATION UNAVAILABLE", locations().displayPath("garbage"))
+    }
+
+    @Test
+    fun `displayPath never leaks a raw content uri`() {
+        val shown = locations().displayPath(internalMediaTree)
+        assertFalse(shown.startsWith("content://"))
+    }
+
+    // ---------- bridgeJson ----------
+
+    @Test
+    fun `bridgeJson has exact format`() {
+        assertEquals(
+            "{\"version\":1,\"mediaRoot\":\"/storage/emulated/0/CrystalNova/Media\",\"updated\":1700000000}",
+            locations().bridgeJson("/storage/emulated/0/CrystalNova/Media", 1700000000),
+        )
+    }
+
+    @Test
+    fun `bridgeJson escapes quotes in path`() {
+        val json = locations().bridgeJson("/sd/odd\"name", 1)
+        assertTrue(json.contains("\"mediaRoot\":\"/sd/odd\\\"name\""))
+    }
+
+    // ---------- adopt / clear round-trip ----------
+
+    @Test
+    fun `rom reuses legacy games_tree_uri key`() {
+        assertEquals("games_tree_uri", StorageLocations.KEY_ROM_TREE_URI)
+        assertEquals("media_tree_uri", StorageLocations.KEY_MEDIA_TREE_URI)
+    }
+
+    @Test
+    fun `adopt rom persists without touching the bridge`() {
+        val store = FakeStore()
+        val loc = locations(
+            store,
+            writer = { _, _ -> fail("bridge must not be written for ROM"); false },
+        )
+        assertTrue(loc.adoptTreeUriString("content://x/tree/primary%3AROMs", LocationKind.ROM, null))
+        assertEquals("content://x/tree/primary%3AROMs", loc.romTreeUri())
+        assertNull(loc.mediaTreeUri())
+    }
+
+    @Test
+    fun `adopt media persists uri and writes bridge with canonical path`() {
+        val store = FakeStore()
+        var written: Pair<String, String>? = null
+        val loc = locations(
+            store,
+            writer = { themes, bytes ->
+                written = themes to bytes.toString(Charsets.UTF_8)
+                true
+            },
+        )
+        assertTrue(loc.adoptTreeUriString(internalMediaTree, LocationKind.MEDIA, themesTree))
+        assertEquals(internalMediaTree, loc.mediaTreeUri())
+
+        val (themes, json) = written ?: fail("bridge was not written")
+        assertEquals(themesTree, themes)
+        assertTrue(
+            json.startsWith(
+                "{\"version\":1,\"mediaRoot\":\"/storage/emulated/0/CrystalNova/Media\",\"updated\":",
+            ),
+        )
+        assertTrue(json.endsWith("}"))
+    }
+
+    @Test
+    fun `adopt media with unparseable uri persists but leaves bridge alone`() {
+        val store = FakeStore()
+        val loc = locations(
+            store,
+            writer = { _, _ -> fail("bridge must be skipped when path unavailable"); false },
+        )
+        assertTrue(loc.adoptTreeUriString("garbage", LocationKind.MEDIA, themesTree))
+        assertEquals("garbage", loc.mediaTreeUri())
+    }
+
+    @Test
+    fun `clear media removes pref and deletes bridge`() {
+        val store = FakeStore()
+        var deleted: String? = null
+        val loc = locations(
+            store,
+            writer = { _, _ -> true },
+            deleter = { themes -> deleted = themes; true },
+        )
+        loc.adoptTreeUriString(internalMediaTree, LocationKind.MEDIA, themesTree)
+        assertEquals(internalMediaTree, loc.mediaTreeUri())
+
+        loc.clearLocation(LocationKind.MEDIA, themesTree)
+        assertNull(loc.mediaTreeUri())
+        assertEquals(themesTree, deleted)
+    }
+
+    @Test
+    fun `clear rom removes pref without touching bridge`() {
+        val store = FakeStore()
+        val loc = locations(
+            store,
+            writer = { _, _ -> fail("bridge must not be written for ROM"); false },
+            deleter = { _ -> fail("bridge must not be deleted for ROM"); false },
+        )
+        loc.adoptTreeUriString("content://x/tree/primary%3AROMs", LocationKind.ROM, null)
+        loc.clearLocation(LocationKind.ROM, null)
+        assertNull(loc.romTreeUri())
+    }
+
+    @Test
+    fun `summary reports not configured when prefs empty`() {
+        val summary = locations().summary()
+        assertEquals(LocationState.NotConfigured, summary.rom)
+        assertEquals(LocationState.NotConfigured, summary.media)
+    }
+
+    @Test
+    fun `displayPathFor reports not configured when pref missing`() {
+        val loc = locations()
+        assertEquals("NOT CONFIGURED", loc.displayPathFor(LocationKind.ROM))
+        assertEquals("NOT CONFIGURED", loc.displayPathFor(LocationKind.MEDIA))
+    }
+}

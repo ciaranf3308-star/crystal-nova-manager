@@ -1,8 +1,6 @@
 package io.crystalnova.manager.scraper
 
 import android.content.Context
-import android.net.Uri
-import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.Completeness
@@ -19,7 +17,11 @@ import io.crystalnova.manager.scraper.work.ScrapeJob
 import io.crystalnova.manager.scraper.work.ScrapeProgress
 import io.crystalnova.manager.scraper.work.ScraperDiagnostics
 import io.crystalnova.manager.scraper.work.ScraperStats
+import io.crystalnova.manager.scraper.work.SystemStats
+import io.crystalnova.manager.storage.LocationKind
+import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.storage.SafThemeFs
+import io.crystalnova.manager.storage.StorageLocations
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,8 +34,13 @@ import java.io.File
 /** UI state for the SCRAPER section. */
 data class ScraperUiState(
     val needsGamesFolder: Boolean = true,
+    val needsMediaFolder: Boolean = false,
+    val romLocation: LocationState = LocationState.NotConfigured,
+    val mediaLocation: LocationState = LocationState.NotConfigured,
     val scanning: Boolean = false,
     val systems: List<DiscoveredSystem> = emptyList(),
+    /** Per-platform stats, keyed by platform slug. */
+    val systemStats: Map<String, SystemStats> = emptyMap(),
     val stats: ScraperStats = ScraperStats(),
     val progress: ScrapeProgress? = null,
     val scraping: Boolean = false,
@@ -50,11 +57,21 @@ class ScraperManager(
     private val prefs: KeyValueStore,
     private val themesTreeUri: () -> String?,
     private val scope: CoroutineScope,
+    storageLocations: StorageLocations? = null,
 ) {
     companion object {
-        const val KEY_GAMES_TREE_URI = "games_tree_uri"
+        /**
+         * Kept for compatibility; aliases the StorageLocations ROM pref so
+         * existing installs keep their folder with zero migration.
+         */
+        const val KEY_GAMES_TREE_URI = StorageLocations.KEY_ROM_TREE_URI
         const val KEY_LAST_ERROR = "scraper_last_error"
+        /** Media revocation notice — mirrors the ROM wording. */
+        const val MEDIA_ACCESS_LOST_NOTICE = "MEDIA FOLDER ACCESS LOST — PLEASE RESELECT"
+        const val GAMES_ACCESS_LOST_NOTICE = "FOLDER ACCESS LOST — PLEASE RESELECT"
     }
+
+    private val locations: StorageLocations = storageLocations ?: StorageLocations(context, prefs)
 
     private val _state = MutableStateFlow(ScraperUiState())
     val state: StateFlow<ScraperUiState> = _state.asStateFlow()
@@ -63,10 +80,21 @@ class ScraperManager(
     private var lastScan: List<RomEntry> = emptyList()
     private var pegasusEntries: Map<String, List<io.crystalnova.manager.scraper.provider.PegasusMetadataReader.Entry>> = emptyMap()
 
-    private fun storage(): ScraperStorage =
-        ScraperStorage(SafThemeFs(context, themesTreeUri))
+    private fun storage(): ScraperStorage {
+        val mediaUri = locations.mediaTreeUri()
+        return if (mediaUri != null) {
+            // Dedicated media folder: the data tree roots directly at the
+            // SAF tree root — games/<platform>/<gameId>/, cache/,
+            // index.json, manifests. No extra nesting.
+            ScraperStorage(SafThemeFs(context) { mediaUri }, rootSubdir = null)
+        } else {
+            // Legacy: crystal-nova-data/ beside the theme in the themes
+            // tree — existing installs keep working with zero migration.
+            ScraperStorage(SafThemeFs(context, themesTreeUri))
+        }
+    }
 
-    fun hasGamesFolder(): Boolean = prefs.getString(KEY_GAMES_TREE_URI) != null
+    fun hasGamesFolder(): Boolean = locations.romTreeUri() != null
 
     /**
      * True when a games folder is picked AND its persisted SAF grant still
@@ -74,18 +102,16 @@ class ScraperManager(
      * so the UI can flip back to the folder picker instead of stranding
      * the user on SCAN FAILED with no re-grant path.
      */
-    fun hasGamesFolderAccess(): Boolean {
-        val uri = prefs.getString(KEY_GAMES_TREE_URI) ?: return false
-        return try {
-            val doc = DocumentFile.fromTreeUri(context, Uri.parse(uri))
-            doc != null && doc.canRead()
-        } catch (_: Exception) {
-            false
-        }
-    }
+    fun hasGamesFolderAccess(): Boolean = locations.hasAccess(LocationKind.ROM)
+
+    /** True when a media folder is picked AND its grant still reads. */
+    fun hasMediaFolderAccess(): Boolean = locations.hasAccess(LocationKind.MEDIA)
 
     /** Raw SAF tree URI of the picked games/ROMs folder, for Diagnostics. */
-    fun gamesFolderUri(): String? = prefs.getString(KEY_GAMES_TREE_URI)
+    fun gamesFolderUri(): String? = locations.romTreeUri()
+
+    /** Raw SAF tree URI of the picked media folder, for Diagnostics. */
+    fun mediaFolderUri(): String? = locations.mediaTreeUri()
 
     /** Last persisted scraper failure, surviving restarts. Null when clean. */
     fun lastError(): String? = prefs.getString(KEY_LAST_ERROR)
@@ -107,7 +133,8 @@ class ScraperManager(
         val (indexFound, indexParseOk, indexGames) = readIndexStatus()
         val s = _state.value
         return ScraperDiagnostics(
-            gamesFolderUri = prefs.getString(KEY_GAMES_TREE_URI),
+            gamesFolderUri = locations.romTreeUri(),
+            mediaFolderUri = locations.mediaTreeUri(),
             indexFound = indexFound,
             indexParseOk = indexParseOk,
             indexGames = indexGames,
@@ -131,16 +158,67 @@ class ScraperManager(
         }
     }
 
+    /**
+     * Persists the picked games-folder URI (MainActivity takes the
+     * persistable SAF permission first), then refreshes and scans.
+     * Delegates persistence to StorageLocations' ROM slot.
+     */
     fun setGamesFolder(uri: String) {
-        prefs.putString(KEY_GAMES_TREE_URI, uri)
+        locations.adoptTreeUriString(uri, LocationKind.ROM)
         refresh()
         scan()
     }
 
+    /**
+     * Persists the picked media-folder URI and rewrites the theme bridge
+     * (so the theme finds the media without a reinstall), then refreshes.
+     * Symmetric with [setGamesFolder].
+     */
+    fun setMediaFolder(uri: String) {
+        locations.adoptTreeUriString(uri, LocationKind.MEDIA, themesTreeUri())
+        refresh()
+    }
+
+    /** Clears the media folder and removes the theme bridge (theme falls back to legacy). */
+    fun clearMediaFolder() {
+        locations.clearLocation(LocationKind.MEDIA, themesTreeUri())
+        refresh()
+    }
+
     fun refresh() {
+        val summary = locations.summary()
         val needs = !hasGamesFolderAccess()
-        _state.value = _state.value.copy(needsGamesFolder = needs)
+        _state.value = _state.value.copy(
+            needsGamesFolder = needs,
+            needsMediaFolder = locations.mediaTreeUri() != null && !hasMediaFolderAccess(),
+            romLocation = summary.rom,
+            mediaLocation = summary.media,
+        )
         if (!needs) loadStats()
+    }
+
+    /**
+     * Revocation state shared by the ROM and media roots: flags whichever
+     * root lost its grant (a media-root SecurityException from storage
+     * ops lands here exactly like a ROM one) and notices accordingly.
+     * Never absorbs revocation into empty results.
+     */
+    private fun revocationState(): ScraperUiState {
+        val romLost = !hasGamesFolderAccess()
+        val mediaLost = locations.mediaTreeUri() != null && !hasMediaFolderAccess()
+        val notice = when {
+            romLost && mediaLost ->
+                "$MEDIA_ACCESS_LOST_NOTICE · $GAMES_ACCESS_LOST_NOTICE"
+            mediaLost -> MEDIA_ACCESS_LOST_NOTICE
+            else -> GAMES_ACCESS_LOST_NOTICE
+        }
+        return _state.value.copy(
+            scanning = false,
+            scraping = false,
+            needsGamesFolder = romLost,
+            needsMediaFolder = mediaLost,
+            notice = notice,
+        )
     }
 
     private fun loadStats() {
@@ -149,6 +227,7 @@ class ScraperManager(
             val systems = lastScanSystems()
             _state.value = _state.value.copy(
                 stats = ScraperStats.fromEntries(entries).copy(systems = systems),
+                systemStats = SystemStats.perSystem(entries, systems),
             )
         }
     }
@@ -186,7 +265,7 @@ class ScraperManager(
             _state.value = _state.value.copy(
                 scanning = false,
                 needsGamesFolder = true,
-                notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+                notice = GAMES_ACCESS_LOST_NOTICE,
             )
             return
         }
@@ -219,19 +298,21 @@ class ScraperManager(
                 }
                 _state.value = _state.value.copy(
                     scanning = false,
+                    needsGamesFolder = false,
+                    needsMediaFolder = false,
                     systems = result.systems,
                     stats = ScraperStats.fromEntries(entries).copy(systems = result.systems),
+                    systemStats = SystemStats.perSystem(entries, result.systems),
                     notice = notices.takeIf { it.isNotEmpty() }?.joinToString(" · "),
                 )
                 clearError()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 if (isRevocation(e) || !hasGamesFolderAccess()) {
-                    _state.value = _state.value.copy(
-                        scanning = false,
-                        needsGamesFolder = true,
-                        notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
-                    )
+                    // Covers media-root SecurityExceptions too: scan reads
+                    // the index through storage(), which is media-rooted
+                    // once a media folder is picked.
+                    _state.value = revocationState()
                 } else {
                     val msg = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
                     recordError(msg)
@@ -275,7 +356,16 @@ class ScraperManager(
         if (!hasGamesFolderAccess()) {
             _state.value = _state.value.copy(
                 needsGamesFolder = true,
-                notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+                notice = GAMES_ACCESS_LOST_NOTICE,
+            )
+            return
+        }
+        // Scrape writes to the media root: a lost media grant is a
+        // reselection state, never an empty write target.
+        if (locations.mediaTreeUri() != null && !hasMediaFolderAccess()) {
+            _state.value = _state.value.copy(
+                needsMediaFolder = true,
+                notice = MEDIA_ACCESS_LOST_NOTICE,
             )
             return
         }
@@ -321,11 +411,10 @@ class ScraperManager(
                         _state.value = _state.value.copy(progress = p)
                     },
                 )
-                if (result.folderAccessLost || !hasGamesFolderAccess()) {
-                    _state.value = _state.value.copy(
-                        needsGamesFolder = true,
-                        notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
-                    )
+                if (result.folderAccessLost || !hasGamesFolderAccess() ||
+                    (locations.mediaTreeUri() != null && !hasMediaFolderAccess())
+                ) {
+                    _state.value = revocationState()
                 } else if (result.cancelled) {
                     val notices = mutableListOf("SCRAPE CANCELLED")
                     notices += runNotices(result)
@@ -336,15 +425,18 @@ class ScraperManager(
                     if (notices.isNotEmpty()) {
                         _state.value = _state.value.copy(notice = notices.joinToString(" · "))
                     }
+                    _state.value = _state.value.copy(needsMediaFolder = false)
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
                     _state.value = _state.value.copy(notice = "SCRAPE CANCELLED")
-                } else if (isRevocation(e) || !hasGamesFolderAccess()) {
-                    _state.value = _state.value.copy(
-                        needsGamesFolder = true,
-                        notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
-                    )
+                } else if (isRevocation(e) || !hasGamesFolderAccess() ||
+                    (locations.mediaTreeUri() != null && !hasMediaFolderAccess())
+                ) {
+                    // Media-root SecurityExceptions from storage ops land
+                    // here exactly like ROM ones — never absorbed into
+                    // empty results.
+                    _state.value = revocationState()
                 } else {
                     val msg = "SCRAPE FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
                     recordError(msg)
@@ -353,10 +445,11 @@ class ScraperManager(
             } finally {
                 mediaCache.clearStaging()
                 val entries = readIndexEntries()
+                val systems = _state.value.systems
                 _state.value = _state.value.copy(
                     scraping = false,
-                    stats = ScraperStats.fromEntries(entries)
-                        .copy(systems = _state.value.systems),
+                    stats = ScraperStats.fromEntries(entries).copy(systems = systems),
+                    systemStats = SystemStats.perSystem(entries, systems),
                 )
             }
         }
@@ -381,7 +474,10 @@ class ScraperManager(
 
     /**
      * True when [e] (or any cause in its chain) is a SAF
-     * SecurityException: the persisted games-folder grant was revoked.
+     * SecurityException: the persisted games-folder grant — or, once a
+     * media folder is picked, the media-root grant for storage ops — was
+     * revoked. Handled by [revocationState], never absorbed into empty
+     * results.
      */
     private fun isRevocation(e: Throwable): Boolean {
         var t: Throwable? = e
