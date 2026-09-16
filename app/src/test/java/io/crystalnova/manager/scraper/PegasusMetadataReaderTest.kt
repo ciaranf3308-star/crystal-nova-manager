@@ -219,7 +219,9 @@ class PegasusMetadataReaderTest {
         )
         assertNotNull(PegasusMetadataReader.match(entries, "mario golf (E).gba"))
         // Normalized fallback: punctuation differences still match.
-        assertNotNull(PegasusMetadataReader.match(entries, "mario_golf__e.gba"))
+        // (Region tags in parens are stripped by the normalizer on both
+        // sides, so the differing form must not rely on them surviving.)
+        assertNotNull(PegasusMetadataReader.match(entries, "mario-golf-(e).gba"))
     }
 
     @Test fun `provider lookup returns generated metadata titles`() = runBlocking {
