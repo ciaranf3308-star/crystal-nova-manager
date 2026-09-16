@@ -35,6 +35,8 @@ class NovaTempDiag2Test : NovaUiTest() {
             }
         }
 
+        dump("viewport", NOVA_VIEWPORT_TAG)
+
         dump("after-settle", "launcher-row-sys-0")
         dump("after-settle", "launcher-row-sys-1")
 
@@ -45,8 +47,13 @@ class NovaTempDiag2Test : NovaUiTest() {
 
         composeTestRule.onNodeWithTag("launcher-row-sys-0").pressDpadDown()
         composeTestRule.waitForIdle()
-        dump("after-dpad", "launcher-row-sys-0")
-        dump("after-dpad", "launcher-row-sys-1")
-        dump("after-dpad", "launcher-row-sys-2")
+        dump("after-dpad-nowait", "launcher-row-sys-1")
+        // If the scroll animation runs on a real clock, waitForIdle won't
+        // wait for it. Sleep to let real-time animations settle.
+        Thread.sleep(1000)
+        composeTestRule.waitForIdle()
+        dump("after-dpad-sleep", "launcher-row-sys-0")
+        dump("after-dpad-sleep", "launcher-row-sys-1")
+        dump("after-dpad-sleep", "launcher-row-sys-2")
     }
 }
