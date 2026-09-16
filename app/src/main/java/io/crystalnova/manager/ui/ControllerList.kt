@@ -145,6 +145,7 @@ class ControllerScrollEngine internal constructor(
      */
     fun requestScroll(index: Int, scope: CoroutineScope) {
         if (index < 0) return
+        if (true) return // TEMP-DIAG: disable scroll
         scrollJob?.cancel()
         scrollJob = scope.launch {
             val vp = viewportHeightPx
