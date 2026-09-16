@@ -243,9 +243,9 @@ class ControllerGridState internal constructor(
  *   scroll target when crossing into the next row.
  * @param snapToComfortable instantly positions a row at the comfortable
  *   centered offset (no animation) so it is composed before focus moves.
- * @param keyToIndex control key to scroll-index map (temporary
- *   diagnostic use).
- * @param dispatcher focus dispatcher (temporary diagnostic use).
+ * @param keyToIndex control key to scroll-index map, used to resolve
+ *   the target row's key for a direct [FocusRequester] handoff.
+ * @param dispatcher focus dispatcher holding the rows' focus requesters.
  */
 internal fun handleControllerBoundaryKey(
     event: KeyEvent,
@@ -261,34 +261,23 @@ internal fun handleControllerBoundaryKey(
     keyToIndex: Map<Any?, Int> = emptyMap(),
     dispatcher: FocusDispatcher? = null,
 ): Boolean {
-    println("CNM-BOUNDARY key=${event.key} type=${event.type} focusedIndex=$focusedIndex visible=$visibleFirstIndex..$visibleLastIndex bottomRowFirst=$bottomRowFirstIndex total=$totalItemsCount")
     if (event.type != KeyEventType.KeyDown) return false
-    val index = focusedIndex ?: run {
-        println("CNM-BOUNDARY fallthrough: focusedIndex null")
-        return false
-    }
+    val index = focusedIndex ?: return false
     if (visibleLastIndex < visibleFirstIndex) return false
     val forward = when (event.key) {
         Key.DirectionDown -> true
         Key.DirectionUp -> false
-        else -> run {
-            println("CNM-BOUNDARY fallthrough: not dpad")
-            return false
-        }
+        else -> return false
     }
     val atEdge = if (forward) index >= bottomRowFirstIndex else index <= visibleFirstIndex
     val hasMore = if (forward) index < totalItemsCount - 1 else index > 0
-    if (!atEdge || !hasMore) {
-        println("CNM-BOUNDARY fallthrough: atEdge=$atEdge hasMore=$hasMore")
-        return false
-    }
+    if (!atEdge || !hasMore) return false
     val step = columnsPerRow.coerceAtLeast(1)
     val target = if (forward) {
         (index + step).coerceAtMost(totalItemsCount - 1)
     } else {
         (index - step).coerceAtLeast(0)
     }
-    println("CNM-BOUNDARY consume: target=$target forward=$forward dispatcherFocused=${dispatcher?.focusedKey}")
     scope.launch {
         // Snap first (frameless: the row is positioned immediately), then
         // let frames pass so the lazy layout composes the revealed row,
@@ -296,18 +285,14 @@ internal fun handleControllerBoundaryKey(
         // in-flight snap via the list state's mutator mutex, so focus
         // never lags behind and a cancelled snap never moves focus.
         snapToComfortable(target)
-        println("CNM-BOUNDARY snapped target=$target, awaiting frames")
         withFrameNanos { }
         withFrameNanos { }
         val targetKey = keyToIndex.entries.firstOrNull { it.value == target }?.key
         val requester = targetKey?.let { dispatcher?.focusRequesterOf(it) }
-        println("CNM-BOUNDARY handoff: targetKey=$targetKey hasRequester=${requester != null}")
         if (requester != null) {
             requester.requestFocus()
-            println("CNM-BOUNDARY requestFocus() called on target")
         } else {
-            val moved = focusManager.moveFocus(if (forward) FocusDirection.Down else FocusDirection.Up)
-            println("CNM-BOUNDARY moveFocus fallback -> $moved")
+            focusManager.moveFocus(if (forward) FocusDirection.Down else FocusDirection.Up)
         }
     }
     return true

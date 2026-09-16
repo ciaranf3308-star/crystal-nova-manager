@@ -17,6 +17,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import androidx.annotation.VisibleForTesting
 
 /**
  * The single screen scaffold every destination goes through.
@@ -84,6 +85,18 @@ import androidx.compose.ui.unit.dp
  * once per screen entry to restore focus.
  */
 private val lastFocusByRoute = mutableMapOf<String, Any?>()
+
+/**
+ * Clears the per-route focus memory. Test-only: the map is process
+ * lifetime, so without this one test's last-focused row leaks into the
+ * next test's initial focus (e.g. a 6-row traversal leaves
+ * `launcher-row-sys-5`, and a later 25-row test starts scrolled to the
+ * middle with row 0 disposed — not found — instead of at the top).
+ */
+@VisibleForTesting
+internal fun clearRouteFocusMemoryForTesting() {
+    lastFocusByRoute.clear()
+}
 
 /** Receiver for the [ScreenScaffold] content slot. */
 class ScaffoldContentScope(

@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Before
 import org.junit.Rule
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -39,6 +40,17 @@ abstract class NovaUiTest {
 
     @get:Rule
     val composeTestRule: ComposeContentTestRule = createComposeRule()
+
+    /**
+     * The scaffold's per-route focus memory is process lifetime; without
+     * this, one test's last-focused row becomes the next test's initial
+     * focus (and scroll position), so a test that expects to start at row
+     * 0 can find row 0 already disposed by the lazy list.
+     */
+    @Before
+    fun clearRouteFocusMemory() {
+        clearRouteFocusMemoryForTesting()
+    }
 
     /**
      * Sets [content] inside a fixed 1280x960 logical viewport, matching the
