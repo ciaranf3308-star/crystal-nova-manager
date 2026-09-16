@@ -81,7 +81,7 @@ fun ThemeUpdateScreen(
             Header()
             CrystalDivider()
             when (state) {
-                is ManagerState.NeedsFolder -> NeedsFolderBody(dispatcher, onPickFolder)
+                is ManagerState.NeedsFolder -> NeedsFolderBody(dispatcher, onPickFolder, state.message)
                 is ManagerState.Ready -> ReadyBody(state, dispatcher, onEvent, pegasusLaunchable)
                 is ManagerState.Updating -> UpdatingBody(state)
                 is ManagerState.UpdateFailed -> FailedBody(state, dispatcher, onEvent)
@@ -204,6 +204,15 @@ private fun ReadyBody(
                 state.updateAvailable -> StatusLine("UPDATE AVAILABLE", Crystal.Cream)
                 else -> StatusLine("✓ CRYSTAL IS UP TO DATE", Crystal.Good)
             }
+            if (state.updateAvailable && state.destination != null) {
+                BasicText(
+                    text = "INSTALLS TO: ${state.destination}",
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono, fontSize = Crystal.SmallSize,
+                        color = Crystal.InkDim,
+                    ),
+                )
+            }
             state.backup?.let {
                 BasicText(
                     text = if (it.isLegacy) "BACKUP READY — PREVIOUS INSTALL"
@@ -256,32 +265,46 @@ private fun ReadyBody(
 }
 
 @Composable
-private fun NeedsFolderBody(dispatcher: FocusDispatcher, onPick: () -> Unit) {
+private fun NeedsFolderBody(
+    dispatcher: FocusDispatcher,
+    onPick: () -> Unit,
+    message: String?,
+) {
     SectionLabel("THEME")
     Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             BasicText(
-                text = "CHOOSE THE PEGASUS THEMES FOLDER",
+                text = "SELECT PEGASUS THEMES FOLDER",
                 style = TextStyle(
                     fontFamily = Crystal.Mono, fontWeight = FontWeight.Bold,
                     fontSize = Crystal.BodySize, color = Crystal.Ink,
                 ),
             )
             BasicText(
-                text = "Select pegasus-frontend/themes/ once. " +
-                    "Crystal Nova Manager will remember it and never " +
-                    "ask again.",
+                text = "Choose the THEMES folder that contains your themes — " +
+                    "NOT the crystal theme folder itself.\n" +
+                    "Expected:\n/storage/emulated/0/pegasus-frontend/themes/\n" +
+                    "Crystal Nova Manager will remember it and never ask again.",
                 style = TextStyle(
                     fontFamily = Crystal.Mono, fontSize = Crystal.SmallSize,
                     color = Crystal.InkDim,
                 ),
             )
+            if (message != null) {
+                BasicText(
+                    text = message,
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono, fontWeight = FontWeight.Bold,
+                        fontSize = Crystal.SmallSize, color = Crystal.Bad,
+                    ),
+                )
+            }
         }
     }
     CrystalButton(
         key = "pick",
-        label = "CHOOSE CRYSTAL THEME FOLDER",
+        label = "SELECT PEGASUS THEMES FOLDER",
         onClick = onPick,
         dispatcher = dispatcher,
         requestInitialFocus = true,

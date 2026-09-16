@@ -59,6 +59,13 @@ The app then works exclusively inside that tree via `DocumentFile`. It will
 never touch anything outside the selected folder, and it never asks for
 broad storage permissions.
 
+> **U1.1:** if you accidentally select `crystal-nova-pegasus-theme` itself,
+> the app normalizes to the parent `themes/` directory when the system
+> permits it, otherwise it asks you to pick again — it will never install
+> into a nested `crystal-nova-pegasus-theme/crystal-nova-pegasus-theme/`.
+> A nested install left behind by U1 is detected and repaired automatically
+> on launch.
+
 ## Legacy Phase 1.7 bootstrap
 
 If your theme was installed manually (the Phase 1.7 layout) it has no

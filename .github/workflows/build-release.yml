@@ -1,0 +1,60 @@
+name: Build and release
+
+# Tag pushes (v*) build the APK, run the unit tests, and publish a
+# GitHub Release with the APK attached. The sandbox cannot run Gradle
+# (daemon TCP handshake stalls), so CI is the build machine.
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest --no-daemon
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Name the APK
+        run: |
+          cp app/build/outputs/apk/debug/app-debug.apk crystal-nova-manager-u1.1.apk
+          ls -la crystal-nova-manager-u1.1.apk
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Crystal Nova Manager U1.1
+          files: crystal-nova-manager-u1.1.apk
+          body: |
+            U1.1 bugfix — theme-folder selection is now impossible to get wrong.
+
+            - Picker explicitly says SELECT PEGASUS THEMES FOLDER and shows the
+              expected path (/storage/emulated/0/pegasus-frontend/themes/).
+            - If the theme folder itself is picked, the app normalizes to the
+              parent themes/ directory when SAF permits, otherwise re-prompts.
+            - Installs can never nest to
+              themes/crystal-nova-pegasus-theme/crystal-nova-pegasus-theme/.
+            - The final destination is resolved and shown before install.
+            - After install, theme.cfg and theme.qml are verified directly
+              inside the theme folder.
+            - A nested install left by U1 is detected and repaired automatically.
+
+            No other updater behaviour changed.

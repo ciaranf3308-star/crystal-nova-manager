@@ -38,6 +38,8 @@ class SafThemeFs(
     override fun find(dir: FsNode, name: String): FsNode? =
         doc(dir).findFile(name)?.let(::DocNode)
 
+    override fun name(node: FsNode): String? = doc(node).name
+
     override fun children(dir: FsNode): List<Pair<String, FsNode>> =
         doc(dir).listFiles().mapNotNull { f ->
             val name = f.name ?: return@mapNotNull null

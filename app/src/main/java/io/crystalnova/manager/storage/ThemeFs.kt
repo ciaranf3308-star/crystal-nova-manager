@@ -19,6 +19,9 @@ interface ThemeFs {
     @Throws(SecurityException::class)
     fun root(): FsNode?
 
+    /** Display name of a node (used to detect a theme-folder pick). */
+    fun name(node: FsNode): String?
+
     fun find(dir: FsNode, name: String): FsNode?
     fun children(dir: FsNode): List<Pair<String, FsNode>>
     fun isDirectory(node: FsNode): Boolean

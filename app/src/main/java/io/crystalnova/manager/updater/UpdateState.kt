@@ -30,8 +30,12 @@ data class VersionDisplay(val version: String, val shortCommit: String) {
 }
 
 sealed interface ManagerState {
-    /** No themes/ folder chosen yet — first-run onboarding. */
-    data object NeedsFolder : ManagerState
+    /**
+     * No themes/ folder chosen yet — first-run onboarding. Carries an
+     * optional guidance message, e.g. when the user picked the theme
+     * folder itself and needs to pick the themes/ parent instead.
+     */
+    data class NeedsFolder(val message: String? = null) : ManagerState
 
     data class Ready(
         val installed: VersionDisplay?,
@@ -41,6 +45,8 @@ sealed interface ManagerState {
         val checking: Boolean = false,
         /** Non-destructive notice, e.g. COULD NOT CHECK FOR UPDATES. */
         val notice: String? = null,
+        /** Resolved live-theme destination, shown before install. */
+        val destination: String? = null,
     ) : ManagerState
 
     data class Updating(

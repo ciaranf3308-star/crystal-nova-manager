@@ -61,12 +61,17 @@ class SafThemeStorage(
             throw StorageException("Storage access lost", e)
         }
 
-    override fun readInstalledVersion(): VersionInfo? =
-        readVersionOf(THEME_DIR_NAME)
+    override fun readInstalledVersion(): VersionInfo? = try {
+        val root = requireRoot()
+        val dir = findThemeDir(root) ?: return null
+        readVersionOfDir(dir)
+    } catch (_: Exception) {
+        null
+    }
 
     override fun hasThemeDir(): Boolean = try {
         val root = requireRoot()
-        val dir = fs.find(root, THEME_DIR_NAME)
+        val dir = findThemeDir(root)
         dir != null && fs.isDirectory(dir)
     } catch (_: StorageException) {
         false
@@ -89,10 +94,143 @@ class SafThemeStorage(
     private fun readVersionOf(dirName: String): VersionInfo? = try {
         val root = requireRoot()
         val dir = fs.find(root, dirName) ?: return null
+        readVersionOfDir(dir)
+    } catch (_: Exception) {
+        null
+    }
+
+    private fun readVersionOfDir(dir: FsNode): VersionInfo? = try {
         val marker = fs.find(dir, "crystal-version.json") ?: return null
         fs.openInput(marker).use { VersionInfo.parse(it.readBytes().toString(Charsets.UTF_8)) }
     } catch (_: Exception) {
         null
+    }
+
+    /**
+     * U1.1: true when the persisted SAF root IS the theme folder itself
+     * (the U1 picker wording led users to select
+     * themes/crystal-nova-pegasus-theme/ instead of themes/). Detected by
+     * name, with a content fallback for renamed copies: a theme folder
+     * holds theme.cfg/theme.qml directly, while a themes/ parent holds
+     * the theme dir as a child.
+     */
+    fun isRootThemeFolderItself(): Boolean = try {
+        val root = requireRoot()
+        isThemeFolderItself(root)
+    } catch (_: Exception) {
+        false
+    }
+
+    private fun isThemeFolderItself(root: FsNode): Boolean {
+        if (fs.name(root) == THEME_DIR_NAME) return true
+        val names = fs.children(root).map { it.first }.toSet()
+        return "theme.cfg" in names && "theme.qml" in names && THEME_DIR_NAME !in names
+    }
+
+    /**
+     * Resolves the live theme directory without ever nesting. If the user
+     * picked the theme folder itself, the root IS the theme dir; otherwise
+     * it is root/crystal-nova-pegasus-theme. This is the single choke
+     * point — no caller may append THEME_DIR_NAME blindly.
+     */
+    private fun findThemeDir(root: FsNode): FsNode? {
+        if (isThemeFolderItself(root)) return root
+        return fs.find(root, THEME_DIR_NAME)
+    }
+
+    /**
+     * Human-readable install destination for the UI, e.g.
+     * "…/themes/crystal-nova-pegasus-theme/". Shown before install so the
+     * user can see exactly where the theme will land.
+     */
+    fun installDestinationLabel(): String? = try {
+        val root = fs.root() ?: return null
+        val rootName = fs.name(root) ?: "themes"
+        if (isThemeFolderItself(root)) "…/$rootName/" else "…/$rootName/$THEME_DIR_NAME/"
+    } catch (_: Exception) {
+        null
+    }
+
+    /**
+     * U1.1: detects the U1 bug's footprint — a theme installed one level
+     * too deep at themes/crystal-nova-pegasus-theme/crystal-nova-pegasus-theme/
+     * because the theme folder itself was picked as the SAF root.
+     */
+    fun hasNestedInstall(): Boolean {
+        return try {
+            val root = requireRoot()
+            if (isThemeFolderItself(root)) return false
+            val themeDir = fs.find(root, THEME_DIR_NAME) ?: return false
+            if (!fs.isDirectory(themeDir)) return false
+            val nested = fs.find(themeDir, THEME_DIR_NAME) ?: return false
+            fs.isDirectory(nested) && isValidThemeTree(nested)
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
+     * U1.1: repairs a nested install by promoting the inner theme to the
+     * real theme directory. The outer (stale) theme becomes the backup;
+     * the redundant nested copy inside the backup is pruned. Returns true
+     * when the live theme now directly contains theme.cfg/theme.qml.
+     */
+    fun fixNestedInstall(): Boolean {
+        val root = requireRoot()
+        if (isThemeFolderItself(root)) return false
+        val themeDir = fs.find(root, THEME_DIR_NAME) ?: return false
+        val nested = fs.find(themeDir, THEME_DIR_NAME) ?: return false
+        if (!fs.isDirectory(nested) || !isValidThemeTree(nested)) return false
+        try {
+            // 1. Copy the inner theme aside as a sibling.
+            val fixedName = "$THEME_DIR_NAME.fixed"
+            fs.find(root, fixedName)?.let { fs.deleteRecursively(it) }
+            val fixed = fs.mkdir(root, fixedName)
+            copyNodeContents(nested, fixed)
+            if (!isValidThemeTree(fixed)) {
+                fs.deleteRecursively(fixed)
+                return false
+            }
+            // 2. The outer (stale) theme becomes the backup.
+            fs.find(root, BACKUP_DIR_NAME)?.let { fs.deleteRecursively(it) }
+            if (!fs.rename(themeDir, BACKUP_DIR_NAME)) {
+                fs.deleteRecursively(fixed)
+                return false
+            }
+            // 3. Promote the repaired copy to the live theme dir.
+            if (!fs.rename(fixed, THEME_DIR_NAME)) {
+                fs.find(root, BACKUP_DIR_NAME)?.let { fs.rename(it, THEME_DIR_NAME) }
+                try { fs.deleteRecursively(fixed) } catch (_: Exception) { }
+                return false
+            }
+            // 4. Prune the redundant nested copy now sitting inside the backup.
+            try {
+                val backup = fs.find(root, BACKUP_DIR_NAME)
+                val nestedInBackup = backup?.let { fs.find(it, THEME_DIR_NAME) }
+                if (nestedInBackup != null) fs.deleteRecursively(nestedInBackup)
+            } catch (_: Exception) { }
+            return true
+        } catch (_: Exception) {
+            try {
+                fs.find(root, "$THEME_DIR_NAME.fixed")?.let { fs.deleteRecursively(it) }
+            } catch (_: Exception) { }
+            return false
+        }
+    }
+
+    /** Recursive FsNode → FsNode copy (used by the nested-install repair). */
+    private fun copyNodeContents(srcDir: FsNode, destDir: FsNode) {
+        for ((name, child) in fs.children(srcDir)) {
+            if (fs.isDirectory(child)) {
+                val d = fs.mkdir(destDir, name)
+                copyNodeContents(child, d)
+            } else {
+                val f = fs.createFile(destDir, name)
+                fs.openInput(child).use { input ->
+                    fs.openOutput(f).use { output -> input.copyTo(output) }
+                }
+            }
+        }
     }
 
     /** Records what the updater installed (SHA known exactly at install time). */
@@ -111,6 +249,16 @@ class SafThemeStorage(
     override fun installValidatedTheme(sourceDir: File): InstallReport {
         require(sourceDir.isDirectory) { "Source is not a directory" }
         val root = requireRoot()
+        // U1.1: if the SAF root IS the theme folder itself there is no room
+        // for the staging/backup siblings — installing here would nest or
+        // corrupt. Refuse loudly so the UI can send the user back to the
+        // picker instead of writing a broken install.
+        if (isThemeFolderItself(root)) {
+            throw StorageException(
+                "SELECTED FOLDER IS THE THEME ITSELF — " +
+                    "PLEASE SELECT THE THEMES FOLDER",
+            )
+        }
         // Count the source files first so the staging copy can be verified
         // against it — a short copy must never be promoted.
         val expectedCount = countFiles(sourceDir)
@@ -151,6 +299,20 @@ class SafThemeStorage(
                     if (restored) "Install failed — previous version restored"
                     else "Install failed — could not restore previous version",
                     restored = restored,
+                )
+            }
+
+            // 5. U1.1: final regression gate — the live theme must directly
+            // contain theme.cfg and theme.qml. If they ended up one level
+            // deeper (the nested-install bug), fail loudly instead of
+            // reporting success for a theme Pegasus can't see.
+            val live = findThemeDir(root)
+            val liveNames = live?.let { fs.children(it).map { c -> c.first }.toSet() }
+                ?: emptySet()
+            if (live == null || "theme.cfg" !in liveNames || "theme.qml" !in liveNames) {
+                throw StorageException(
+                    "Installed theme failed final verification",
+                    restored = fs.find(root, BACKUP_DIR_NAME) != null,
                 )
             }
 

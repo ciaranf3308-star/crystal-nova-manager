@@ -32,7 +32,7 @@ class UpdateManager(
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
-    private val _state = MutableStateFlow<ManagerState>(ManagerState.NeedsFolder)
+    private val _state = MutableStateFlow<ManagerState>(ManagerState.NeedsFolder())
     val state: StateFlow<ManagerState> = _state
 
     private var job: Job? = null
@@ -52,14 +52,24 @@ class UpdateManager(
     }
 
     /** Re-reads folder access (e.g. after the SAF picker returns). */
-    fun refresh() {
+    fun refresh(folderNotice: String? = null) {
         job?.cancel()
         if (!storage.hasFolderAccess()) {
-            _state.value = ManagerState.NeedsFolder
+            _state.value = ManagerState.NeedsFolder(folderNotice)
             return
         }
-        _state.value = readyState(checking = true)
-        checkForUpdates()
+        // U1.1 regression: a nested install left by the U1 folder-pick
+        // wording is repaired automatically before anything else runs.
+        var notice: String? = null
+        try {
+            val s = storage as? SafThemeStorage
+            if (s != null && s.hasNestedInstall() && s.fixNestedInstall()) {
+                notice = "REPAIRED THEME LOCATION"
+            }
+        } catch (_: Exception) {
+        }
+        _state.value = readyState(checking = true, notice = notice)
+        checkForUpdates(preserveNotice = notice)
     }
 
     private fun currentReady(): ManagerState.Ready =
@@ -96,15 +106,16 @@ class UpdateManager(
             backup = backup,
             checking = checking,
             notice = notice,
+            destination = (storage as? SafThemeStorage)?.installDestinationLabel(),
         )
     }
 
-    fun checkForUpdates() {
+    fun checkForUpdates(preserveNotice: String? = null) {
         if (!storage.hasFolderAccess()) {
-            _state.value = ManagerState.NeedsFolder
+            _state.value = ManagerState.NeedsFolder()
             return
         }
-        _state.value = currentReady().copy(checking = true, notice = null)
+        _state.value = currentReady().copy(checking = true, notice = preserveNotice)
         job?.cancel()
         job = scope.launch {
             val result = withContext(ioDispatcher) {

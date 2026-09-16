@@ -33,6 +33,8 @@ class InMemoryThemeFs : ThemeFs {
 
     override fun find(dir: FsNode, name: String): FsNode? = node(dir).children[name]
 
+    override fun name(node: FsNode): String = node(node).name
+
     override fun children(dir: FsNode): List<Pair<String, FsNode>> =
         node(dir).children.entries.map { it.key to it.value as FsNode }
 
