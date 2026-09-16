@@ -18,6 +18,32 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Derive release metadata from tag
+        # Release naming is derived from the tag (v<version>) and the
+        # app's versionName — never hardcoded — so a U2/U2.1 tag can
+        # never publish an APK still named U1.2. For tag builds the tag
+        # MUST match versionName, because the in-app self-updater
+        # compares the release tag against the installed versionName;
+        # a mismatch would silently disable update notifications.
+        # Manual dispatches build from versionName directly.
+        run: |
+          VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          if [[ "${GITHUB_REF:-}" == refs/tags/* ]]; then
+            TAG="${GITHUB_REF_NAME}"
+            VERSION="${TAG#v}"
+            if [ "$VN" != "$VERSION" ]; then
+              echo "Tag version $VERSION != versionName $VN in app/build.gradle.kts"
+              exit 1
+            fi
+          else
+            VERSION="$VN"
+            TAG="v$VN"
+          fi
+          echo "RELEASE_TAG=$TAG" >> "$GITHUB_ENV"
+          echo "RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+          echo "APK_NAME=crystal-nova-manager-${VERSION}.apk" >> "$GITHUB_ENV"
+          echo "Release: $TAG -> $APK_NAME"
+
       - name: Set up JDK 17
         uses: actions/setup-java@v4
         with:
@@ -56,16 +82,16 @@ jobs:
 
       - name: Name the APK
         run: |
-          cp app/build/outputs/apk/release/app-release.apk crystal-nova-manager-u1.2.apk
-          ls -la crystal-nova-manager-u1.2.apk
+          cp app/build/outputs/apk/release/app-release.apk "${{ env.APK_NAME }}"
+          ls -la "${{ env.APK_NAME }}"
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Crystal Nova Manager U1.2
-          files: crystal-nova-manager-u1.2.apk
+          name: Crystal Nova Manager ${{ env.RELEASE_VERSION }}
+          files: ${{ env.APK_NAME }}
           body: |
-            U1.2 — the manager now updates itself.
+            Crystal Nova Manager ${{ env.RELEASE_VERSION }}.
 
             - On launch it checks this repo's releases; when a newer build
               is out, an UPDATE APP button appears under the header.
@@ -74,11 +100,5 @@ jobs:
             - On Android 8+, allow "install unknown apps" for Crystal Nova
               once, in Settings — the app guides you there.
             - No background checks, no accounts, no telemetry.
-
-            ONE-TIME REINSTALL: U1.1 shipped as an unsigned debug build
-            (package io.crystalnova.manager.debug). U1.2 is the first
-            properly signed release build (package io.crystalnova.manager).
-            Uninstall the old app and install this APK fresh — every
-            update after that is one tap, in-app.
 
             No theme updater behaviour changed.

@@ -6,6 +6,7 @@ import io.crystalnova.manager.scraper.model.MatchConfidence
 import io.crystalnova.manager.scraper.model.Region
 import io.crystalnova.manager.scraper.model.ScrapedGame
 import io.crystalnova.manager.scraper.model.SourceType
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -109,15 +110,26 @@ object ScraperJson {
         else -> MatchConfidence.None
     }
 
-    /** Compact per-game summary for index.json (dashboard reads this only). */
+    /**
+     * Compact per-game summary for index.json. The Pegasus theme consumes
+     * this file: it is keyed by "<platform>/<gameId>" and carries the
+     * fields the theme needs to resolve the deterministic game identity
+     * (gameId, fileName) and the stored asset slots — without parsing
+     * per-game manifests.
+     */
     fun indexEntryToJson(game: ScrapedGame): JSONObject {
         val o = JSONObject()
         o.put("title", game.title)
         o.put("platform", game.platform)
+        o.put("gameId", game.gameId)
+        o.put("fileName", game.romRelativePath.substringAfterLast('/').substringAfterLast('\\'))
         o.put("romRelativePath", game.romRelativePath)
         o.put("fileSize", game.fileSize)
         o.put("lastModified", game.lastModified)
         o.put("completeness", game.completeness.name)
+        val assets = JSONArray()
+        game.assets.keys.map { it.fileName.substringBefore('.') }.sorted().forEach { assets.put(it) }
+        o.put("assets", assets)
         o.put("real", game.realAssetCount)
         o.put("generated", game.generatedAssetCount)
         o.put("region", game.region.name)
