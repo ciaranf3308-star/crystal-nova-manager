@@ -113,6 +113,11 @@ dependencies {
     // ui-test-junit4's version is BOM-managed via testImplementation(composeBom) above.
     testImplementation("androidx.compose.ui:ui-test-junit4")
     testImplementation("org.robolectric:robolectric:4.14.1")
+    // Declares androidx.activity.ComponentActivity in the merged manifest so
+    // createComposeRule() can launch it under Robolectric (debugImplementation
+    // lands in the debug variant's merged manifest that unit tests read).
+    // Same pattern as Robolectric's own compose-ui integration tests.
+    debugImplementation("androidx.compose.ui:ui-test-manifest")
     // android.jar's org.json is stubbed ("Stub!"); unit tests need the real
     // implementation. Test-scoped only — on device the framework provides it.
     testImplementation("org.json:json:20240303")
