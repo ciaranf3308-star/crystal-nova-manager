@@ -25,7 +25,13 @@ jobs:
           java-version: "17"
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
+        # ubuntu-latest runners ship a preinstalled SDK; the setup-android
+        # action fails on the obsolete "tools" package, so install the
+        # needed packages directly.
+        run: |
+          echo "ANDROID_HOME=$ANDROID_HOME"
+          yes | sdkmanager --licenses > /dev/null
+          sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
