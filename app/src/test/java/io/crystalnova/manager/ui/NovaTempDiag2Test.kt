@@ -3,7 +3,6 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.fetchSemanticsNodes
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Test
@@ -32,7 +31,7 @@ class NovaTempDiag2Test : NovaUiTest() {
                 println("CNM-D2 $label $tag: NOT COMPOSED")
             } else {
                 val n = nodes[0]
-                println("CNM-D2 $label $tag: boundsInRoot=${n.boundsInRoot} isFocused=${n.isFocused}")
+                println("CNM-D2 $label $tag: boundsInRoot=${n.boundsInRoot}")
             }
         }
 
