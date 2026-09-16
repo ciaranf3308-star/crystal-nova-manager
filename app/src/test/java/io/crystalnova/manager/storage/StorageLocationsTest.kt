@@ -41,7 +41,7 @@ class StorageLocationsTest {
         store: KeyValueStore = FakeStore(),
         writer: ((String, ByteArray) -> Boolean)? = null,
         deleter: ((String) -> Boolean)? = null,
-    ) = StorageLocations(null as Context, store, writer, deleter)
+    ) = StorageLocations(null as Context?, store, writer, deleter)
 
     // ---------- canonicalPath ----------
 
@@ -178,7 +178,8 @@ class StorageLocationsTest {
         assertTrue(loc.adoptTreeUriString(internalMediaTree, LocationKind.MEDIA, themesTree))
         assertEquals(internalMediaTree, loc.mediaTreeUri())
 
-        val (themes, json) = written ?: fail("bridge was not written")
+        val pair = written ?: throw AssertionError("bridge was not written")
+        val (themes, json) = pair
         assertEquals(themesTree, themes)
         assertTrue(
             json.startsWith(

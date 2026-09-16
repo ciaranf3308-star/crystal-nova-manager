@@ -37,7 +37,7 @@ data class StorageSummary(val rom: LocationState, val media: LocationState)
  * the SAF-backed defaults.
  */
 class StorageLocations(
-    private val context: Context,
+    private val context: Context?,
     private val prefs: KeyValueStore,
     internal var bridgeWriter: ((themesTreeUri: String, bytes: ByteArray) -> Boolean)? = null,
     internal var bridgeDeleter: ((themesTreeUri: String) -> Boolean)? = null,
@@ -210,7 +210,7 @@ class StorageLocations(
     fun hasAccess(kind: LocationKind): Boolean {
         val uri = prefs.getString(keyFor(kind)) ?: return false
         return try {
-            val doc = DocumentFile.fromTreeUri(context, Uri.parse(uri))
+            val doc = DocumentFile.fromTreeUri(context!!, Uri.parse(uri))
             doc != null && doc.canRead()
         } catch (_: Exception) {
             false
@@ -271,7 +271,7 @@ class StorageLocations(
 
     private fun defaultBridgeWrite(themesTreeUri: String, bytes: ByteArray): Boolean {
         return try {
-            val fs = SafThemeFs(context) { themesTreeUri }
+            val fs = SafThemeFs(context!!) { themesTreeUri }
             val root = fs.root() ?: return false
             // SAF rename cannot overwrite, so delete the old bridge first:
             // a failed swap then leaves the previous bridge intact, never
@@ -294,7 +294,7 @@ class StorageLocations(
 
     private fun defaultBridgeDelete(themesTreeUri: String): Boolean {
         return try {
-            val fs = SafThemeFs(context) { themesTreeUri }
+            val fs = SafThemeFs(context!!) { themesTreeUri }
             val root = fs.root() ?: return false
             fs.find(root, BRIDGE_FILE_NAME)?.let { fs.deleteRecursively(it) }
             true
