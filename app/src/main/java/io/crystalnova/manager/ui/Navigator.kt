@@ -9,6 +9,7 @@ import androidx.compose.runtime.mutableStateListOf
  *   HOME → LIBRARY → SYSTEM(slug) → PROGRESS
  *   HOME → THEME
  *   HOME → SETTINGS
+ *   HOME → PEGASUS SETUP → PEGASUS LAUNCHERS → PEGASUS LAUNCHER(slug)
  *   any → DIAGNOSTICS (overlay destination; B pops back)
  *
  * Controller B pops exactly one level from any child destination and
@@ -22,6 +23,9 @@ sealed interface Dest {
     data object Theme : Dest
     data object Settings : Dest
     data object Diagnostics : Dest
+    data object PegasusSetup : Dest
+    data object PegasusLaunchers : Dest
+    data class PegasusLauncher(val slug: String, val label: String) : Dest
 }
 
 /**

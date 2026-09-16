@@ -57,8 +57,8 @@ class ProviderTest {
             collection: GBA
             shortname: gba
 
-            game: Mario Golf (E).gba
-            title: Mario Golf: Advance Tour
+            game: Mario Golf: Advance Tour
+            file: Mario Golf (E).gba
             developer: Camelot
             publisher: Nintendo
             genre: Sports
@@ -66,22 +66,37 @@ class ProviderTest {
             release: 2004
             description: Tee off on the GBA.
 
-            game: other.gba
-            title: Other Game
+            game: Other Game
+            file: other.gba
 
         """.trimIndent()
         val entries = PegasusMetadataReader.parse(text)
         assertEquals(2, entries.size)
         val first = entries[0]
-        assertEquals("Mario Golf (E).gba", first.gameFile)
         assertEquals("Mario Golf: Advance Tour", first.title)
+        assertEquals(listOf("Mario Golf (E).gba"), first.files)
         assertEquals("Camelot", first.developer)
         assertEquals("Tee off on the GBA.", first.description)
+        assertEquals("GBA", first.collection)
+        assertEquals("gba", first.shortname)
+    }
+
+    @Test fun `pegasus parser keeps legacy game-as-filename form working`() {
+        val text = """
+            game: Mario Golf (E).gba
+            title: Mario Golf: Advance Tour
+            developer: Camelot
+
+        """.trimIndent()
+        val entries = PegasusMetadataReader.parse(text)
+        assertEquals(1, entries.size)
+        assertEquals("Mario Golf: Advance Tour", entries[0].title)
+        assertEquals(listOf("Mario Golf (E).gba"), entries[0].files)
     }
 
     @Test fun `pegasus file provider matches rom filename first`() = runBlocking {
         val entries = PegasusMetadataReader.parse(
-            "game: Mario Golf (E).gba\ntitle: Mario Golf: Advance Tour\ndeveloper: Camelot\n",
+            "game: Mario Golf: Advance Tour\nfile: Mario Golf (E).gba\ndeveloper: Camelot\n",
         )
         // Provider is keyed by ROM directory; "" covers bare filenames.
         val provider = PegasusFileMetadataProvider(mapOf("" to entries))

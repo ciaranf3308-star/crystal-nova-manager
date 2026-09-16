@@ -1,7 +1,11 @@
 package io.crystalnova.manager.updater
 
 import io.crystalnova.manager.BuildConfig
+import io.crystalnova.manager.data.AppUpdateChannel
+import io.crystalnova.manager.data.DevUpdateChecker
+import io.crystalnova.manager.data.DevUpdateManifest
 import io.crystalnova.manager.data.GitHubRepository
+import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.data.SelfUpdateChecker
 import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.data.StorageException
@@ -35,7 +39,10 @@ class UpdateManager(
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
     private val appVersion: String = BuildConfig.VERSION_NAME,
+    private val appVersionCode: Int = BuildConfig.VERSION_CODE,
+    private val prefs: KeyValueStore? = null,
     private val selfUpdate: SelfUpdateChecker = SelfUpdateChecker(),
+    private val devUpdate: DevUpdateChecker = DevUpdateChecker(),
 ) {
     private val _state = MutableStateFlow<ManagerState>(ManagerState.NeedsFolder())
     val state: StateFlow<ManagerState> = _state
@@ -53,6 +60,18 @@ class UpdateManager(
 
     /** The release the app-update flow is currently working with. */
     private var pendingSelfUpdate: SelfUpdateInfo? = null
+
+    /**
+     * The dev manifest the app-update flow is currently working with.
+     * Non-null exactly when the pending update came from the DEV /
+     * CANDIDATE channel, in which case the download is checksum-verified
+     * against it before the installer sees the APK.
+     */
+    private var pendingDevManifest: DevUpdateManifest? = null
+
+    /** Reads the persisted app update channel; unset means DEV. */
+    private fun appUpdateChannel(): AppUpdateChannel =
+        prefs?.let(AppUpdateChannel::load) ?: AppUpdateChannel.DEV
 
     init {
         refresh()
@@ -283,7 +302,10 @@ class UpdateManager(
     // ------------------------------------------------------------------
 
     /**
-     * Checks the manager's own releases for a newer build. A failed check
+     * Checks the manager's own releases for a newer build. On the DEV /
+     * CANDIDATE channel this reads the rolling dev-latest manifest and
+     * compares versionCode; on STABLE it uses the existing
+     * releases/latest logic, byte-for-byte unchanged. A failed check
      * (offline, API hiccup) is silent apart from the tap-to-retry hint —
      * the theme check already reports connectivity problems.
      */
@@ -297,7 +319,31 @@ class UpdateManager(
         _appUpdate.value = AppUpdateState.Checking
         appUpdateJob = scope.launch {
             val result = withContext(ioDispatcher) {
-                runCatching { selfUpdate.check(appVersion) }
+                runCatching {
+                    when (appUpdateChannel()) {
+                        AppUpdateChannel.DEV -> {
+                            val manifest = devUpdate.check(appVersionCode)
+                            if (manifest == null) {
+                                pendingDevManifest = null
+                                null
+                            } else {
+                                pendingDevManifest = manifest
+                                // Surfaced through the exact same
+                                // AppUpdateState flow as stable updates —
+                                // the UPDATE APP button needs no changes.
+                                SelfUpdateInfo(
+                                    version = manifest.versionName,
+                                    tag = "dev-latest",
+                                    apkUrl = manifest.apkUrl,
+                                )
+                            }
+                        }
+                        AppUpdateChannel.STABLE -> {
+                            pendingDevManifest = null
+                            selfUpdate.check(appVersion)
+                        }
+                    }
+                }
             }
             result
                 .onSuccess { info ->
@@ -317,6 +363,8 @@ class UpdateManager(
      * Downloads the available app update into app-private cache. A
      * completed download for the same version is reused; stale versions
      * are deleted so the installer can never pick up an old APK.
+     * DEV-channel downloads are SHA-256-verified against the manifest
+     * before the state flips to Downloaded.
      */
     fun downloadAppUpdate() {
         val available = _appUpdate.value as? AppUpdateState.Available ?: return
@@ -325,6 +373,7 @@ class UpdateManager(
             _appUpdate.value = AppUpdateState.Downloading()
             val info: SelfUpdateInfo = available.info
             pendingSelfUpdate = info
+            val devManifest = pendingDevManifest
             val dest = File(workDir, "manager-update-${info.version}.apk")
             withContext(ioDispatcher) {
                 workDir.listFiles()
@@ -337,8 +386,14 @@ class UpdateManager(
             }
             val result = withContext(ioDispatcher) {
                 runCatching {
-                    selfUpdate.download(info, dest) { done, total ->
-                        _appUpdate.value = AppUpdateState.Downloading(done, total)
+                    if (devManifest != null) {
+                        devUpdate.download(devManifest, dest) { done, total ->
+                            _appUpdate.value = AppUpdateState.Downloading(done, total)
+                        }
+                    } else {
+                        selfUpdate.download(info, dest) { done, total ->
+                            _appUpdate.value = AppUpdateState.Downloading(done, total)
+                        }
                     }
                 }
             }

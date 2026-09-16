@@ -13,6 +13,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.storage.LocationState
 
 /**
@@ -35,6 +36,8 @@ fun SettingsScreen(
     onClearMedia: () -> Unit,
     onPickThemesRoot: () -> Unit,
     onDiagnostics: () -> Unit,
+    updateChannel: AppUpdateChannel,
+    onUpdateChannel: (AppUpdateChannel) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -83,6 +86,12 @@ fun SettingsScreen(
             locationError?.let {
                 NoticeBlock(it, onDismissLocationError, dispatcher)
             }
+            SectionLabel("APP UPDATE CHANNEL")
+            UpdateChannelPanel(
+                channel = updateChannel,
+                dispatcher = dispatcher,
+                onSelect = onUpdateChannel,
+            )
             CrystalDivider()
             CrystalButton(
                 key = "settings-diagnostics",
@@ -93,6 +102,55 @@ fun SettingsScreen(
             BackFooter()
         }
     }
+}
+
+/**
+ * The manager app's own update channel: DEV / CANDIDATE follows the
+ * rolling dev-latest prerelease manifest, STABLE follows published
+ * GitHub releases only. The active channel is shown as a status line;
+ * either button re-checks for an app update immediately.
+ */
+@Composable
+private fun UpdateChannelPanel(
+    channel: AppUpdateChannel,
+    dispatcher: FocusDispatcher,
+    onSelect: (AppUpdateChannel) -> Unit,
+) {
+    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            StatusLine("CURRENT: ${channelLabel(channel)}", Crystal.Cream)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Box(modifier = Modifier.weight(1f)) {
+                    CrystalButton(
+                        key = "settings-channel-dev",
+                        label = "DEV / CANDIDATE",
+                        onClick = { onSelect(AppUpdateChannel.DEV) },
+                        dispatcher = dispatcher,
+                    )
+                }
+                Box(modifier = Modifier.weight(1f)) {
+                    CrystalButton(
+                        key = "settings-channel-stable",
+                        label = "STABLE",
+                        onClick = { onSelect(AppUpdateChannel.STABLE) },
+                        dispatcher = dispatcher,
+                    )
+                }
+            }
+            DimLine(
+                "DEV / CANDIDATE FOLLOWS THE ROLLING dev-latest BUILD. " +
+                    "STABLE FOLLOWS PUBLISHED RELEASES ONLY.",
+            )
+        }
+    }
+}
+
+private fun channelLabel(channel: AppUpdateChannel): String = when (channel) {
+    AppUpdateChannel.DEV -> "DEV / CANDIDATE"
+    AppUpdateChannel.STABLE -> "STABLE"
 }
 
 /**

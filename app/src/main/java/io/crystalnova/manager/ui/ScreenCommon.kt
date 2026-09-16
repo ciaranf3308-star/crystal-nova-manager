@@ -31,14 +31,21 @@ import io.crystalnova.manager.storage.LocationState
  * [dispatcher] and gamepad B to [onBack]. Applied at each screen root;
  * every screen creates its own [FocusDispatcher] so registrations never
  * leak across destinations. Touch works independently through clickable.
+ *
+ * [passThroughAWhen]: when true, the A/center/Enter press is NOT
+ * consumed here and falls through to the focused composable. Screens
+ * with an editable text field set this while the field is focused so
+ * the IME still receives the press that opens it.
  */
 fun Modifier.controllerKeys(
     dispatcher: FocusDispatcher,
     onBack: () -> Unit,
+    passThroughAWhen: () -> Boolean = { false },
 ): Modifier = this.onPreviewKeyEvent { e ->
     if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
     when (e.key) {
         Key.ButtonA, Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
+            if (passThroughAWhen()) return@onPreviewKeyEvent false
             dispatcher.activateFocused()
             true
         }
@@ -60,13 +67,14 @@ fun ScreenRoot(
     onBack: () -> Unit,
     dispatcher: FocusDispatcher,
     modifier: Modifier = Modifier,
+    passThroughAWhen: () -> Boolean = { false },
     content: @Composable () -> Unit,
 ) {
     Box(
         modifier = modifier
             .fillMaxSize()
             .background(Crystal.Background)
-            .controllerKeys(dispatcher, onBack)
+            .controllerKeys(dispatcher, onBack, passThroughAWhen)
             .padding(horizontal = 48.dp, vertical = 32.dp),
     ) {
         content()

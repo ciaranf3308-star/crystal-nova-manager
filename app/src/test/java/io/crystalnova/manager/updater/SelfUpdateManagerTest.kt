@@ -2,6 +2,7 @@ package io.crystalnova.manager.updater
 
 import io.crystalnova.manager.data.FakeHttpClient
 import io.crystalnova.manager.data.GitHubRepository
+import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.SelfUpdateChecker
 import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.storage.InMemoryThemeFs
@@ -62,7 +63,13 @@ class SelfUpdateManagerTest {
     @Before
     fun setUp() {
         fs = InMemoryThemeFs()
-        prefs = mutableMapOf(SafThemeStorage.KEY_TREE_URI to "content://fake/tree")
+        // These tests pin the STABLE channel: they verify the
+        // releases/latest flow, whose default is DEV since the
+        // DEV / CANDIDATE channel shipped.
+        prefs = mutableMapOf(
+            SafThemeStorage.KEY_TREE_URI to "content://fake/tree",
+            AppUpdateChannel.KEY to AppUpdateChannel.STABLE.name,
+        )
         fs.seedTheme(SafThemeStorage.THEME_DIR_NAME, "2.0.0", "8a86a06")
     }
 
@@ -92,6 +99,7 @@ class SelfUpdateManagerTest {
             scope = this,
             ioDispatcher = StandardTestDispatcher(testScheduler),
             appVersion = appVersion,
+            prefs = store,
             selfUpdate = selfUpdate,
         )
         return manager to workDir

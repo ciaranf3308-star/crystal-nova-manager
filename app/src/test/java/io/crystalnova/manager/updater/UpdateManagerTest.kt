@@ -2,6 +2,7 @@ package io.crystalnova.manager.updater
 
 import io.crystalnova.manager.data.FakeHttpClient
 import io.crystalnova.manager.data.GitHubRepository
+import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.jsonResponse
 import io.crystalnova.manager.storage.InMemoryThemeFs
 import io.crystalnova.manager.storage.SafThemeStorage
@@ -106,6 +107,7 @@ class UpdateManagerTest {
             workDir = tmp.newFolder("work").apply { mkdirs() },
             scope = this,
             ioDispatcher = StandardTestDispatcher(testScheduler),
+            prefs = store,
             selfUpdate = noAppUpdate,
         )
     }
@@ -113,7 +115,13 @@ class UpdateManagerTest {
     @Before
     fun setUp() {
         fs = InMemoryThemeFs()
-        prefs = mutableMapOf(SafThemeStorage.KEY_TREE_URI to "content://fake/tree")
+        // Theme tests never touch the network for the manager app
+        // itself; pin STABLE so the default DEV channel (shipped with
+        // the DEV / CANDIDATE channel) can't fire a real check here.
+        prefs = mutableMapOf(
+            SafThemeStorage.KEY_TREE_URI to "content://fake/tree",
+            AppUpdateChannel.KEY to AppUpdateChannel.STABLE.name,
+        )
         fs.seedTheme(SafThemeStorage.THEME_DIR_NAME, "2.0.0", "8a86a06")
     }
 

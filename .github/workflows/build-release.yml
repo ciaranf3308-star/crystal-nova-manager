@@ -5,6 +5,9 @@ name: Build and release
 # the same signed release APK but uploads it ONLY as a workflow
 # artifact — no tag, no GitHub Release, nothing published (used for
 # sideloading test builds, e.g. Nova validation, without shipping).
+# With the dev_build input set, the dispatch additionally replaces the
+# assets on the rolling `dev-latest` prerelease (the DEV / CANDIDATE
+# in-app channel's feed) — still no tag, no new release.
 # The sandbox cannot run Gradle (daemon TCP handshake stalls), so CI is
 # the build machine.
 on:
@@ -12,6 +15,12 @@ on:
     tags:
       - "v*"
   workflow_dispatch:
+    inputs:
+      dev_build:
+        description: "Publish this build to the rolling dev-latest prerelease (DEV / CANDIDATE channel)"
+        type: boolean
+        default: false
+        required: false
 
 permissions:
   contents: write
@@ -89,6 +98,41 @@ jobs:
         run: |
           cp app/build/outputs/apk/release/app-release.apk "${{ env.APK_NAME }}"
           ls -la "${{ env.APK_NAME }}"
+
+      - name: Prepare dev channel assets
+        # dev_build=true only: copy the signed release APK to the fixed
+        # dev asset name and generate the manifest the DEV / CANDIDATE
+        # in-app channel reads. Never creates a release or a tag — the
+        # rolling `dev-latest` prerelease already exists.
+        if: ${{ inputs.dev_build }}
+        run: |
+          VN=$(grep -oP 'versionName\s*=\s*"\K[^"]+' app/build.gradle.kts)
+          VC=$(grep -oP 'versionCode\s*=\s*\K\d+' app/build.gradle.kts)
+          cp "${{ env.APK_NAME }}" crystal-nova-manager-dev.apk
+          SHA=$(sha256sum crystal-nova-manager-dev.apk | awk '{print $1}')
+          BUILT=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+          cat > manifest.json <<EOF
+          {
+            "versionName": "$VN",
+            "versionCode": $VC,
+            "apkSha256": "$SHA",
+            "apkUrl": "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/crystal-nova-manager-dev.apk",
+            "commitSha": "$GITHUB_SHA",
+            "builtAt": "$BUILT"
+          }
+          EOF
+          cat manifest.json
+          ls -la crystal-nova-manager-dev.apk manifest.json
+
+      - name: Upload dev channel to dev-latest
+        # Replaces the assets on the existing rolling prerelease.
+        # --clobber overwrites the two assets in place; no release or
+        # tag is ever created here.
+        if: ${{ inputs.dev_build }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload --clobber dev-latest crystal-nova-manager-dev.apk manifest.json
 
       - name: Upload signed APK as artifact
         # On manual dispatch this is the ONLY delivery: no tag, no

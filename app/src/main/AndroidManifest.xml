@@ -16,6 +16,20 @@
          "install unknown apps" for this app once, in Settings. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- Package visibility for emulator/Pegasus detection (Android 11+).
+         Mirrors LauncherPresets.knownEmulatorPackages plus the Pegasus
+         package itself; used only for getPackageInfo/getLaunchIntent
+         checks so the UI can show honest INSTALLED / NOT INSTALLED
+         states. No data is read from these apps. -->
+    <queries>
+        <package android:name="org.pegasus_frontend.android" />
+        <package android:name="com.retroarch.aarch64" />
+        <package android:name="com.retroarch" />
+        <package android:name="xyz.aethersx2.android" />
+        <package android:name="org.ppsspp.ppsspp" />
+        <package android:name="org.ppsspp.ppssppgold" />
+    </queries>
+
     <application
         android:label="Crystal Nova Manager"
         android:theme="@style/Theme.CrystalNova"

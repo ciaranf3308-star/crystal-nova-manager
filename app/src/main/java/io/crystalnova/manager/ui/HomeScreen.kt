@@ -25,10 +25,11 @@ import io.crystalnova.manager.scraper.ScraperUiState
 import io.crystalnova.manager.updater.ManagerState
 
 /**
- * HOME: the front door. Three large controller-friendly cards —
- * LIBRARY, THEME, SETTINGS — plus a quiet 4-line status block. Not a
- * stats wall: theme status, library size, media path, incomplete count.
- * The version label keeps the hidden 5-tap diagnostics shortcut.
+ * HOME: the front door. Four large controller-friendly cards —
+ * LIBRARY, THEME, PEGASUS SETUP, SETTINGS — plus a quiet 4-line status
+ * block. Not a stats wall: theme status, library size, media path,
+ * incomplete count. The version label keeps the hidden 5-tap
+ * diagnostics shortcut.
  */
 @Composable
 fun HomeScreen(
@@ -37,6 +38,7 @@ fun HomeScreen(
     appVersion: String,
     onLibrary: () -> Unit,
     onTheme: () -> Unit,
+    onPegasusSetup: () -> Unit,
     onSettings: () -> Unit,
     onDiagnostics: () -> Unit,
     onExit: () -> Unit,
@@ -68,6 +70,12 @@ fun HomeScreen(
                 key = "home-theme",
                 label = "THEME",
                 onClick = onTheme,
+                dispatcher = dispatcher,
+            )
+            CrystalButton(
+                key = "home-pegasus",
+                label = "PEGASUS SETUP",
+                onClick = onPegasusSetup,
                 dispatcher = dispatcher,
             )
             CrystalButton(

@@ -2,7 +2,9 @@ package io.crystalnova.manager
 
 import android.content.Intent
 import android.content.SharedPreferences
+import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
@@ -16,7 +18,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.GitHubRepository
+import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.pegasus.LauncherPresets
+import io.crystalnova.manager.pegasus.LauncherProfile
+import io.crystalnova.manager.pegasus.LauncherType
+import io.crystalnova.manager.pegasus.PegasusLibrary
+import io.crystalnova.manager.scraper.match.PlatformTable
 import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.SafThemeStorage
@@ -27,9 +35,15 @@ import io.crystalnova.manager.ui.FocusDispatcher
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
 import io.crystalnova.manager.ui.Navigator
+import io.crystalnova.manager.ui.PegasusLauncherScreen
+import io.crystalnova.manager.ui.PegasusLaunchersScreen
+import io.crystalnova.manager.ui.PegasusSetupScreen
+import io.crystalnova.manager.ui.PegasusSystemRow
 import io.crystalnova.manager.ui.PlaceholderScreen
 import io.crystalnova.manager.ui.ProgressScreen
+import io.crystalnova.manager.ui.RetroArchOption
 import io.crystalnova.manager.ui.SettingsScreen
+import io.crystalnova.manager.ui.StandaloneOption
 import io.crystalnova.manager.ui.SystemScreen
 import io.crystalnova.manager.ui.ThemeScreen
 import io.crystalnova.manager.diag.DiagnosticsInfo
@@ -79,6 +93,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var storage: SafThemeStorage
     private lateinit var locations: StorageLocations
     private lateinit var scraper: ScraperManager
+    private lateinit var pegasus: PegasusLibrary
     private val scope = MainScope()
 
     /** The remembered [Navigator], mirrored here for the back callback. */
@@ -87,6 +102,21 @@ class MainActivity : ComponentActivity() {
     private var diagnosticsInfo: DiagnosticsInfo? by mutableStateOf(null)
     /** Last ROM/MEDIA adopt failure, surfaced on the Settings screen. */
     private var locationError: String? by mutableStateOf(null)
+    /** Pegasus setup/inject notices, surfaced on the Pegasus screens. */
+    private var pegasusNotice: String? by mutableStateOf(null)
+    /** True while an explicit INJECT / REFRESH is running. */
+    private var pegasusBusy: Boolean by mutableStateOf(false)
+    /**
+     * Bumped on every launcher-profile change so the Pegasus screens
+     * recompose (profiles live in SharedPreferences, not in a flow).
+     */
+    private var pegasusProfilesRev: Int by mutableStateOf(0)
+    /**
+     * Bumped when the Pegasus config root is (re)picked: the setup
+     * screen reads the persisted URI directly (not a state flow), so
+     * without this the screen would not refresh after selection.
+     */
+    private var pegasusConfigRev: Int by mutableStateOf(0)
 
     /**
      * Themes-root picker. Keeps the U1.1 normalize + guidance behavior:
@@ -158,6 +188,24 @@ class MainActivity : ComponentActivity() {
                 } else {
                     locationError = "COULD NOT KEEP MEDIA LIBRARY ACCESS — PLEASE TRY AGAIN"
                 }
+            }
+        }
+
+    /**
+     * Pegasus config-root picker. This is a SEPARATE persisted SAF grant
+     * from the themes/ROM/media folders — the Manager owns exactly one
+     * file under it (metafiles/crystal-nova.metadata.pegasus.txt) and
+     * never assumes another grant covers it.
+     */
+    private val pegasusPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                val ok = pegasus.config.adoptTreeUri(contentResolver, uri)
+                pegasusNotice =
+                    if (ok) null else "COULD NOT KEEP PEGASUS FOLDER ACCESS — PLEASE TRY AGAIN"
+                // Force the setup screen to recompose: it reads the
+                // persisted URI directly, and pegasusNotice may not change.
+                if (ok) pegasusConfigRev++
             }
         }
 
@@ -235,6 +283,9 @@ class MainActivity : ComponentActivity() {
             workDir = File(cacheDir, "updater").apply { mkdirs() },
             scope = scope,
             appVersion = BuildConfig.VERSION_NAME,
+            // BuildConfig.VERSION_CODE defaults in; the manager reads the
+            // persisted update channel (default DEV) from prefs itself.
+            prefs = prefs,
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
 
@@ -247,6 +298,8 @@ class MainActivity : ComponentActivity() {
         )
         // Seed the library status block on HOME on first paint.
         scraper.refresh()
+
+        pegasus = PegasusLibrary(this, prefs, locations)
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
@@ -264,6 +317,9 @@ class MainActivity : ComponentActivity() {
             val appUpdate by manager.appUpdate.collectAsState()
             val locError = locationError
             val diagInfo = diagnosticsInfo
+            // The manager's own update channel (DEV / CANDIDATE vs STABLE),
+            // persisted in prefs; changing it re-checks for an app update.
+            var updateChannel by remember { mutableStateOf(AppUpdateChannel.load(prefs)) }
             val pop: () -> Unit = { nav.onBack() }
 
             when (val dest = nav.current) {
@@ -276,6 +332,7 @@ class MainActivity : ComponentActivity() {
                         nav.navigate(Dest.Library)
                     },
                     onTheme = { nav.navigate(Dest.Theme) },
+                    onPegasusSetup = { nav.navigate(Dest.PegasusSetup) },
                     onSettings = { nav.navigate(Dest.Settings) },
                     onDiagnostics = { openDiagnostics(nav) },
                     onExit = { finish() },
@@ -348,8 +405,124 @@ class MainActivity : ComponentActivity() {
                     },
                     onPickThemesRoot = { folderPicker.launch(null) },
                     onDiagnostics = { openDiagnostics(nav) },
+                    updateChannel = updateChannel,
+                    onUpdateChannel = { channel ->
+                        AppUpdateChannel.save(prefs, channel)
+                        updateChannel = channel
+                        manager.checkAppUpdate()
+                    },
                     onBack = pop,
                 )
+                is Dest.PegasusSetup -> {
+                    // Read the profiles revision so this screen recomposes
+                    // after launcher choices change, and the config revision
+                    // so it recomposes right after the config root is picked
+                    // (the persisted URI is read directly, not via a flow).
+                    @Suppress("UNUSED_VARIABLE")
+                    val profilesRev = pegasusProfilesRev
+                    @Suppress("UNUSED_VARIABLE")
+                    val configRev = pegasusConfigRev
+                    val rows = pegasusRows()
+                    val configUri = pegasus.config.treeUri()
+                    val configReady = configUri != null && pegasus.config.hasAccess()
+                    val unconfigured = rows
+                        .filter { it.gameCount > 0 && it.launcherStatus == "NOT CONFIGURED" }
+                        .map { it.label.uppercase() }
+                    PegasusSetupScreen(
+                        configStatus = pegasus.configDisplayPath(),
+                        configReady = configReady,
+                        systems = rows,
+                        injectEnabled = configReady && !pegasusBusy && unconfigured.isEmpty() &&
+                            rows.any { it.gameCount > 0 },
+                        injectWarning = unconfigured.takeIf { it.isNotEmpty() }
+                            ?.let { "NO LAUNCHER: ${it.joinToString(", ")} — CONFIGURE LAUNCHERS BEFORE INJECTING" },
+                        injecting = pegasusBusy,
+                        notice = pegasusNotice,
+                        pegasusInstalled = isPegasusInstalled(),
+                        onPickConfig = { pegasusPicker.launch(null) },
+                        onConfigureLaunchers = { nav.navigate(Dest.PegasusLaunchers) },
+                        onInject = { injectPegasus() },
+                        onDismissNotice = { pegasusNotice = null },
+                        onOpenPegasus = { openPegasus() },
+                        onBack = pop,
+                    )
+                }
+                is Dest.PegasusLaunchers -> {
+                    @Suppress("UNUSED_VARIABLE")
+                    val profilesRev = pegasusProfilesRev
+                    PegasusLaunchersScreen(
+                        systems = pegasusRows(),
+                        onSelectSystem = { slug, label ->
+                            nav.navigate(Dest.PegasusLauncher(slug, label))
+                        },
+                        onBack = pop,
+                    )
+                }
+                is Dest.PegasusLauncher -> {
+                    @Suppress("UNUSED_VARIABLE")
+                    val profilesRev = pegasusProfilesRev
+                    val installed = installedEmulatorPackages()
+                    val slug = dest.slug
+                    val explicit = pegasus.profiles.get(slug)
+                    val effective = explicit ?: LauncherPresets.defaultProfile(slug)
+                    val current = effective?.takeIf { it.isConfigured() }
+                    PegasusLauncherScreen(
+                        slug = slug,
+                        label = dest.label,
+                        currentStatus = current?.displayLabel() ?: "NOT CONFIGURED",
+                        isDefault = explicit == null,
+                        defaultProfile = LauncherPresets.defaultProfile(slug)
+                            ?.takeIf { it.isConfigured() },
+                        retroArchOptions = LauncherPresets.retroArchPackages.map { (pkg, tag) ->
+                            RetroArchOption(
+                                packageName = pkg,
+                                tag = tag,
+                                core = LauncherPresets.defaultCore(slug),
+                                installed = pkg in installed,
+                            )
+                        },
+                        standaloneOptions = LauncherPresets.standaloneFor(slug).map { profile ->
+                            StandaloneOption(
+                                profile = profile,
+                                installed = profile.packageName in installed,
+                            )
+                        },
+                        customCommand = explicit
+                            ?.takeIf { it.type == LauncherType.CUSTOM }
+                            ?.command.orEmpty(),
+                        notice = pegasusNotice,
+                        onUseDefault = {
+                            LauncherPresets.defaultProfile(slug)?.let { pegasus.profiles.set(slug, it) }
+                            pegasusNotice = null
+                            pegasusProfilesRev++
+                        },
+                        onSelectRetroArch = { pkg, core ->
+                            pegasus.profiles.set(slug, LauncherPresets.retroArch(pkg, core))
+                            pegasusNotice = null
+                            pegasusProfilesRev++
+                        },
+                        onSelectStandalone = { profile ->
+                            pegasus.profiles.set(slug, profile)
+                            pegasusNotice = null
+                            pegasusProfilesRev++
+                        },
+                        onSaveCustom = { command ->
+                            pegasus.profiles.set(
+                                slug,
+                                LauncherProfile(type = LauncherType.CUSTOM, command = command),
+                            )
+                            pegasusNotice = "CUSTOM COMMAND SAVED"
+                            pegasusProfilesRev++
+                        },
+                        onClear = {
+                            pegasus.profiles.clear(slug)
+                            pegasusNotice = null
+                            pegasusProfilesRev++
+                        },
+                        onDismissNotice = { pegasusNotice = null },
+                        onBack = pop,
+                    )
+                }
                 is Dest.Diagnostics -> {
                     val diagDispatcher = remember { FocusDispatcher() }
                     val info = diagInfo
@@ -449,6 +622,80 @@ class MainActivity : ComponentActivity() {
 
     private fun openPegasus() {
         packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE)?.let(::startActivity)
+    }
+
+    /**
+     * Emulator packages from [LauncherPresets.knownEmulatorPackages]
+     * that are installed. The manifest <queries> block keeps these
+     * visible on Android 11+; anything not visible reads as missing,
+     * never as installed.
+     */
+    private fun installedEmulatorPackages(): Set<String> {
+        val pm = packageManager
+        return LauncherPresets.knownEmulatorPackages.filterTo(mutableSetOf()) { pkg ->
+            runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
+                } else {
+                    @Suppress("DEPRECATION")
+                    pm.getPackageInfo(pkg, 0)
+                }
+            }.isSuccess
+        }
+    }
+
+    /**
+     * One row per recognized system: game count from the last library
+     * scan, launcher status from the stored profile or the curated
+     * default ("NOT CONFIGURED" when neither exists), and whether the
+     * named emulator app is installed (CUSTOM needs no app).
+     */
+    private fun pegasusRows(): List<PegasusSystemRow> {
+        val installed = installedEmulatorPackages()
+        val counts = scraper.state.value.systems.associate { it.platformSlug to it.gameCount }
+        return PlatformTable.all().map { platform ->
+            val explicit = pegasus.profiles.get(platform.slug)
+            val effective = explicit ?: LauncherPresets.defaultProfile(platform.slug)
+            val configured = effective?.takeIf { it.isConfigured() }
+            PegasusSystemRow(
+                slug = platform.slug,
+                label = platform.displayName,
+                gameCount = counts[platform.slug] ?: 0,
+                launcherStatus = configured?.displayLabel() ?: "NOT CONFIGURED",
+                launcherInstalled = configured?.let {
+                    it.type == LauncherType.CUSTOM || it.packageName in installed
+                } ?: true,
+                isDefault = explicit == null,
+            )
+        }
+    }
+
+    /**
+     * Explicit INJECT / REFRESH PEGASUS LIBRARY. Runs off the main
+     * thread; the result (counts, skipped systems, or a failure
+     * message) lands in [pegasusNotice]. Never runs automatically.
+     */
+    private fun injectPegasus() {
+        if (pegasusBusy) return
+        pegasusBusy = true
+        pegasusNotice = null
+        scope.launch(Dispatchers.IO) {
+            val outcome = pegasus.inject()
+            withContext(Dispatchers.Main) {
+                pegasusBusy = false
+                pegasusNotice = when (outcome) {
+                    is PegasusLibrary.InjectOutcome.Ok -> buildString {
+                        append("INJECTED ${outcome.games} GAMES · ${outcome.collections} SYSTEMS")
+                        if (outcome.unknownFolders.isNotEmpty()) {
+                            append(" — IGNORED FOLDERS (NOT RECOGNIZED): ")
+                            append(outcome.unknownFolders.joinToString(", ").uppercase())
+                        }
+                        append(" — RESTART PEGASUS TO APPLY")
+                    }.toString()
+                    is PegasusLibrary.InjectOutcome.Failed -> outcome.message
+                }
+            }
+        }
     }
 
     override fun onDestroy() {
