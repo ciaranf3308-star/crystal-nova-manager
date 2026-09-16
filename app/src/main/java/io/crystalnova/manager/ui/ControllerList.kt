@@ -314,7 +314,13 @@ fun rememberControllerListState(): ControllerListState {
             lazyListState,
             ControllerScrollEngine(
                 animateTo = { index, offset ->
-                    lazyListState.animateScrollToItem(index, offset)
+                    // Instant (not animated): animateScrollToItem never settles
+                    // under Robolectric — the test clock does not drive it and
+                    // the lazy layout is left with empty bounds. The boundary
+                    // handler already snaps instantly for the same reason;
+                    // focus-into-view correctness matters more than the
+                    // animation here.
+                    lazyListState.scrollToItem(index, offset)
                 },
                 isComfortablyVisible = { index, insetPx ->
                     val layout = lazyListState.layoutInfo
@@ -336,7 +342,8 @@ fun rememberControllerGridState(): ControllerGridState {
             lazyGridState,
             ControllerScrollEngine(
                 animateTo = { index, offset ->
-                    lazyGridState.animateScrollToItem(index, offset)
+                    // Instant, not animated — see the list state above.
+                    lazyGridState.scrollToItem(index, offset)
                 },
                 isComfortablyVisible = { index, insetPx ->
                     val layout = lazyGridState.layoutInfo

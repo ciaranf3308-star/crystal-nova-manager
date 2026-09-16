@@ -137,19 +137,7 @@ fun NovaUiTest.assertDpadTraversalInViewport(
         // key events route to whichever node holds focus, and this keeps
         // the node-fetch off rows that may already have scrolled away.
         focused.pressDpadDown()
-        // Focus-triggered scrolls animate; the test clock does not advance
-        // them via waitForIdle alone. Advance explicitly, then poll until
-        // the newly focused row has laid out (valid bounds).
-        composeTestRule.mainClock.advanceTimeBy(1000)
         composeTestRule.waitForIdle()
-        composeTestRule.waitUntil(timeoutMillis = 5_000) {
-            try {
-                val b = steps[i]().fetchSemanticsNode().boundsInRoot
-                b.width > 0f && b.height > 0f
-            } catch (t: Throwable) {
-                false
-            }
-        }
         focused = steps[i]()
         focused.assertIsFocused()
         assertInteractionInViewport(focused, "traversal step $i")
