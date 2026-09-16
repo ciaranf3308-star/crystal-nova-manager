@@ -109,6 +109,10 @@ dependencies {
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
+    // Nova 4:3 viewport UI tests run on the JVM under Robolectric.
+    // ui-test-junit4's version is BOM-managed via testImplementation(composeBom) above.
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    testImplementation("org.robolectric:robolectric:4.14.1")
     // android.jar's org.json is stubbed ("Stub!"); unit tests need the real
     // implementation. Test-scoped only — on device the framework provides it.
     testImplementation("org.json:json:20240303")

@@ -40,12 +40,16 @@ fun dpadUpKeyEvent(): ComposeKeyEvent = dpadKeyEvent(AndroidKeyEvent.KEYCODE_DPA
  * focus system turns DPAD_DOWN into `FocusDirection.Down` movement between
  * `focusable()` nodes.
  */
-fun SemanticsNodeInteraction.pressDpadDown(): SemanticsNodeInteraction =
+fun SemanticsNodeInteraction.pressDpadDown(): SemanticsNodeInteraction {
     performKeyPress(dpadDownKeyEvent())
+    return this
+}
 
 /** D-pad UP variant of [pressDpadDown]. */
-fun SemanticsNodeInteraction.pressDpadUp(): SemanticsNodeInteraction =
+fun SemanticsNodeInteraction.pressDpadUp(): SemanticsNodeInteraction {
     performKeyPress(dpadUpKeyEvent())
+    return this
+}
 
 // ---------------------------------------------------------------------------
 // Scroll gestures
