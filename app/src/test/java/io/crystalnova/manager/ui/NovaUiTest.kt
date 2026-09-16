@@ -8,9 +8,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.test.fetchSemanticsNode
-import androidx.compose.ui.test.fetchSemanticsNodes
-import androidx.compose.ui.test.junit4.ComposeTestRule
+import androidx.compose.ui.test.junit4.ComposeContentTestRule
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -29,7 +27,7 @@ import org.robolectric.annotation.Config
  * The annotations are inherited by subclasses ([RunWith] and [Config] are both
  * `@Inherited`), so every `NovaUiTest` subclass automatically runs with
  * [RobolectricTestRunner] at API 33 (Android 13 — what the Retroid Pocket Nova
- * ships) and gets a [ComposeTestRule] via [createComposeRule].
+ * ships) and gets a [ComposeContentTestRule] via [createComposeRule].
  *
  * The rule launches a real `ComponentActivity` through Robolectric's
  * `ActivityScenario` support, so `composeTestRule` behaves like the on-device
@@ -40,7 +38,7 @@ import org.robolectric.annotation.Config
 abstract class NovaUiTest {
 
     @get:Rule
-    val composeTestRule: ComposeTestRule = createComposeRule()
+    val composeTestRule: ComposeContentTestRule = createComposeRule()
 
     /**
      * Sets [content] inside a fixed 1280x960 logical viewport, matching the

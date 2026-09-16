@@ -4,7 +4,6 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.hasScrollAction
-import androidx.compose.ui.test.onNode
 import org.junit.Assert.assertTrue
 import org.junit.Test
 

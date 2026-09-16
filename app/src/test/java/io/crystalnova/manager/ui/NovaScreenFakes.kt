@@ -2,14 +2,13 @@
 
 package io.crystalnova.manager.ui
 
-import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithTag
-import androidx.compose.ui.test.onNode
+import androidx.compose.ui.test.requestFocus
 import io.crystalnova.manager.scraper.ScraperUiState
 import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.updater.ManagerState
@@ -67,7 +66,7 @@ fun fakeThemeReadyState(): ManagerState.Ready = ManagerState.Ready(
  * per-route focus memory left behind by earlier tests.
  */
 fun SemanticsNodeInteraction.requestDpadFocus(): SemanticsNodeInteraction {
-    performSemanticsAction(SemanticsActions.RequestFocus)
+    requestFocus()
     return this
 }
 
