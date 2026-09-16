@@ -9,14 +9,30 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.SafThemeStorage
+import io.crystalnova.manager.ui.Crystal
+import io.crystalnova.manager.ui.CrystalButton
+import io.crystalnova.manager.ui.FocusDispatcher
+import io.crystalnova.manager.ui.ScraperScreen
 import io.crystalnova.manager.ui.ThemeUpdateScreen
+import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
@@ -52,7 +68,10 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var manager: UpdateManager
     private lateinit var storage: SafThemeStorage
+    private lateinit var scraper: ScraperManager
     private val scope = MainScope()
+
+    private enum class Section { THEME, SCRAPER }
 
     private val folderPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -79,6 +98,22 @@ class MainActivity : ComponentActivity() {
                 }
             }
             manager.refresh(folderNotice)
+        }
+
+    private val gamesFolderPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                try {
+                    contentResolver.takePersistableUriPermission(
+                        uri,
+                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+                    )
+                    scraper.setGamesFolder(uri.toString())
+                } catch (_: SecurityException) {
+                    // Stay on the scraper onboarding screen; user can retry.
+                }
+            }
         }
 
     /**
@@ -154,26 +189,82 @@ class MainActivity : ComponentActivity() {
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
 
+        scraper = ScraperManager(
+            context = this,
+            prefs = prefs,
+            themesTreeUri = { storage.treeUri },
+            scope = scope,
+        )
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = handleBack()
         })
 
         setContent {
-            val state by manager.state.collectAsState()
-            val appUpdate by manager.appUpdate.collectAsState()
-            ThemeUpdateScreen(
-                state = state,
-                onEvent = { event ->
-                    if (event === ManagerEvent.OpenPegasus) openPegasus()
-                    else manager.onEvent(event)
-                },
-                pegasusLaunchable = isPegasusInstalled(),
-                onPickFolder = { folderPicker.launch(null) },
-                onExit = { finish() },
-                appVersion = BuildConfig.VERSION_NAME,
-                appUpdate = appUpdate,
-                onUpdateApp = { onUpdateApp() },
-            )
+            var section by remember { mutableStateOf(Section.THEME) }
+            val tabDispatcher = remember { FocusDispatcher() }
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(Crystal.Background),
+            ) {
+                // Section tabs: THEME | SCRAPER. Controller-navigable.
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 48.dp, vertical = 12.dp),
+                ) {
+                    for (tab in Section.entries) {
+                        val selected = tab == section
+                        androidx.compose.foundation.layout.Box(
+                            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
+                        ) {
+                            CrystalButton(
+                                key = "tab-$tab",
+                                label = (if (selected) "> " else "") + tab.name,
+                                onClick = {
+                                    section = tab
+                                    if (tab == Section.SCRAPER) scraper.refresh()
+                                },
+                                dispatcher = tabDispatcher,
+                            )
+                        }
+                    }
+                }
+                when (section) {
+                    Section.THEME -> {
+                        val state by manager.state.collectAsState()
+                        val appUpdate by manager.appUpdate.collectAsState()
+                        ThemeUpdateScreen(
+                            state = state,
+                            onEvent = { event ->
+                                if (event === ManagerEvent.OpenPegasus) openPegasus()
+                                else manager.onEvent(event)
+                            },
+                            pegasusLaunchable = isPegasusInstalled(),
+                            onPickFolder = { folderPicker.launch(null) },
+                            onExit = { finish() },
+                            appVersion = BuildConfig.VERSION_NAME,
+                            appUpdate = appUpdate,
+                            onUpdateApp = { onUpdateApp() },
+                        )
+                    }
+                    Section.SCRAPER -> {
+                        val scraperState by scraper.state.collectAsState()
+                        ScraperScreen(
+                            state = scraperState,
+                            onPickGamesFolder = { gamesFolderPicker.launch(null) },
+                            onScan = { scraper.scan() },
+                            onSelectPlatform = { scraper.selectPlatform(it) },
+                            onStartScrape = { scraper.startScrape() },
+                            onRetry = { scraper.retryIncomplete() },
+                            onCancel = { scraper.cancelScrape() },
+                            onDismissNotice = { scraper.dismissNotice() },
+                            onExit = { finish() },
+                        )
+                    }
+                }
+            }
         }
     }
 
