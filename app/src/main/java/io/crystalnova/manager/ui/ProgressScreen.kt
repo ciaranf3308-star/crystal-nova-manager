@@ -40,7 +40,7 @@ fun ProgressScreen(
         onBack = onBack,
         modifier = modifier,
         footerLabel = "BACK (SCRAPE KEEPS RUNNING)",
-        fallbackFocusKey = if (state.scraping) "cancel-scrape" else "scrape-done",
+        fallbackFocusKey = if (state.scraping) "progress-cancel" else "progress-done",
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -84,20 +84,22 @@ fun ProgressScreen(
             state.notice?.let { NoticeBlock(it, onDismissNotice, dispatcher) }
             if (state.scraping) {
                 CrystalButton(
-                    key = "cancel-scrape",
+                    key = "progress-cancel",
+                    testTag = "progress-cancel",
                     label = "CANCEL",
                     onClick = onCancel,
                     dispatcher = dispatcher,
                     danger = true,
-                    requestInitialFocus = isInitialFocus("cancel-scrape"),
+                    requestInitialFocus = isInitialFocus("progress-cancel"),
                 )
             } else {
                 CrystalButton(
-                    key = "scrape-done",
+                    key = "progress-done",
+                    testTag = "progress-done",
                     label = "DONE",
                     onClick = onDone,
                     dispatcher = dispatcher,
-                    requestInitialFocus = isInitialFocus("scrape-done"),
+                    requestInitialFocus = isInitialFocus("progress-done"),
                 )
             }
         }

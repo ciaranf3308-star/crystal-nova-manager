@@ -1,21 +1,15 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 
 /**
- * LAUNCHERS: every recognized system, its game count, and its current
- * launcher status (curated default, your choice, or NOT CONFIGURED).
- * Selecting a system opens its launcher picker. Systems with no games
- * can still be pre-configured; injection only emits systems that have
- * games AND a configured launcher.
+ * LAUNCHERS: every recognized system as one compact row — label, game
+ * count, and current launcher status (curated default, your choice, or
+ * NOT CONFIGURED). The focused row opens that system's launcher
+ * picker. Systems with no games can still be pre-configured;
+ * injection only emits systems that have games AND a configured
+ * launcher.
  */
 @Composable
 fun PegasusLaunchersScreen(
@@ -29,38 +23,28 @@ fun PegasusLaunchersScreen(
         title = "LAUNCHERS",
         onBack = onBack,
         modifier = modifier,
-        fallbackFocusKey = systems.firstOrNull()?.let { "pegasus-sys-${it.slug}" },
+        fallbackFocusKey = systems.firstOrNull()?.let { "launcher-row-${it.slug}" },
     ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+        // The controller-aware list is this screen's single scroll
+        // container: D-pad focus on any row scrolls it comfortably into
+        // view.
+        ControllerList(
+            state = listState,
+            dispatcher = dispatcher,
+            initialFocus = ::isInitialFocus,
         ) {
-            DimLine(
-                "ONE LAUNCHER PER SYSTEM. RETROARCH + CORE, A VERIFIED STANDALONE " +
-                    "EMULATOR, OR YOUR OWN COMMAND. NOTHING IS CHOSEN FOR YOU.",
-            )
-            // The grid is this screen's single scroll container.
-            Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-            ) {
-                ControllerGrid(
-                    state = gridState,
-                    dispatcher = dispatcher,
-                    columns = GridCells.Fixed(3),
-                    initialFocus = ::isInitialFocus,
-                ) {
-                    systems.forEach { sys ->
-                        val state = buildString {
-                            append(sys.launcherStatus)
-                            if (!sys.launcherInstalled) append(" · APP MISSING")
-                        }
-                        control(
-                            key = "pegasus-sys-${sys.slug}",
-                            label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES\n$state",
-                            onClick = { onSelectSystem(sys.slug, sys.label) },
-                        )
-                    }
+            systems.forEach { sys ->
+                val state = buildString {
+                    append(sys.launcherStatus)
+                    if (!sys.launcherInstalled) append(" · APP MISSING")
+                    else if (sys.isDefault && sys.launcherStatus != "NOT CONFIGURED") append(" · DEFAULT")
                 }
+                control(
+                    key = "launcher-row-${sys.slug}",
+                    testTag = "launcher-row-${sys.slug}",
+                    label = "${sys.label.uppercase()} · ${sys.gameCount} GAMES\n$state",
+                    onClick = { onSelectSystem(sys.slug, sys.label) },
+                )
             }
         }
     }

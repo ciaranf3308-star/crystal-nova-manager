@@ -8,7 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
  *
  *   HOME → LIBRARY → SYSTEM(slug) → PROGRESS
  *   HOME → THEME
- *   HOME → SETTINGS
+ *   HOME → SETTINGS → SETTINGS/ROM | SETTINGS/MEDIA | SETTINGS/THEMES | SETTINGS/CHANNEL
  *   HOME → PEGASUS SETUP → PEGASUS LAUNCHERS → PEGASUS LAUNCHER(slug)
  *   any → DIAGNOSTICS (overlay destination; B pops back)
  *
@@ -22,6 +22,14 @@ sealed interface Dest {
     data object Progress : Dest
     data object Theme : Dest
     data object Settings : Dest
+    /** ROM LIBRARY child of SETTINGS. */
+    data object SettingsRom : Dest
+    /** MEDIA LIBRARY child of SETTINGS. */
+    data object SettingsMedia : Dest
+    /** THEME STORAGE child of SETTINGS. */
+    data object SettingsThemes : Dest
+    /** UPDATE CHANNEL child of SETTINGS. */
+    data object SettingsChannel : Dest
     data object Diagnostics : Dest
     data object PegasusSetup : Dest
     data object PegasusLaunchers : Dest

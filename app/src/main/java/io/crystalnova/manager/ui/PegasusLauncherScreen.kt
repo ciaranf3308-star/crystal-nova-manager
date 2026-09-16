@@ -15,6 +15,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.pegasus.LauncherProfile
@@ -116,6 +117,7 @@ fun PegasusLauncherScreen(
             defaultProfile?.let { def ->
                 control(
                     key = "launcher-default",
+                    testTag = "launcher-default",
                     label = "USE DEFAULT: ${def.displayLabel()}",
                     onClick = onUseDefault,
                     enabled = defaultUsable,
@@ -132,6 +134,7 @@ fun PegasusLauncherScreen(
                     val coreLabel = opt.core ?: "NO KNOWN CORE"
                     control(
                         key = "launcher-ra-${opt.packageName}",
+                        testTag = "launcher-ra-${opt.packageName}",
                         label = "RETROARCH ${opt.tag} + $coreLabel" +
                             if (opt.installed) "" else " · NOT INSTALLED",
                         onClick = { opt.core?.let { onSelectRetroArch(opt.packageName, it) } },
@@ -139,12 +142,7 @@ fun PegasusLauncherScreen(
                     )
                 }
                 section {
-                    DimLine(
-                        "THE CORE IS THE COMMUNITY-STANDARD LIBRETRO CORE FOR THIS " +
-                            "SYSTEM. THE LAUNCH COMMAND USES ITS FULL ON-DEVICE PATH " +
-                            "(/data/data/<PACKAGE>/cores/<CORE>). {file.path} IS FILLED " +
-                            "IN WHEN PEGASUS LAUNCHES THE GAME.",
-                    )
+                    DimLine("{file.path} IS FILLED IN WHEN PEGASUS LAUNCHES THE GAME.")
                 }
             }
 
@@ -153,6 +151,7 @@ fun PegasusLauncherScreen(
                 standaloneOptions.forEach { opt ->
                     control(
                         key = "launcher-sa-${opt.profile.packageName}",
+                        testTag = "launcher-sa-${opt.profile.packageName}",
                         label = opt.profile.displayLabel() +
                             if (opt.installed) "" else " · NOT INSTALLED",
                         onClick = { onSelectStandalone(opt.profile) },
@@ -160,8 +159,8 @@ fun PegasusLauncherScreen(
                 }
             }
 
-            section { SectionLabel("CUSTOM") }
             section {
+                SectionLabel("CUSTOM")
                 DimLine("YOUR OWN COMMAND, USED VERBATIM. {file.path} = GAME PATH.")
             }
             section {
@@ -172,6 +171,7 @@ fun PegasusLauncherScreen(
                     modifier = Modifier
                         .fillMaxWidth()
                         .then(scrollModifier())
+                        .testTag("launcher-custom-field")
                         .onFocusChanged {
                             fieldFocused = it.isFocused
                             editingCustom = it.isFocused
@@ -195,21 +195,20 @@ fun PegasusLauncherScreen(
             }
             control(
                 key = "launcher-save-custom",
+                testTag = "launcher-save-custom",
                 label = "SAVE CUSTOM COMMAND",
                 onClick = { onSaveCustom(customText) },
                 enabled = customText.isNotBlank(),
             )
             control(
                 key = "launcher-clear",
+                testTag = "launcher-clear",
                 label = "CLEAR CHOICE",
                 onClick = onClear,
                 danger = true,
             )
             section {
-                DimLine(
-                    "CLEARING REMOVES YOUR CHOICE — THE CURATED DEFAULT APPLIES " +
-                        "AGAIN, OR NOT CONFIGURED WHEN THERE IS NONE.",
-                )
+                DimLine("CLEARING RESTORES THE CURATED DEFAULT, OR NOT CONFIGURED.")
             }
 
             notice?.let { section { notice(it, onDismissNotice) } }

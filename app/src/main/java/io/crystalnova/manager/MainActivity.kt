@@ -41,7 +41,10 @@ import io.crystalnova.manager.ui.PegasusSystemRow
 import io.crystalnova.manager.ui.PlaceholderScreen
 import io.crystalnova.manager.ui.ProgressScreen
 import io.crystalnova.manager.ui.RetroArchOption
+import io.crystalnova.manager.ui.SettingsChannelScreen
+import io.crystalnova.manager.ui.SettingsLocationScreen
 import io.crystalnova.manager.ui.SettingsScreen
+import io.crystalnova.manager.ui.SettingsThemesScreen
 import io.crystalnova.manager.ui.StandaloneOption
 import io.crystalnova.manager.ui.SystemScreen
 import io.crystalnova.manager.ui.ThemeScreen
@@ -323,9 +326,11 @@ class MainActivity : ComponentActivity() {
 
             when (val dest = nav.current) {
                 is Dest.Home -> HomeScreen(
-                    themeState = themeState,
                     scraperState = scraperState,
                     appVersion = BuildConfig.VERSION_NAME,
+                    appUpdate = appUpdate,
+                    pegasusReady = isPegasusInstalled(),
+                    onUpdateApp = { onUpdateApp() },
                     onLibrary = {
                         scraper.refresh()
                         nav.navigate(Dest.Library)
@@ -378,34 +383,59 @@ class MainActivity : ComponentActivity() {
                     },
                     pegasusLaunchable = isPegasusInstalled(),
                     onPickFolder = { folderPicker.launch(null) },
-                    appVersion = BuildConfig.VERSION_NAME,
-                    appUpdate = appUpdate,
-                    onUpdateApp = { onUpdateApp() },
-                    onDiagnostics = { openDiagnostics(nav) },
                     onBack = pop,
                 )
                 is Dest.Settings -> SettingsScreen(
                     romLocation = scraperState.romLocation,
                     mediaLocation = scraperState.mediaLocation,
                     themesRootLabel = themesRootLabel(),
+                    updateChannel = updateChannel,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appUpdate = appUpdate,
                     locationError = locError,
                     onDismissLocationError = { locationError = null },
-                    onPickRom = { romPicker.launch(null) },
-                    onPickMedia = { mediaPicker.launch(null) },
-                    onClearRom = {
+                    onUpdateApp = { onUpdateApp() },
+                    onOpenRom = { nav.navigate(Dest.SettingsRom) },
+                    onOpenMedia = { nav.navigate(Dest.SettingsMedia) },
+                    onOpenThemes = { nav.navigate(Dest.SettingsThemes) },
+                    onOpenChannel = { nav.navigate(Dest.SettingsChannel) },
+                    onDiagnostics = { openDiagnostics(nav) },
+                    onBack = pop,
+                )
+                is Dest.SettingsRom -> SettingsLocationScreen(
+                    routeKey = "settings-rom",
+                    title = "ROM LIBRARY",
+                    location = scraperState.romLocation,
+                    showBadge = false,
+                    onPick = { romPicker.launch(null) },
+                    onClear = {
                         locations.clearLocation(LocationKind.ROM, storage.treeUri)
                         locations.writeBridge(storage.treeUri)
                         scraper.refresh()
                     },
-                    onClearMedia = {
+                    onBack = pop,
+                )
+                is Dest.SettingsMedia -> SettingsLocationScreen(
+                    routeKey = "settings-media",
+                    title = "MEDIA LIBRARY",
+                    location = scraperState.mediaLocation,
+                    showBadge = true,
+                    onPick = { mediaPicker.launch(null) },
+                    onClear = {
                         locations.clearLocation(LocationKind.MEDIA, storage.treeUri)
                         locations.writeBridge(storage.treeUri)
                         scraper.refresh()
                     },
+                    onBack = pop,
+                )
+                is Dest.SettingsThemes -> SettingsThemesScreen(
+                    themesRootLabel = themesRootLabel(),
                     onPickThemesRoot = { folderPicker.launch(null) },
-                    onDiagnostics = { openDiagnostics(nav) },
-                    updateChannel = updateChannel,
-                    onUpdateChannel = { channel ->
+                    onBack = pop,
+                )
+                is Dest.SettingsChannel -> SettingsChannelScreen(
+                    channel = updateChannel,
+                    onSelect = { channel ->
                         AppUpdateChannel.save(prefs, channel)
                         updateChannel = channel
                         manager.checkAppUpdate()
@@ -439,6 +469,7 @@ class MainActivity : ComponentActivity() {
                         notice = pegasusNotice,
                         pegasusInstalled = isPegasusInstalled(),
                         onPickConfig = { pegasusPicker.launch(null) },
+                        onRescan = { scraper.scan() },
                         onConfigureLaunchers = { nav.navigate(Dest.PegasusLaunchers) },
                         onInject = { injectPegasus() },
                         onDismissNotice = { pegasusNotice = null },

@@ -247,6 +247,7 @@ class ControllerListContent(
         danger: Boolean = false,
         requestInitialFocus: Boolean = initialFocus(key),
         modifier: Modifier = Modifier,
+        testTag: String? = null,
     ) {
         section(key = key) {
             control(
@@ -257,6 +258,7 @@ class ControllerListContent(
                 danger = danger,
                 requestInitialFocus = requestInitialFocus,
                 modifier = modifier,
+                testTag = testTag,
             )
         }
     }
@@ -283,6 +285,7 @@ class SectionScope(
         danger: Boolean = false,
         requestInitialFocus: Boolean = initialFocus(key),
         modifier: Modifier = Modifier,
+        testTag: String? = null,
     ) {
         CrystalButton(
             key = key,
@@ -295,6 +298,7 @@ class SectionScope(
             danger = danger,
             scrollEngine = engine,
             scrollIndex = itemIndex,
+            testTag = testTag,
         )
     }
 
@@ -362,6 +366,7 @@ class ControllerGridContent(
         danger: Boolean = false,
         requestInitialFocus: Boolean = initialFocus(key),
         modifier: Modifier = Modifier,
+        testTag: String? = null,
     ) {
         val index = nextIndex++
         item(key = key) {
@@ -376,6 +381,7 @@ class ControllerGridContent(
                 danger = danger,
                 scrollEngine = engine,
                 scrollIndex = index,
+                testTag = testTag,
             )
         }
     }

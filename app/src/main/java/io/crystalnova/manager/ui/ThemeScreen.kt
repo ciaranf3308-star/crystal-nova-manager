@@ -8,33 +8,31 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
 import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.Stage
 import io.crystalnova.manager.updater.VersionDisplay
 
 /**
- * THEME: the theme updater. Same updater behavior and transaction
- * logic as before — only the presentation is reorganized:
+ * THEME: the Pegasus theme updater, and nothing else. Same updater
+ * behavior and transaction logic as before — only the presentation is
+ * reorganized.
  *
- * - Primary block: installed/latest versions, status, UPDATE THEME /
- *   rollback / retry / Pegasus launch. This is what the screen is for.
- * - Secondary block (visually subordinate): the MANAGER APP
- *   self-updater, the themes-folder config, and a DIAGNOSTICS entry.
+ * The MANAGER APP self-updater is NOT here: it lives on HOME (banner)
+ * and at the top of SETTINGS. The themes-folder config and the
+ * DIAGNOSTICS entry moved to SETTINGS as well.
  *
  * Controller B pops one level via the activity's navigator; it never
  * dismisses an in-flight updater transaction (the UpdateManager owns
  * the transaction and survives screen changes).
  *
- * Pure function of [state] + [appUpdate]: no Android APIs, so it
- * renders on the JVM for screenshot tests.
+ * Pure function of [state]: no Android APIs, so it renders on the JVM
+ * for screenshot tests.
  */
 @Composable
 fun ThemeScreen(
@@ -42,11 +40,6 @@ fun ThemeScreen(
     onEvent: (ManagerEvent) -> Unit,
     pegasusLaunchable: Boolean,
     onPickFolder: () -> Unit,
-    appVersion: String,
-    appUpdate: AppUpdateState,
-    onUpdateApp: () -> Unit,
-    /** Routes to the DIAGNOSTICS destination (the 5-tap entry lives on HOME). */
-    onDiagnostics: () -> Unit = {},
     /** Pops one navigation level (B). */
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -55,16 +48,16 @@ fun ThemeScreen(
     // the primary action for the current updater state, so D-pad starts
     // on the control the user most likely wants.
     val fallbackFocusKey = when {
-        state is ManagerState.Ready && state.updateAvailable -> "update"
-        state is ManagerState.Ready && state.notice != null -> "retry"
-        state is ManagerState.Ready && state.backup != null -> "rollback"
-        state is ManagerState.NeedsFolder -> "pick"
-        state is ManagerState.UpdateFailed -> "back"
+        state is ManagerState.Ready && state.updateAvailable -> "theme-update"
+        state is ManagerState.Ready && state.notice != null -> "theme-retry"
+        state is ManagerState.Ready && state.backup != null -> "theme-rollback"
+        state is ManagerState.NeedsFolder -> "theme-pick"
+        state is ManagerState.UpdateFailed -> "theme-back"
         state is ManagerState.UpdateDone ->
-            if (pegasusLaunchable) "open-pegasus" else "done-back"
-        state is ManagerState.RollbackDone -> "rb-back"
-        state is ManagerState.RollbackFailed -> "rbf-back"
-        else -> "change-themes-folder"
+            if (pegasusLaunchable) "theme-open-pegasus" else "theme-done-back"
+        state is ManagerState.RollbackDone -> "theme-rb-back"
+        state is ManagerState.RollbackFailed -> "theme-rbf-back"
+        else -> "theme-change-folder"
     }
     ScreenScaffold(
         routeKey = "theme",
@@ -75,7 +68,7 @@ fun ThemeScreen(
     ) {
         // This screen's single scroll container: D-pad focus on any
         // control scrolls it to a comfortable viewport position, so
-        // below-the-fold actions (UPDATE APP included) are reachable.
+        // below-the-fold actions (e.g. CHANGE THEMES FOLDER) are reachable.
         ControllerList(
             state = listState,
             dispatcher = dispatcher,
@@ -85,7 +78,8 @@ fun ThemeScreen(
                 is ManagerState.NeedsFolder -> {
                     section { NeedsFolderPanel(s.message) }
                     control(
-                        key = "pick",
+                        key = "theme-pick",
+                        testTag = "theme-pick",
                         label = "SELECT PEGASUS THEMES FOLDER",
                         onClick = onPickFolder,
                     )
@@ -94,14 +88,16 @@ fun ThemeScreen(
                     section { ReadyPanel(s) }
                     if (s.updateAvailable && !s.checking) {
                         control(
-                            key = "update",
+                            key = "theme-update",
+                            testTag = "theme-update",
                             label = "UPDATE THEME",
                             onClick = { onEvent(ManagerEvent.StartUpdate) },
                         )
                     }
                     if (s.backup != null) {
                         control(
-                            key = "rollback",
+                            key = "theme-rollback",
+                            testTag = "theme-rollback",
                             label = if (s.backup.isLegacy) "ROLLBACK TO PREVIOUS"
                             else "ROLLBACK TO v${s.backup.version}",
                             onClick = { onEvent(ManagerEvent.StartRollback) },
@@ -110,14 +106,16 @@ fun ThemeScreen(
                     }
                     if (s.notice != null) {
                         control(
-                            key = "retry",
+                            key = "theme-retry",
+                            testTag = "theme-retry",
                             label = "RETRY",
                             onClick = { onEvent(ManagerEvent.CheckNow) },
                         )
                     }
                     if (pegasusLaunchable) {
                         control(
-                            key = "pegasus",
+                            key = "theme-open-pegasus",
+                            testTag = "theme-open-pegasus",
                             label = "OPEN PEGASUS",
                             onClick = { onEvent(ManagerEvent.OpenPegasus) },
                         )
@@ -127,7 +125,8 @@ fun ThemeScreen(
                 is ManagerState.UpdateFailed -> {
                     section { FailedPanel(s) }
                     control(
-                        key = "back",
+                        key = "theme-back",
+                        testTag = "theme-back",
                         label = "BACK",
                         onClick = { onEvent(ManagerEvent.Dismiss) },
                     )
@@ -136,13 +135,15 @@ fun ThemeScreen(
                     section { DonePanel(s) }
                     if (pegasusLaunchable) {
                         control(
-                            key = "open-pegasus",
+                            key = "theme-open-pegasus",
+                            testTag = "theme-open-pegasus",
                             label = "OPEN PEGASUS",
                             onClick = { onEvent(ManagerEvent.OpenPegasus) },
                         )
                     }
                     control(
-                        key = "done-back",
+                        key = "theme-done-back",
+                        testTag = "theme-done-back",
                         label = "BACK",
                         onClick = { onEvent(ManagerEvent.Dismiss) },
                     )
@@ -151,7 +152,8 @@ fun ThemeScreen(
                 is ManagerState.RollbackDone -> {
                     section { RollbackDonePanel(s) }
                     control(
-                        key = "rb-back",
+                        key = "theme-rb-back",
+                        testTag = "theme-rb-back",
                         label = "BACK",
                         onClick = { onEvent(ManagerEvent.Dismiss) },
                     )
@@ -159,38 +161,24 @@ fun ThemeScreen(
                 is ManagerState.RollbackFailed -> {
                     section { RollbackFailedPanel(s) }
                     control(
-                        key = "rbf-back",
+                        key = "theme-rbf-back",
+                        testTag = "theme-rbf-back",
                         label = "BACK",
                         onClick = { onEvent(ManagerEvent.Dismiss) },
                     )
                 }
             }
-            section { CrystalDivider() }
-            section { SectionLabel("MANAGER") }
+            // Theme storage root stays here — it belongs to the theme
+            // updater. Everything manager-app related moved to HOME /
+            // SETTINGS.
             section {
                 val s = this
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        AppUpdateSection(
-                            scope = s,
-                            appVersion = appVersion,
-                            update = appUpdate,
-                            onUpdateApp = onUpdateApp,
-                        )
-                        CrystalDivider()
-                        DimLine("THEME STORAGE FOLDER")
-                        s.control(
-                            key = "change-themes-folder",
-                            label = "CHANGE THEMES FOLDER",
-                            onClick = onPickFolder,
-                        )
-                        s.control(
-                            key = "open-diagnostics",
-                            label = "DIAGNOSTICS",
-                            onClick = onDiagnostics,
-                        )
-                    }
-                }
+                s.control(
+                    key = "theme-change-folder",
+                    testTag = "theme-change-folder",
+                    label = "CHANGE THEMES FOLDER",
+                    onClick = onPickFolder,
+                )
             }
         }
     }
@@ -300,10 +288,8 @@ private fun NeedsFolderPanel(message: String?) {
                 ),
             )
             BasicText(
-                text = "Choose the THEMES folder that contains your themes — " +
-                    "NOT the crystal theme folder itself.\n" +
-                    "Expected:\n/storage/emulated/0/pegasus-frontend/themes/\n" +
-                    "Crystal Nova Manager will remember it and never ask again.",
+                text = "CHOOSE THE THEMES FOLDER THAT CONTAINS YOUR THEMES " +
+                    "(NOT THE THEME FOLDER ITSELF).",
                 style = TextStyle(
                     fontFamily = Crystal.Mono, fontSize = Crystal.SmallSize,
                     color = Crystal.InkDim,
@@ -426,80 +412,5 @@ private fun RollbackDonePanel(state: ManagerState.RollbackDone) {
 private fun RollbackFailedPanel(state: ManagerState.RollbackFailed) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         StatusLine(state.message, Crystal.Bad)
-    }
-}
-
-// ------------------------------------------------------------------
-// Secondary block: the MANAGER APP self-updater (logic unchanged).
-// The hidden 5-tap diagnostics entry now lives on HOME's version
-// label; this section shows the plain installed version.
-// ------------------------------------------------------------------
-
-@Composable
-private fun AppUpdateSection(
-    scope: SectionScope,
-    appVersion: String,
-    update: AppUpdateState,
-    onUpdateApp: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SectionLabel("MANAGER APP")
-            BasicText(
-                text = "v$appVersion",
-                style = TextStyle(
-                    fontFamily = Crystal.Mono,
-                    fontSize = Crystal.SmallSize,
-                    color = Crystal.InkDim,
-                ),
-            )
-        }
-        when (update) {
-            is AppUpdateState.Idle ->
-                if (update.lastCheckFailed) {
-                    scope.control(
-                        key = "app-retry",
-                        label = "RETRY APP UPDATE CHECK",
-                        onClick = onUpdateApp,
-                    )
-                }
-            is AppUpdateState.Checking ->
-                StatusLine("CHECKING FOR APP UPDATES…", Crystal.Divider)
-            is AppUpdateState.Available -> {
-                StatusLine("APP UPDATE AVAILABLE — v${update.info.version}", Crystal.Cream)
-                update.notice?.let { StatusLine(it, Crystal.Bad) }
-                scope.control(
-                    key = "app-update",
-                    label = "UPDATE APP",
-                    onClick = onUpdateApp,
-                )
-            }
-            is AppUpdateState.Downloading -> {
-                val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
-                StatusLine("DOWNLOADING APP UPDATE$pct", Crystal.Divider)
-            }
-            is AppUpdateState.Downloaded -> {
-                StatusLine("APP UPDATE READY TO INSTALL", Crystal.Cream)
-                scope.control(
-                    key = "app-install",
-                    label = "INSTALL APP UPDATE",
-                    onClick = onUpdateApp,
-                )
-            }
-            is AppUpdateState.Installing ->
-                StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
-            is AppUpdateState.Failed -> {
-                StatusLine(update.message, Crystal.Bad)
-                scope.control(
-                    key = "app-retry",
-                    label = "RETRY APP UPDATE CHECK",
-                    onClick = onUpdateApp,
-                )
-            }
-        }
     }
 }

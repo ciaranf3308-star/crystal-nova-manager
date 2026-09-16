@@ -161,11 +161,13 @@ fun DiagnosticsScreen(
             }
             control(
                 key = "diag-refresh",
+                testTag = "diag-refresh",
                 label = "REFRESH",
                 onClick = onRefresh,
             )
             control(
                 key = "diag-close",
+                testTag = "diag-close",
                 label = "CLOSE",
                 onClick = onClose,
             )

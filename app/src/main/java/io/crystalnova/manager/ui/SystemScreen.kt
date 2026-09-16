@@ -15,10 +15,11 @@ import io.crystalnova.manager.scraper.ScraperUiState
 
 /**
  * SYSTEM: one library platform. Title, a compact stats row (zeros when
- * the system is unknown to the index stats), and three actions:
- * SCRAPE (full run), RETRY INCOMPLETE (incomplete only), BACK. Both
- * scrape actions hand to the PROGRESS destination; the ScraperManager
- * ignores duplicate starts while a run is already active.
+ * the system is unknown to the index stats), and two actions: SCRAPE
+ * (full run) and RETRY INCOMPLETE (incomplete only). Both hand to the
+ * PROGRESS destination; the ScraperManager ignores duplicate starts
+ * while a run is already active. The pinned footer owns B BACK — no
+ * redundant BACK button.
  *
  * The ALL SYSTEMS pseudo-card passes slug "" and reads the aggregate
  * index stats instead of a per-platform row.
@@ -38,7 +39,7 @@ fun SystemScreen(
         title = "SYSTEM",
         onBack = onBack,
         modifier = modifier,
-        fallbackFocusKey = "scrape",
+        fallbackFocusKey = "system-scrape",
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -55,25 +56,20 @@ fun SystemScreen(
             )
             StatsRow(slug = slug, state = state)
             CrystalButton(
-                key = "scrape",
+                key = "system-scrape",
+                testTag = "system-scrape",
                 label = "SCRAPE",
                 onClick = onScrape,
                 dispatcher = dispatcher,
-                requestInitialFocus = isInitialFocus("scrape"),
+                requestInitialFocus = isInitialFocus("system-scrape"),
             )
             CrystalButton(
-                key = "retry-incomplete",
+                key = "system-retry-incomplete",
+                testTag = "system-retry-incomplete",
                 label = "RETRY INCOMPLETE",
                 onClick = onRetryIncomplete,
                 dispatcher = dispatcher,
-                requestInitialFocus = isInitialFocus("retry-incomplete"),
-            )
-            CrystalButton(
-                key = "system-back",
-                label = "BACK",
-                onClick = onBack,
-                dispatcher = dispatcher,
-                requestInitialFocus = isInitialFocus("system-back"),
+                requestInitialFocus = isInitialFocus("system-retry-incomplete"),
             )
         }
     }

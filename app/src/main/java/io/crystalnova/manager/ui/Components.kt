@@ -26,6 +26,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -130,6 +131,10 @@ fun CrystalPanel(
  * [scrollEngine]/[scrollIndex]: when set, D-pad focus on this button
  * scrolls it to a comfortable (centered) viewport position via the
  * shared [ControllerScrollEngine] — see ui/ControllerList.kt.
+ *
+ * [testTag]: when set, a stable `testTag` on the button node so the
+ * phase-2 UI tests can address focusables by tag. The tag sits upstream
+ * of focus/click in the modifier chain, on the button's own node.
  */
 @Composable
 fun CrystalButton(
@@ -143,10 +148,12 @@ fun CrystalButton(
     danger: Boolean = false,
     scrollEngine: ControllerScrollEngine? = null,
     scrollIndex: Int = 0,
+    testTag: String? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
     val scrollModifier = Modifier.controllerScrollItem(scrollEngine, scrollIndex)
+    val tagModifier = if (testTag != null) Modifier.testTag(testTag) else Modifier
     LaunchedEffect(key, onClick) {
         dispatcher.register(key, onClick)
         dispatcher.registerFocusRequester(key, focusRequester)
@@ -177,8 +184,10 @@ fun CrystalButton(
             // The focus-scroll observer sits upstream of the focus
             // target (before focusRequester/onFocusChanged/focusable)
             // so D-pad focus on this button is always observed and
-            // scrolled to a comfortable viewport position.
+            // scrolled to a comfortable viewport position. The test tag
+            // rides the same node, above focus/click.
             .then(scrollModifier)
+            .then(tagModifier)
             .focusRequester(focusRequester)
             .onFocusChanged {
                 focused = it.isFocused

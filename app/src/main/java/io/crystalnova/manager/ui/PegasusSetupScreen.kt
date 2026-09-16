@@ -2,10 +2,12 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.Color
 
 /**
  * One recognized system and its Pegasus launcher state, as built by
@@ -25,12 +27,15 @@ data class PegasusSystemRow(
 )
 
 /**
- * PEGASUS SETUP: the config-folder grant, per-system launcher status
- * for systems that have games, the explicit INJECT / REFRESH action,
- * and OPEN PEGASUS. Never fakes configuration: unconfigured systems
- * are listed as NOT CONFIGURED, uninstalled emulator apps as
- * NOT INSTALLED, and injection stays disabled until every system with
- * games has a launcher — a partial library is never emitted silently.
+ * PEGASUS SETUP: a compact summary, not an endless page. Three status
+ * rows (config / library / launchers), then the actions: REFRESH
+ * LIBRARY, CONFIGURE LAUNCHERS, INJECT / REFRESH, OPEN PEGASUS.
+ * Per-system launcher configuration lives on its own list screen.
+ *
+ * Never fakes configuration: unconfigured systems are listed as NOT
+ * CONFIGURED, uninstalled emulator apps as NOT INSTALLED, and
+ * injection stays disabled until every system with games has a
+ * launcher — a partial library is never emitted silently.
  */
 @Composable
 fun PegasusSetupScreen(
@@ -43,6 +48,7 @@ fun PegasusSetupScreen(
     notice: String?,
     pegasusInstalled: Boolean,
     onPickConfig: () -> Unit,
+    onRescan: () -> Unit,
     onConfigureLaunchers: () -> Unit,
     onInject: () -> Unit,
     onDismissNotice: () -> Unit,
@@ -50,16 +56,17 @@ fun PegasusSetupScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val withGames = systems.filter { it.gameCount > 0 }
+    val needSetup = withGames.count {
+        it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
+    }
     ScreenScaffold(
         routeKey = "pegasus-setup",
         title = "PEGASUS SETUP",
         onBack = onBack,
         modifier = modifier,
-        fallbackFocusKey = "pegasus-pick-config",
+        fallbackFocusKey = if (configReady) "pegasus-setup-launchers" else "pegasus-setup-config",
     ) {
-        // This screen's single scroll container. Previously this was a
-        // plain Column with no scroll at all — everything below the
-        // fold was unreachable by touch and invisible to D-pad focus.
         ControllerList(
             state = listState,
             dispatcher = dispatcher,
@@ -67,69 +74,62 @@ fun PegasusSetupScreen(
         ) {
             section {
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        StatusLine("CONFIG FOLDER")
-                        StatusLine(
-                            configStatus,
-                            if (configReady) Crystal.Good else Crystal.Bad,
+                    Column(
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        SummaryRow(
+                            label = "CONFIG",
+                            value = if (configReady) "READY" else configStatus,
+                            valueColor = if (configReady) Crystal.Good else Crystal.Bad,
                         )
-                        DimLine(
-                            "SELECT THE pegasus-frontend CONFIG FOLDER ON THIS DEVICE. " +
-                                "THE MANAGER WRITES ONE FILE THERE: " +
-                                "metafiles/crystal-nova.metadata.pegasus.txt — NOTHING ELSE IS TOUCHED.",
+                        SummaryRow(
+                            label = "LIBRARY",
+                            value = "${withGames.size} SYSTEMS · ${withGames.sumOf { it.gameCount }} GAMES",
+                            valueColor = Crystal.Ink,
                         )
-                        DimLine(
-                            "NOTE: SOME EMULATORS NEED YOU TO OPEN THE EMULATOR ITSELF " +
-                                "AND GRANT IT FOLDER ACCESS. THE MANAGER CANNOT GRANT " +
-                                "ANOTHER APP'S PERMISSION.",
+                        SummaryRow(
+                            label = "LAUNCHERS",
+                            value = if (needSetup == 0) "READY" else "$needSetup NEED SETUP",
+                            valueColor = if (needSetup == 0) Crystal.Good else Crystal.Bad,
                         )
                     }
                 }
             }
+            if (!configReady) {
+                control(
+                    key = "pegasus-setup-config",
+                    testTag = "pegasus-setup-config",
+                    label = "SELECT PEGASUS FOLDER",
+                    onClick = onPickConfig,
+                )
+            }
             control(
-                key = "pegasus-pick-config",
-                label = "SELECT PEGASUS FOLDER",
-                onClick = onPickConfig,
+                key = "pegasus-setup-refresh",
+                testTag = "pegasus-setup-refresh",
+                label = "REFRESH LIBRARY",
+                onClick = onRescan,
             )
-
-            section {
-                SectionLabel("LAUNCHERS")
-                val withGames = systems.filter { it.gameCount > 0 }
-                if (withGames.isEmpty()) {
-                    DimLine("NO GAMES SCANNED YET — SELECT YOUR ROM LIBRARY IN SETTINGS FIRST.")
-                } else {
-                    withGames.forEach { row ->
-                        val state = buildString {
-                            append(row.launcherStatus)
-                            if (!row.launcherInstalled) append(" · APP NOT INSTALLED")
-                            else if (row.isDefault && row.launcherStatus != "NOT CONFIGURED") append(" · DEFAULT")
-                        }
-                        StatusLine(
-                            "${row.label.uppercase()} · ${row.gameCount} GAMES · $state",
-                            if (row.launcherStatus == "NOT CONFIGURED" || !row.launcherInstalled) Crystal.Bad else Crystal.Ink,
-                        )
-                    }
-                }
-            }
             control(
-                key = "pegasus-configure",
+                key = "pegasus-setup-launchers",
+                testTag = "pegasus-setup-launchers",
                 label = "CONFIGURE LAUNCHERS",
                 onClick = onConfigureLaunchers,
             )
 
             injectWarning?.let { section { StatusLine(it, Crystal.Bad) } }
             control(
-                key = "pegasus-inject",
+                key = "pegasus-setup-inject",
+                testTag = "pegasus-setup-inject",
                 label = if (injecting) "INJECTING…" else "INJECT / REFRESH PEGASUS LIBRARY",
                 onClick = onInject,
                 enabled = injectEnabled,
             )
             notice?.let { section { notice(it, onDismissNotice) } }
 
-            section { SectionLabel("PEGASUS") }
             if (pegasusInstalled) {
                 control(
-                    key = "pegasus-open",
+                    key = "pegasus-setup-open",
+                    testTag = "pegasus-setup-open",
                     label = "OPEN PEGASUS",
                     onClick = onOpenPegasus,
                 )
@@ -139,5 +139,18 @@ fun PegasusSetupScreen(
                 }
             }
         }
+    }
+}
+
+/** One two-column summary row: dim label left, status right. */
+@Composable
+private fun SummaryRow(label: String, value: String, valueColor: Color) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        DimLine(label)
+        StatusLine(value, valueColor)
     }
 }

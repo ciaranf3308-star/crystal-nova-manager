@@ -35,7 +35,7 @@ fun LibraryScreen(
         title = "LIBRARY",
         onBack = onBack,
         modifier = modifier,
-        fallbackFocusKey = if (romReady) "card-all" else "pick-rom",
+        fallbackFocusKey = if (romReady) "library-card-all" else "library-pick-rom",
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -58,14 +58,14 @@ fun LibraryScreen(
                     }
                 }
                 CrystalButton(
-                    key = "pick-rom",
+                    key = "library-pick-rom",
+                    testTag = "library-pick-rom",
                     label = "SELECT ROM LIBRARY",
                     onClick = onPickRomLibrary,
                     dispatcher = dispatcher,
-                    requestInitialFocus = isInitialFocus("pick-rom"),
+                    requestInitialFocus = isInitialFocus("library-pick-rom"),
                 )
             } else {
-                SectionLabel("SYSTEMS")
                 // The grid is this screen's single scroll container:
                 // D-pad focus on a below-the-fold card scrolls it into
                 // view via the controller grid state.
@@ -79,13 +79,15 @@ fun LibraryScreen(
                         initialFocus = ::isInitialFocus,
                     ) {
                         control(
-                            key = "card-all",
+                            key = "library-card-all",
+                            testTag = "library-card-all",
                             label = "ALL SYSTEMS\n${state.stats.totalGames} GAMES",
                             onClick = { onSelectSystem("", "ALL SYSTEMS") },
                         )
                         state.systems.forEach { sys ->
                             control(
-                                key = "card-${sys.platformSlug}",
+                                key = "library-card-${sys.platformSlug}",
+                                testTag = "library-card-${sys.platformSlug}",
                                 label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES",
                                 onClick = { onSelectSystem(sys.platformSlug, sys.label) },
                             )
@@ -93,12 +95,13 @@ fun LibraryScreen(
                     }
                 }
                 CrystalButton(
-                    key = "rescan",
+                    key = "library-rescan",
+                    testTag = "library-rescan",
                     label = if (state.scanning) "SCANNING…" else "RESCAN LIBRARY",
                     onClick = onRescan,
                     dispatcher = dispatcher,
                     enabled = !state.scanning && !state.scraping,
-                    requestInitialFocus = isInitialFocus("rescan"),
+                    requestInitialFocus = isInitialFocus("library-rescan"),
                 )
             }
             state.notice?.let { NoticeBlock(it, onDismissNotice, dispatcher) }
