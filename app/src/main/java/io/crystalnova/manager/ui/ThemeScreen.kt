@@ -4,14 +4,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
@@ -55,54 +51,147 @@ fun ThemeScreen(
     onBack: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    // Initial focus mirrors the old per-state requestInitialFocus logic:
+    // the primary action for the current updater state, so D-pad starts
+    // on the control the user most likely wants.
+    val fallbackFocusKey = when {
+        state is ManagerState.Ready && state.updateAvailable -> "update"
+        state is ManagerState.Ready && state.notice != null -> "retry"
+        state is ManagerState.Ready && state.backup != null -> "rollback"
+        state is ManagerState.NeedsFolder -> "pick"
+        state is ManagerState.UpdateFailed -> "back"
+        state is ManagerState.UpdateDone ->
+            if (pegasusLaunchable) "open-pegasus" else "done-back"
+        state is ManagerState.RollbackDone -> "rb-back"
+        state is ManagerState.RollbackFailed -> "rbf-back"
+        else -> "change-themes-folder"
+    }
+    ScreenScaffold(
+        routeKey = "theme",
+        title = "THEME",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = fallbackFocusKey,
+    ) {
+        // This screen's single scroll container: D-pad focus on any
+        // control scrolls it to a comfortable viewport position, so
+        // below-the-fold actions (UPDATE APP included) are reachable.
+        ControllerList(
+            state = listState,
+            dispatcher = dispatcher,
+            initialFocus = ::isInitialFocus,
         ) {
-            CrystalHeader()
-            SectionLabel("THEME")
-            when (state) {
-                is ManagerState.NeedsFolder -> NeedsFolderBody(dispatcher, onPickFolder, state.message)
-                is ManagerState.Ready -> ReadyBody(state, dispatcher, onEvent, pegasusLaunchable)
-                is ManagerState.Updating -> UpdatingBody(state)
-                is ManagerState.UpdateFailed -> FailedBody(state, dispatcher, onEvent)
-                is ManagerState.UpdateDone -> DoneBody(state, dispatcher, onEvent, pegasusLaunchable)
-                is ManagerState.RollingBack -> RollingBackBody(state)
-                is ManagerState.RollbackDone -> RollbackDoneBody(state, dispatcher, onEvent)
-                is ManagerState.RollbackFailed -> RollbackFailedBody(state, dispatcher, onEvent)
-            }
-            CrystalDivider()
-            SectionLabel("MANAGER")
-            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    AppUpdateSection(
-                        appVersion = appVersion,
-                        update = appUpdate,
-                        dispatcher = dispatcher,
-                        onUpdateApp = onUpdateApp,
-                    )
-                    CrystalDivider()
-                    DimLine("THEME STORAGE FOLDER")
-                    CrystalButton(
-                        key = "change-themes-folder",
-                        label = "CHANGE THEMES FOLDER",
+            when (val s = state) {
+                is ManagerState.NeedsFolder -> {
+                    section { NeedsFolderPanel(s.message) }
+                    control(
+                        key = "pick",
+                        label = "SELECT PEGASUS THEMES FOLDER",
                         onClick = onPickFolder,
-                        dispatcher = dispatcher,
                     )
-                    CrystalButton(
-                        key = "open-diagnostics",
-                        label = "DIAGNOSTICS",
-                        onClick = onDiagnostics,
-                        dispatcher = dispatcher,
+                }
+                is ManagerState.Ready -> {
+                    section { ReadyPanel(s) }
+                    if (s.updateAvailable && !s.checking) {
+                        control(
+                            key = "update",
+                            label = "UPDATE THEME",
+                            onClick = { onEvent(ManagerEvent.StartUpdate) },
+                        )
+                    }
+                    if (s.backup != null) {
+                        control(
+                            key = "rollback",
+                            label = if (s.backup.isLegacy) "ROLLBACK TO PREVIOUS"
+                            else "ROLLBACK TO v${s.backup.version}",
+                            onClick = { onEvent(ManagerEvent.StartRollback) },
+                            danger = true,
+                        )
+                    }
+                    if (s.notice != null) {
+                        control(
+                            key = "retry",
+                            label = "RETRY",
+                            onClick = { onEvent(ManagerEvent.CheckNow) },
+                        )
+                    }
+                    if (pegasusLaunchable) {
+                        control(
+                            key = "pegasus",
+                            label = "OPEN PEGASUS",
+                            onClick = { onEvent(ManagerEvent.OpenPegasus) },
+                        )
+                    }
+                }
+                is ManagerState.Updating -> section { UpdatingPanel(s) }
+                is ManagerState.UpdateFailed -> {
+                    section { FailedPanel(s) }
+                    control(
+                        key = "back",
+                        label = "BACK",
+                        onClick = { onEvent(ManagerEvent.Dismiss) },
+                    )
+                }
+                is ManagerState.UpdateDone -> {
+                    section { DonePanel(s) }
+                    if (pegasusLaunchable) {
+                        control(
+                            key = "open-pegasus",
+                            label = "OPEN PEGASUS",
+                            onClick = { onEvent(ManagerEvent.OpenPegasus) },
+                        )
+                    }
+                    control(
+                        key = "done-back",
+                        label = "BACK",
+                        onClick = { onEvent(ManagerEvent.Dismiss) },
+                    )
+                }
+                is ManagerState.RollingBack -> section { RollingBackPanel(s) }
+                is ManagerState.RollbackDone -> {
+                    section { RollbackDonePanel(s) }
+                    control(
+                        key = "rb-back",
+                        label = "BACK",
+                        onClick = { onEvent(ManagerEvent.Dismiss) },
+                    )
+                }
+                is ManagerState.RollbackFailed -> {
+                    section { RollbackFailedPanel(s) }
+                    control(
+                        key = "rbf-back",
+                        label = "BACK",
+                        onClick = { onEvent(ManagerEvent.Dismiss) },
                     )
                 }
             }
-            Spacer(Modifier.weight(1f))
-            BackFooter()
+            section { CrystalDivider() }
+            section { SectionLabel("MANAGER") }
+            section {
+                val s = this
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        AppUpdateSection(
+                            scope = s,
+                            appVersion = appVersion,
+                            update = appUpdate,
+                            onUpdateApp = onUpdateApp,
+                        )
+                        CrystalDivider()
+                        DimLine("THEME STORAGE FOLDER")
+                        s.control(
+                            key = "change-themes-folder",
+                            label = "CHANGE THEMES FOLDER",
+                            onClick = onPickFolder,
+                        )
+                        s.control(
+                            key = "open-diagnostics",
+                            label = "DIAGNOSTICS",
+                            onClick = onDiagnostics,
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -165,12 +254,7 @@ private fun VersionColumns(installed: VersionDisplay?, latest: VersionDisplay?) 
 }
 
 @Composable
-private fun ReadyBody(
-    state: ManagerState.Ready,
-    dispatcher: FocusDispatcher,
-    onEvent: (ManagerEvent) -> Unit,
-    pegasusLaunchable: Boolean,
-) {
+private fun ReadyPanel(state: ManagerState.Ready) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             VersionColumns(state.installed, state.latest)
@@ -202,51 +286,10 @@ private fun ReadyBody(
             }
         }
     }
-    if (state.updateAvailable && !state.checking) {
-        CrystalButton(
-            key = "update",
-            label = "UPDATE THEME",
-            onClick = { onEvent(ManagerEvent.StartUpdate) },
-            dispatcher = dispatcher,
-            requestInitialFocus = true,
-        )
-    }
-    if (state.backup != null) {
-        CrystalButton(
-            key = "rollback",
-            label = if (state.backup.isLegacy) "ROLLBACK TO PREVIOUS"
-            else "ROLLBACK TO v${state.backup.version}",
-            onClick = { onEvent(ManagerEvent.StartRollback) },
-            dispatcher = dispatcher,
-            danger = true,
-            requestInitialFocus = !state.updateAvailable && !state.checking,
-        )
-    }
-    if (state.notice != null) {
-        CrystalButton(
-            key = "retry",
-            label = "RETRY",
-            onClick = { onEvent(ManagerEvent.CheckNow) },
-            dispatcher = dispatcher,
-            requestInitialFocus = !state.updateAvailable,
-        )
-    }
-    if (pegasusLaunchable) {
-        CrystalButton(
-            key = "pegasus",
-            label = "OPEN PEGASUS",
-            onClick = { onEvent(ManagerEvent.OpenPegasus) },
-            dispatcher = dispatcher,
-        )
-    }
 }
 
 @Composable
-private fun NeedsFolderBody(
-    dispatcher: FocusDispatcher,
-    onPick: () -> Unit,
-    message: String?,
-) {
+private fun NeedsFolderPanel(message: String?) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             BasicText(
@@ -277,17 +320,10 @@ private fun NeedsFolderBody(
             }
         }
     }
-    CrystalButton(
-        key = "pick",
-        label = "SELECT PEGASUS THEMES FOLDER",
-        onClick = onPick,
-        dispatcher = dispatcher,
-        requestInitialFocus = true,
-    )
 }
 
 @Composable
-private fun UpdatingBody(state: ManagerState.Updating) {
+private fun UpdatingPanel(state: ManagerState.Updating) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Stage.entries.forEach { stage ->
@@ -326,11 +362,7 @@ private fun UpdatingBody(state: ManagerState.Updating) {
 }
 
 @Composable
-private fun FailedBody(
-    state: ManagerState.UpdateFailed,
-    dispatcher: FocusDispatcher,
-    onEvent: (ManagerEvent) -> Unit,
-) {
+private fun FailedPanel(state: ManagerState.UpdateFailed) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusLine(state.message, Crystal.Bad)
@@ -345,22 +377,10 @@ private fun FailedBody(
             }
         }
     }
-    CrystalButton(
-        key = "back",
-        label = "BACK",
-        onClick = { onEvent(ManagerEvent.Dismiss) },
-        dispatcher = dispatcher,
-        requestInitialFocus = true,
-    )
 }
 
 @Composable
-private fun DoneBody(
-    state: ManagerState.UpdateDone,
-    dispatcher: FocusDispatcher,
-    onEvent: (ManagerEvent) -> Unit,
-    pegasusLaunchable: Boolean,
-) {
+private fun DonePanel(state: ManagerState.UpdateDone) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusLine("✓ UPDATE INSTALLED — v${state.version.version}", Crystal.Good)
@@ -373,37 +393,17 @@ private fun DoneBody(
             )
         }
     }
-    if (pegasusLaunchable) {
-        CrystalButton(
-            key = "open-pegasus",
-            label = "OPEN PEGASUS",
-            onClick = { onEvent(ManagerEvent.OpenPegasus) },
-            dispatcher = dispatcher,
-            requestInitialFocus = true,
-        )
-    }
-    CrystalButton(
-        key = "done-back",
-        label = "BACK",
-        onClick = { onEvent(ManagerEvent.Dismiss) },
-        dispatcher = dispatcher,
-        requestInitialFocus = !pegasusLaunchable,
-    )
 }
 
 @Composable
-private fun RollingBackBody(state: ManagerState.RollingBack) {
+private fun RollingBackPanel(state: ManagerState.RollingBack) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         StatusLine("ROLLING BACK — ${state.stage.name}", Crystal.Cream)
     }
 }
 
 @Composable
-private fun RollbackDoneBody(
-    state: ManagerState.RollbackDone,
-    dispatcher: FocusDispatcher,
-    onEvent: (ManagerEvent) -> Unit,
-) {
+private fun RollbackDonePanel(state: ManagerState.RollbackDone) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusLine(
@@ -420,31 +420,13 @@ private fun RollbackDoneBody(
             )
         }
     }
-    CrystalButton(
-        key = "rb-back",
-        label = "BACK",
-        onClick = { onEvent(ManagerEvent.Dismiss) },
-        dispatcher = dispatcher,
-        requestInitialFocus = true,
-    )
 }
 
 @Composable
-private fun RollbackFailedBody(
-    state: ManagerState.RollbackFailed,
-    dispatcher: FocusDispatcher,
-    onEvent: (ManagerEvent) -> Unit,
-) {
+private fun RollbackFailedPanel(state: ManagerState.RollbackFailed) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         StatusLine(state.message, Crystal.Bad)
     }
-    CrystalButton(
-        key = "rbf-back",
-        label = "BACK",
-        onClick = { onEvent(ManagerEvent.Dismiss) },
-        dispatcher = dispatcher,
-        requestInitialFocus = true,
-    )
 }
 
 // ------------------------------------------------------------------
@@ -455,9 +437,9 @@ private fun RollbackFailedBody(
 
 @Composable
 private fun AppUpdateSection(
+    scope: SectionScope,
     appVersion: String,
     update: AppUpdateState,
-    dispatcher: FocusDispatcher,
     onUpdateApp: () -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -479,11 +461,10 @@ private fun AppUpdateSection(
         when (update) {
             is AppUpdateState.Idle ->
                 if (update.lastCheckFailed) {
-                    CrystalButton(
+                    scope.control(
                         key = "app-retry",
                         label = "RETRY APP UPDATE CHECK",
                         onClick = onUpdateApp,
-                        dispatcher = dispatcher,
                     )
                 }
             is AppUpdateState.Checking ->
@@ -491,11 +472,10 @@ private fun AppUpdateSection(
             is AppUpdateState.Available -> {
                 StatusLine("APP UPDATE AVAILABLE — v${update.info.version}", Crystal.Cream)
                 update.notice?.let { StatusLine(it, Crystal.Bad) }
-                CrystalButton(
+                scope.control(
                     key = "app-update",
                     label = "UPDATE APP",
                     onClick = onUpdateApp,
-                    dispatcher = dispatcher,
                 )
             }
             is AppUpdateState.Downloading -> {
@@ -504,22 +484,20 @@ private fun AppUpdateSection(
             }
             is AppUpdateState.Downloaded -> {
                 StatusLine("APP UPDATE READY TO INSTALL", Crystal.Cream)
-                CrystalButton(
+                scope.control(
                     key = "app-install",
                     label = "INSTALL APP UPDATE",
                     onClick = onUpdateApp,
-                    dispatcher = dispatcher,
                 )
             }
             is AppUpdateState.Installing ->
                 StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
             is AppUpdateState.Failed -> {
                 StatusLine(update.message, Crystal.Bad)
-                CrystalButton(
+                scope.control(
                     key = "app-retry",
                     label = "RETRY APP UPDATE CHECK",
                     onClick = onUpdateApp,
-                    dispatcher = dispatcher,
                 )
             }
         }

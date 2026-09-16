@@ -2,11 +2,8 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -53,90 +50,94 @@ fun PegasusSetupScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    ScreenScaffold(
+        routeKey = "pegasus-setup",
+        title = "PEGASUS SETUP",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = "pegasus-pick-config",
+    ) {
+        // This screen's single scroll container. Previously this was a
+        // plain Column with no scroll at all — everything below the
+        // fold was unreachable by touch and invisible to D-pad focus.
+        ControllerList(
+            state = listState,
+            dispatcher = dispatcher,
+            initialFocus = ::isInitialFocus,
         ) {
-            CrystalHeader()
-            SectionLabel("PEGASUS SETUP")
-
-            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatusLine("CONFIG FOLDER")
-                    StatusLine(
-                        configStatus,
-                        if (configReady) Crystal.Good else Crystal.Bad,
-                    )
-                    DimLine(
-                        "SELECT THE pegasus-frontend CONFIG FOLDER ON THIS DEVICE. " +
-                            "THE MANAGER WRITES ONE FILE THERE: " +
-                            "metafiles/crystal-nova.metadata.pegasus.txt — NOTHING ELSE IS TOUCHED.",
-                    )
-                    DimLine(
-                        "NOTE: SOME EMULATORS NEED YOU TO OPEN THE EMULATOR ITSELF " +
-                            "AND GRANT IT FOLDER ACCESS. THE MANAGER CANNOT GRANT " +
-                            "ANOTHER APP'S PERMISSION.",
-                    )
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        StatusLine("CONFIG FOLDER")
+                        StatusLine(
+                            configStatus,
+                            if (configReady) Crystal.Good else Crystal.Bad,
+                        )
+                        DimLine(
+                            "SELECT THE pegasus-frontend CONFIG FOLDER ON THIS DEVICE. " +
+                                "THE MANAGER WRITES ONE FILE THERE: " +
+                                "metafiles/crystal-nova.metadata.pegasus.txt — NOTHING ELSE IS TOUCHED.",
+                        )
+                        DimLine(
+                            "NOTE: SOME EMULATORS NEED YOU TO OPEN THE EMULATOR ITSELF " +
+                                "AND GRANT IT FOLDER ACCESS. THE MANAGER CANNOT GRANT " +
+                                "ANOTHER APP'S PERMISSION.",
+                        )
+                    }
                 }
             }
-            CrystalButton(
+            control(
                 key = "pegasus-pick-config",
                 label = "SELECT PEGASUS FOLDER",
                 onClick = onPickConfig,
-                dispatcher = dispatcher,
-                requestInitialFocus = true,
             )
 
-            SectionLabel("LAUNCHERS")
-            val withGames = systems.filter { it.gameCount > 0 }
-            if (withGames.isEmpty()) {
-                DimLine("NO GAMES SCANNED YET — SELECT YOUR ROM LIBRARY IN SETTINGS FIRST.")
-            } else {
-                withGames.forEach { row ->
-                    val state = buildString {
-                        append(row.launcherStatus)
-                        if (!row.launcherInstalled) append(" · APP NOT INSTALLED")
-                        else if (row.isDefault && row.launcherStatus != "NOT CONFIGURED") append(" · DEFAULT")
+            section {
+                SectionLabel("LAUNCHERS")
+                val withGames = systems.filter { it.gameCount > 0 }
+                if (withGames.isEmpty()) {
+                    DimLine("NO GAMES SCANNED YET — SELECT YOUR ROM LIBRARY IN SETTINGS FIRST.")
+                } else {
+                    withGames.forEach { row ->
+                        val state = buildString {
+                            append(row.launcherStatus)
+                            if (!row.launcherInstalled) append(" · APP NOT INSTALLED")
+                            else if (row.isDefault && row.launcherStatus != "NOT CONFIGURED") append(" · DEFAULT")
+                        }
+                        StatusLine(
+                            "${row.label.uppercase()} · ${row.gameCount} GAMES · $state",
+                            if (row.launcherStatus == "NOT CONFIGURED" || !row.launcherInstalled) Crystal.Bad else Crystal.Ink,
+                        )
                     }
-                    StatusLine(
-                        "${row.label.uppercase()} · ${row.gameCount} GAMES · $state",
-                        if (row.launcherStatus == "NOT CONFIGURED" || !row.launcherInstalled) Crystal.Bad else Crystal.Ink,
-                    )
                 }
             }
-            CrystalButton(
+            control(
                 key = "pegasus-configure",
                 label = "CONFIGURE LAUNCHERS",
                 onClick = onConfigureLaunchers,
-                dispatcher = dispatcher,
             )
 
-            injectWarning?.let { StatusLine(it, Crystal.Bad) }
-            CrystalButton(
+            injectWarning?.let { section { StatusLine(it, Crystal.Bad) } }
+            control(
                 key = "pegasus-inject",
                 label = if (injecting) "INJECTING…" else "INJECT / REFRESH PEGASUS LIBRARY",
                 onClick = onInject,
-                dispatcher = dispatcher,
                 enabled = injectEnabled,
             )
-            notice?.let { NoticeBlock(it, onDismissNotice, dispatcher) }
+            notice?.let { section { notice(it, onDismissNotice) } }
 
-            SectionLabel("PEGASUS")
+            section { SectionLabel("PEGASUS") }
             if (pegasusInstalled) {
-                CrystalButton(
+                control(
                     key = "pegasus-open",
                     label = "OPEN PEGASUS",
                     onClick = onOpenPegasus,
-                    dispatcher = dispatcher,
                 )
             } else {
-                DimLine("PEGASUS NOT INSTALLED — INJECT ANYWAY, THEN INSTALL PEGASUS TO USE IT.")
+                section {
+                    DimLine("PEGASUS NOT INSTALLED — INJECT ANYWAY, THEN INSTALL PEGASUS TO USE IT.")
+                }
             }
-
-            Spacer(Modifier.weight(1f))
-            BackFooter()
         }
     }
 }

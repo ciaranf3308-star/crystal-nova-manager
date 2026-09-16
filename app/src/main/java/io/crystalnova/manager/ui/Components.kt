@@ -26,7 +26,6 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.Dp
@@ -42,18 +41,42 @@ import androidx.compose.ui.text.TextStyle
  * (KEYCODE_BUTTON_A) is NOT mapped to click by the framework, so the
  * screen root forwards it to whichever button currently holds focus.
  * Touch works independently through clickable.
+ *
+ * The dispatcher also carries the focus-requester registry the
+ * [ScreenScaffold] uses for per-route focus memory: every
+ * [CrystalButton] registers its [androidx.compose.ui.focus.FocusRequester]
+ * here, and [onFocusedListener] lets the scaffold record the last
+ * focused key per route.
  */
 class FocusDispatcher {
     var focusedKey: Any? = null
         private set
     private val actions = mutableMapOf<Any?, () -> Unit>()
+    private val focusRequesters = mutableMapOf<Any?, androidx.compose.ui.focus.FocusRequester>()
+
+    /**
+     * Invoked on every focus change. The scaffold sets this to record
+     * the last-focused control per route.
+     */
+    var onFocusedListener: ((Any?) -> Unit)? = null
 
     fun register(key: Any?, action: () -> Unit) {
         actions[key] = action
     }
 
+    fun registerFocusRequester(
+        key: Any?,
+        requester: androidx.compose.ui.focus.FocusRequester,
+    ) {
+        focusRequesters[key] = requester
+    }
+
+    fun focusRequesterOf(key: Any?): androidx.compose.ui.focus.FocusRequester? =
+        focusRequesters[key]
+
     fun onFocused(key: Any?) {
         focusedKey = key
+        onFocusedListener?.invoke(key)
     }
 
     fun activateFocused() {
@@ -76,7 +99,7 @@ fun CrystalPanel(
             .clip(RoundedCornerShape(2.dp))
             .background(Crystal.Tile)
             .border(2.dp, Crystal.Frame, RoundedCornerShape(2.dp))
-            .padding(20.dp),
+            .padding(12.dp),
     ) {
         content()
         Canvas(modifier = Modifier.matchParentSize()) {
@@ -101,7 +124,12 @@ fun CrystalPanel(
 
 /**
  * Full-width Crystal button. Focused (D-pad) or pressed state uses the
- * cream selection treatment from the Pegasus theme.
+ * cream selection treatment from the Pegasus theme; focused buttons
+ * also get a heavier 3dp frame so focus is unmissable at Nova density.
+ *
+ * [scrollEngine]/[scrollIndex]: when set, D-pad focus on this button
+ * scrolls it to a comfortable (centered) viewport position via the
+ * shared [ControllerScrollEngine] — see ui/ControllerList.kt.
  */
 @Composable
 fun CrystalButton(
@@ -113,10 +141,16 @@ fun CrystalButton(
     enabled: Boolean = true,
     requestInitialFocus: Boolean = false,
     danger: Boolean = false,
+    scrollEngine: ControllerScrollEngine? = null,
+    scrollIndex: Int = 0,
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    LaunchedEffect(key, onClick) { dispatcher.register(key, onClick) }
+    val scrollModifier = Modifier.controllerScrollItem(scrollEngine, scrollIndex)
+    LaunchedEffect(key, onClick) {
+        dispatcher.register(key, onClick)
+        dispatcher.registerFocusRequester(key, focusRequester)
+    }
     LaunchedEffect(requestInitialFocus) {
         if (requestInitialFocus) focusRequester.requestFocus()
     }
@@ -140,6 +174,11 @@ fun CrystalButton(
         contentAlignment = Alignment.Center,
         modifier = modifier
             .fillMaxWidth()
+            // The focus-scroll observer sits upstream of the focus
+            // target (before focusRequester/onFocusChanged/focusable)
+            // so D-pad focus on this button is always observed and
+            // scrolled to a comfortable viewport position.
+            .then(scrollModifier)
             .focusRequester(focusRequester)
             .onFocusChanged {
                 focused = it.isFocused
@@ -148,9 +187,13 @@ fun CrystalButton(
             .focusable(enabled = enabled)
             .clip(RoundedCornerShape(2.dp))
             .background(bg)
-            .border(2.dp, borderColor, RoundedCornerShape(2.dp))
+            .border(
+                if (focused) 3.dp else 2.dp,
+                borderColor,
+                RoundedCornerShape(2.dp),
+            )
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 18.dp, horizontal = 16.dp),
+            .padding(vertical = 12.dp, horizontal = 16.dp),
     ) {
         BasicText(
             text = label,

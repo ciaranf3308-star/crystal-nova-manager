@@ -4,12 +4,8 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -41,65 +37,75 @@ fun SettingsScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+    ScreenScaffold(
+        routeKey = "settings",
+        title = "SETTINGS",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = "settings-change-rom",
+    ) {
+        // This screen's single scroll container: D-pad focus on any
+        // control scrolls it to a comfortable viewport position.
+        ControllerList(
+            state = listState,
+            dispatcher = dispatcher,
+            initialFocus = ::isInitialFocus,
         ) {
-            SectionLabel("SETTINGS")
-            LocationPanel(
-                title = "ROM LIBRARY",
-                location = romLocation,
-                showBadge = false,
-                dispatcher = dispatcher,
-                changeKey = "settings-change-rom",
-                clearKey = "settings-clear-rom",
-                onChange = onPickRom,
-                onClear = onClearRom,
-                requestInitialFocus = true,
-            )
-            LocationPanel(
-                title = "MEDIA LIBRARY",
-                location = mediaLocation,
-                showBadge = true,
-                dispatcher = dispatcher,
-                changeKey = "settings-change-media",
-                clearKey = "settings-clear-media",
-                onChange = onPickMedia,
-                onClear = onClearMedia,
-            )
-            SectionLabel("THEME STORAGE")
-            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    StatusLine(themesRootLabel)
-                    CrystalButton(
-                        key = "settings-change-themes-root",
-                        label = "CHANGE THEMES FOLDER",
-                        onClick = onPickThemesRoot,
-                        dispatcher = dispatcher,
-                    )
+            section {
+                LocationPanel(
+                    scope = this,
+                    title = "ROM LIBRARY",
+                    location = romLocation,
+                    showBadge = false,
+                    changeKey = "settings-change-rom",
+                    clearKey = "settings-clear-rom",
+                    onChange = onPickRom,
+                    onClear = onClearRom,
+                )
+            }
+            section {
+                LocationPanel(
+                    scope = this,
+                    title = "MEDIA LIBRARY",
+                    location = mediaLocation,
+                    showBadge = true,
+                    changeKey = "settings-change-media",
+                    clearKey = "settings-clear-media",
+                    onChange = onPickMedia,
+                    onClear = onClearMedia,
+                )
+            }
+            section {
+                val s = this
+                SectionLabel("THEME STORAGE")
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        StatusLine(themesRootLabel)
+                        s.control(
+                            key = "settings-change-themes-root",
+                            label = "CHANGE THEMES FOLDER",
+                            onClick = onPickThemesRoot,
+                        )
+                    }
                 }
             }
             locationError?.let {
-                NoticeBlock(it, onDismissLocationError, dispatcher)
+                section { notice(it, onDismissLocationError) }
             }
-            SectionLabel("APP UPDATE CHANNEL")
-            UpdateChannelPanel(
-                channel = updateChannel,
-                dispatcher = dispatcher,
-                onSelect = onUpdateChannel,
-            )
-            CrystalDivider()
-            CrystalButton(
+            section {
+                SectionLabel("APP UPDATE CHANNEL")
+                UpdateChannelPanel(
+                    scope = this,
+                    channel = updateChannel,
+                    onSelect = onUpdateChannel,
+                )
+            }
+            section { CrystalDivider() }
+            control(
                 key = "settings-diagnostics",
                 label = "DIAGNOSTICS",
                 onClick = onDiagnostics,
-                dispatcher = dispatcher,
             )
-            BackFooter()
         }
     }
 }
@@ -112,8 +118,8 @@ fun SettingsScreen(
  */
 @Composable
 private fun UpdateChannelPanel(
+    scope: SectionScope,
     channel: AppUpdateChannel,
-    dispatcher: FocusDispatcher,
     onSelect: (AppUpdateChannel) -> Unit,
 ) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
@@ -124,19 +130,17 @@ private fun UpdateChannelPanel(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    CrystalButton(
+                    scope.control(
                         key = "settings-channel-dev",
                         label = "DEV / CANDIDATE",
                         onClick = { onSelect(AppUpdateChannel.DEV) },
-                        dispatcher = dispatcher,
                     )
                 }
                 Box(modifier = Modifier.weight(1f)) {
-                    CrystalButton(
+                    scope.control(
                         key = "settings-channel-stable",
                         label = "STABLE",
                         onClick = { onSelect(AppUpdateChannel.STABLE) },
-                        dispatcher = dispatcher,
                     )
                 }
             }
@@ -160,15 +164,14 @@ private fun channelLabel(channel: AppUpdateChannel): String = when (channel) {
  */
 @Composable
 private fun LocationPanel(
+    scope: SectionScope,
     title: String,
     location: LocationState,
     showBadge: Boolean,
-    dispatcher: FocusDispatcher,
     changeKey: String,
     clearKey: String,
     onChange: () -> Unit,
     onClear: () -> Unit,
-    requestInitialFocus: Boolean = false,
 ) {
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -197,21 +200,18 @@ private fun LocationPanel(
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
                 Box(modifier = Modifier.weight(1f)) {
-                    CrystalButton(
+                    scope.control(
                         key = changeKey,
                         label = "CHANGE",
                         onClick = onChange,
-                        dispatcher = dispatcher,
-                        requestInitialFocus = requestInitialFocus,
                     )
                 }
                 if (location !is LocationState.NotConfigured) {
                     Box(modifier = Modifier.weight(1f)) {
-                        CrystalButton(
+                        scope.control(
                             key = clearKey,
                             label = "CLEAR",
                             onClick = onClear,
-                            dispatcher = dispatcher,
                             danger = true,
                         )
                     }

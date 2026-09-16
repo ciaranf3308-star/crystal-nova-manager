@@ -1,13 +1,12 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 
@@ -25,41 +24,44 @@ fun PegasusLaunchersScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
+    ScreenScaffold(
+        routeKey = "pegasus-launchers",
+        title = "LAUNCHERS",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = systems.firstOrNull()?.let { "pegasus-sys-${it.slug}" },
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionLabel("LAUNCHERS")
             DimLine(
                 "ONE LAUNCHER PER SYSTEM. RETROARCH + CORE, A VERIFIED STANDALONE " +
                     "EMULATOR, OR YOUR OWN COMMAND. NOTHING IS CHOSEN FOR YOU.",
             )
-            LazyVerticalGrid(
-                columns = GridCells.Fixed(3),
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(12.dp),
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            // The grid is this screen's single scroll container.
+            Box(
+                modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
-                items(
-                    items = systems,
-                    key = { sys -> "pegasus-${sys.slug}" },
-                ) { sys ->
-                    val state = buildString {
-                        append(sys.launcherStatus)
-                        if (!sys.launcherInstalled) append(" · APP MISSING")
+                ControllerGrid(
+                    state = gridState,
+                    dispatcher = dispatcher,
+                    columns = GridCells.Fixed(3),
+                    initialFocus = ::isInitialFocus,
+                ) {
+                    systems.forEach { sys ->
+                        val state = buildString {
+                            append(sys.launcherStatus)
+                            if (!sys.launcherInstalled) append(" · APP MISSING")
+                        }
+                        control(
+                            key = "pegasus-sys-${sys.slug}",
+                            label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES\n$state",
+                            onClick = { onSelectSystem(sys.slug, sys.label) },
+                        )
                     }
-                    CrystalButton(
-                        key = "pegasus-sys-${sys.slug}",
-                        label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES\n$state",
-                        onClick = { onSelectSystem(sys.slug, sys.label) },
-                        dispatcher = dispatcher,
-                        requestInitialFocus = sys == systems.firstOrNull(),
-                    )
                 }
             }
-            BackFooter()
         }
     }
 }

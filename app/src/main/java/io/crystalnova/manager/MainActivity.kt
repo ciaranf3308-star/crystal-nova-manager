@@ -31,7 +31,6 @@ import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.storage.StorageLocations
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
-import io.crystalnova.manager.ui.FocusDispatcher
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
 import io.crystalnova.manager.ui.Navigator
@@ -524,12 +523,10 @@ class MainActivity : ComponentActivity() {
                     )
                 }
                 is Dest.Diagnostics -> {
-                    val diagDispatcher = remember { FocusDispatcher() }
                     val info = diagInfo
                     if (info != null) {
                         DiagnosticsScreen(
                             info = info,
-                            dispatcher = diagDispatcher,
                             onRefresh = {
                                 // SAF index read happens here; keep it off
                                 // the main thread for large libraries.

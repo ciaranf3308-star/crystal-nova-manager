@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -34,14 +33,19 @@ fun ProgressScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
     val p = state.progress
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
+    ScreenScaffold(
+        routeKey = "progress",
+        title = "SCRAPING",
+        onBack = onBack,
+        modifier = modifier,
+        footerLabel = "BACK (SCRAPE KEEPS RUNNING)",
+        fallbackFocusKey = if (state.scraping) "cancel-scrape" else "scrape-done",
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionLabel("SCRAPING")
             when {
                 state.scraping -> StatusLine("SCRAPING…", Crystal.Cream)
                 p?.cancelled == true -> StatusLine("CANCELLED", Crystal.Bad)
@@ -57,7 +61,7 @@ fun ProgressScreen(
                 prog.current?.let { cur ->
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(
-                            modifier = Modifier.padding(20.dp),
+                            modifier = Modifier.padding(12.dp),
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             StatusLine(cur.system.uppercase(), Crystal.Divider)
@@ -85,7 +89,7 @@ fun ProgressScreen(
                     onClick = onCancel,
                     dispatcher = dispatcher,
                     danger = true,
-                    requestInitialFocus = true,
+                    requestInitialFocus = isInitialFocus("cancel-scrape"),
                 )
             } else {
                 CrystalButton(
@@ -93,10 +97,9 @@ fun ProgressScreen(
                     label = "DONE",
                     onClick = onDone,
                     dispatcher = dispatcher,
-                    requestInitialFocus = true,
+                    requestInitialFocus = isInitialFocus("scrape-done"),
                 )
             }
-            BackFooter(label = "BACK (SCRAPE KEEPS RUNNING)")
         }
     }
 }

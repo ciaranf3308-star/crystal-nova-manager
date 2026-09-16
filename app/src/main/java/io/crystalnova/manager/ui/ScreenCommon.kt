@@ -1,10 +1,8 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -28,9 +26,10 @@ import io.crystalnova.manager.storage.LocationState
 
 /**
  * Forwards gamepad A / D-pad center / Enter to the focused control via
- * [dispatcher] and gamepad B to [onBack]. Applied at each screen root;
- * every screen creates its own [FocusDispatcher] so registrations never
- * leak across destinations. Touch works independently through clickable.
+ * [dispatcher] and gamepad B to [onBack]. Applied once by
+ * [ScreenScaffold] at the screen root; the scaffold owns the
+ * [FocusDispatcher] so registrations never leak across destinations.
+ * Touch works independently through clickable.
  *
  * [passThroughAWhen]: when true, the A/center/Enter press is NOT
  * consumed here and falls through to the focused composable. Screens
@@ -57,29 +56,10 @@ fun Modifier.controllerKeys(
     }
 }
 
-/**
- * Common screen shell: full-bleed background, controller keys, and the
- * standard 48/32dp padding. Each screen owns its [FocusDispatcher] and
- * gives its first meaningful control `requestInitialFocus = true`.
- */
-@Composable
-fun ScreenRoot(
-    onBack: () -> Unit,
-    dispatcher: FocusDispatcher,
-    modifier: Modifier = Modifier,
-    passThroughAWhen: () -> Boolean = { false },
-    content: @Composable () -> Unit,
-) {
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Crystal.Background)
-            .controllerKeys(dispatcher, onBack, passThroughAWhen)
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-    ) {
-        content()
-    }
-}
+// NOTE: the old ScreenRoot (per-screen dispatcher + 48/32dp padding) and
+// BackFooter (manual B-key legend) are gone: every screen now goes through
+// ScreenScaffold (ui/ScreenScaffold.kt), which owns the dispatcher, the
+// per-route focus memory, compact Nova density, and the footer hint bar.
 
 /** "CRYSTAL NOVA / MANAGER" masthead, shared by the main destinations. */
 @Composable
@@ -157,14 +137,9 @@ fun NoticeBlock(
     )
 }
 
-/** Standard child-screen footer: the B-key legend. */
-@Composable
-fun BackFooter(label: String = "BACK") {
-    Column {
-        CrystalDivider()
-        Keycap(key = "B", label = label)
-    }
-}
+// NOTE: BackFooter (the manual per-screen B-key legend) is gone: the
+// scaffold renders the pinned footer hint bar (A SELECT · B BACK /
+// B EXIT) on every screen.
 
 /**
  * Safety-net screen: shown when a destination needs payload that isn't
@@ -176,19 +151,24 @@ fun PlaceholderScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = androidx.compose.runtime.remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
+    ScreenScaffold(
+        routeKey = "placeholder",
+        title = "LOADING",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = "placeholder-back",
+    ) {
         Column(
-            modifier = Modifier.fillMaxSize().padding(top = 96.dp),
+            modifier = Modifier.fillMaxSize(),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            CrystalHeader()
             StatusLine(label, Crystal.Divider)
             CrystalButton(
                 key = "placeholder-back",
                 label = "BACK",
                 onClick = onBack,
                 dispatcher = dispatcher,
-                requestInitialFocus = true,
+                requestInitialFocus = isInitialFocus("placeholder-back"),
             )
         }
     }

@@ -7,7 +7,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -34,13 +33,17 @@ fun SystemScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
+    ScreenScaffold(
+        routeKey = "system-$slug",
+        title = "SYSTEM",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = "scrape",
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionLabel("SYSTEM")
             BasicText(
                 text = label.uppercase(),
                 style = TextStyle(
@@ -56,21 +59,22 @@ fun SystemScreen(
                 label = "SCRAPE",
                 onClick = onScrape,
                 dispatcher = dispatcher,
-                requestInitialFocus = true,
+                requestInitialFocus = isInitialFocus("scrape"),
             )
             CrystalButton(
                 key = "retry-incomplete",
                 label = "RETRY INCOMPLETE",
                 onClick = onRetryIncomplete,
                 dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("retry-incomplete"),
             )
             CrystalButton(
                 key = "system-back",
                 label = "BACK",
                 onClick = onBack,
                 dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("system-back"),
             )
-            BackFooter()
         }
     }
 }

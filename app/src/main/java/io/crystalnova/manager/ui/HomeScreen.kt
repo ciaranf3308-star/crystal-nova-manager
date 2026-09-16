@@ -5,10 +5,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -16,10 +13,8 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.scraper.ScraperUiState
 import io.crystalnova.manager.updater.ManagerState
@@ -44,45 +39,48 @@ fun HomeScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onExit, dispatcher = dispatcher, modifier = modifier) {
+    ScreenScaffold(
+        routeKey = "home",
+        title = "HOME",
+        onBack = onExit,
+        modifier = modifier,
+        isHome = true,
+        titleTrailing = {
+            VersionTapLabel(appVersion = appVersion, onDiagnostics = onDiagnostics)
+        },
+        fallbackFocusKey = "home-library",
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            CrystalHeader()
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                SectionLabel("HOME")
-                VersionTapLabel(appVersion = appVersion, onDiagnostics = onDiagnostics)
-            }
             CrystalButton(
                 key = "home-library",
                 label = "LIBRARY",
                 onClick = onLibrary,
                 dispatcher = dispatcher,
-                requestInitialFocus = true,
+                requestInitialFocus = isInitialFocus("home-library"),
             )
             CrystalButton(
                 key = "home-theme",
                 label = "THEME",
                 onClick = onTheme,
                 dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("home-theme"),
             )
             CrystalButton(
                 key = "home-pegasus",
                 label = "PEGASUS SETUP",
                 onClick = onPegasusSetup,
                 dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("home-pegasus"),
             )
             CrystalButton(
                 key = "home-settings",
                 label = "SETTINGS",
                 onClick = onSettings,
                 dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("home-settings"),
             )
             CrystalDivider()
             SectionLabel("STATUS")
@@ -92,8 +90,6 @@ fun HomeScreen(
             StatusLine("${stats.systems.size} SYSTEMS · ${stats.totalGames} GAMES")
             StatusLine("MEDIA: ${friendlyLocation(scraperState.mediaLocation)}")
             StatusLine("INCOMPLETE: ${stats.partial + stats.unmatched}")
-            Spacer(Modifier.weight(1f))
-            Keycap(key = "B", label = "EXIT")
         }
     }
 }

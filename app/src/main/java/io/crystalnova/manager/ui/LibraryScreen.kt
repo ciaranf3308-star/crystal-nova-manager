@@ -1,14 +1,12 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.scraper.ScraperUiState
@@ -31,16 +29,20 @@ fun LibraryScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
-    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
+    val romReady = state.romLocation is LocationState.Ready
+    ScreenScaffold(
+        routeKey = "library",
+        title = "LIBRARY",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = if (romReady) "card-all" else "pick-rom",
+    ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            SectionLabel("LIBRARY")
             StatusLine("ROM LIBRARY: ${friendlyLocation(state.romLocation)}")
             StatusLine("MEDIA LIBRARY: ${friendlyLocation(state.mediaLocation)}")
-            val romReady = state.romLocation is LocationState.Ready
             if (!romReady) {
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -60,35 +62,34 @@ fun LibraryScreen(
                     label = "SELECT ROM LIBRARY",
                     onClick = onPickRomLibrary,
                     dispatcher = dispatcher,
-                    requestInitialFocus = true,
+                    requestInitialFocus = isInitialFocus("pick-rom"),
                 )
             } else {
                 SectionLabel("SYSTEMS")
-                LazyVerticalGrid(
-                    columns = GridCells.Fixed(3),
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                // The grid is this screen's single scroll container:
+                // D-pad focus on a below-the-fold card scrolls it into
+                // view via the controller grid state.
+                Box(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
                 ) {
-                    item(key = "sys-all") {
-                        CrystalButton(
+                    ControllerGrid(
+                        state = gridState,
+                        dispatcher = dispatcher,
+                        columns = GridCells.Fixed(3),
+                        initialFocus = ::isInitialFocus,
+                    ) {
+                        control(
                             key = "card-all",
                             label = "ALL SYSTEMS\n${state.stats.totalGames} GAMES",
                             onClick = { onSelectSystem("", "ALL SYSTEMS") },
-                            dispatcher = dispatcher,
-                            requestInitialFocus = true,
                         )
-                    }
-                    items(
-                        items = state.systems,
-                        key = { sys -> "sys-${sys.platformSlug}" },
-                    ) { sys ->
-                        CrystalButton(
-                            key = "card-${sys.platformSlug}",
-                            label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES",
-                            onClick = { onSelectSystem(sys.platformSlug, sys.label) },
-                            dispatcher = dispatcher,
-                        )
+                        state.systems.forEach { sys ->
+                            control(
+                                key = "card-${sys.platformSlug}",
+                                label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES",
+                                onClick = { onSelectSystem(sys.platformSlug, sys.label) },
+                            )
+                        }
                     }
                 }
                 CrystalButton(
@@ -97,10 +98,10 @@ fun LibraryScreen(
                     onClick = onRescan,
                     dispatcher = dispatcher,
                     enabled = !state.scanning && !state.scraping,
+                    requestInitialFocus = isInitialFocus("rescan"),
                 )
             }
             state.notice?.let { NoticeBlock(it, onDismissNotice, dispatcher) }
-            BackFooter()
         }
     }
 }

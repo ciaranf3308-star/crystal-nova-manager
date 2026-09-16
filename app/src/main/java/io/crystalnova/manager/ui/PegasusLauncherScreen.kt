@@ -3,16 +3,10 @@ package io.crystalnova.manager.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -49,6 +43,12 @@ data class StandaloneOption(
  * Installed state is shown, never hidden — but the choice stays the
  * user's: picking an emulator that isn't installed yet is allowed and
  * clearly marked, never silently substituted.
+ *
+ * The whole screen is one [ControllerList]: D-pad focus on any control
+ * scrolls it comfortably into view. The CUSTOM text field is a
+ * touch-drag dead zone for the list (text input consumes drags for
+ * cursor/selection) — it keeps its own focus-to-viewport wiring so
+ * D-pad focus on it still scrolls correctly.
  */
 @Composable
 fun PegasusLauncherScreen(
@@ -70,139 +70,149 @@ fun PegasusLauncherScreen(
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val dispatcher = remember { FocusDispatcher() }
     var customText by remember(slug, customCommand) { mutableStateOf(customCommand) }
     var editingCustom by remember { mutableStateOf(false) }
-    // A no-op registration so gamepad A while the field is focused does
-    // not trigger the last-registered button action.
-    LaunchedEffect(Unit) { dispatcher.register("custom-field") {} }
 
     // Controller focus: exactly one control takes initial focus — the
     // default button when usable, else the first RetroArch option with a
-    // known core, else the always-enabled CLEAR CHOICE fallback.
+    // known core, else the first standalone option, else CLEAR CHOICE.
     val defaultUsable = defaultProfile != null &&
         !(isDefault && currentStatus == defaultProfile.displayLabel())
     val firstRaUsable = retroArchOptions.indexOfFirst { it.core != null }
+    val fallbackFocusKey = when {
+        defaultUsable -> "launcher-default"
+        firstRaUsable >= 0 -> "launcher-ra-${retroArchOptions[firstRaUsable].packageName}"
+        standaloneOptions.isNotEmpty() ->
+            "launcher-sa-${standaloneOptions.first().profile.packageName}"
+        else -> "launcher-clear"
+    }
 
-    ScreenRoot(
+    ScreenScaffold(
+        routeKey = "pegasus-launcher-$slug",
+        title = "LAUNCHER",
         onBack = onBack,
-        dispatcher = dispatcher,
         modifier = modifier,
         passThroughAWhen = { editingCustom },
+        fallbackFocusKey = fallbackFocusKey,
     ) {
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
-        ) {
-            CrystalHeader()
-            SectionLabel("LAUNCHER · ${label.uppercase()}")
-            StatusLine(
-                "CURRENT: $currentStatus" +
-                    if (currentStatus == "NOT CONFIGURED") "" else if (isDefault) " · DEFAULT" else " · YOUR CHOICE",
-                if (currentStatus == "NOT CONFIGURED") Crystal.Bad else Crystal.Good,
-            )
+        // A no-op registration so gamepad A while the field is focused
+        // does not trigger the last-registered button action.
+        LaunchedEffect(Unit) { dispatcher.register("custom-field") {} }
 
-            defaultProfile?.let { def ->
-                CrystalButton(
-                    key = "launcher-default",
-                    label = "USE DEFAULT: ${def.displayLabel()}",
-                    onClick = onUseDefault,
-                    dispatcher = dispatcher,
-                    enabled = defaultUsable,
-                    requestInitialFocus = defaultUsable,
+        ControllerList(
+            state = listState,
+            dispatcher = dispatcher,
+            initialFocus = ::isInitialFocus,
+        ) {
+            section {
+                SectionLabel("LAUNCHER · ${label.uppercase()}")
+                StatusLine(
+                    "CURRENT: $currentStatus" +
+                        if (currentStatus == "NOT CONFIGURED") "" else if (isDefault) " · DEFAULT" else " · YOUR CHOICE",
+                    if (currentStatus == "NOT CONFIGURED") Crystal.Bad else Crystal.Good,
                 )
             }
 
-            SectionLabel("RETROARCH")
+            defaultProfile?.let { def ->
+                control(
+                    key = "launcher-default",
+                    label = "USE DEFAULT: ${def.displayLabel()}",
+                    onClick = onUseDefault,
+                    enabled = defaultUsable,
+                )
+            }
+
+            section { SectionLabel("RETROARCH") }
             if (retroArchOptions.isEmpty()) {
-                DimLine("RETROARCH NOT INSTALLED — INSTALL IT OR USE CUSTOM BELOW.")
+                section {
+                    DimLine("RETROARCH NOT INSTALLED — INSTALL IT OR USE CUSTOM BELOW.")
+                }
             } else {
-                retroArchOptions.forEachIndexed { index, opt ->
+                retroArchOptions.forEach { opt ->
                     val coreLabel = opt.core ?: "NO KNOWN CORE"
-                    CrystalButton(
+                    control(
                         key = "launcher-ra-${opt.packageName}",
                         label = "RETROARCH ${opt.tag} + $coreLabel" +
                             if (opt.installed) "" else " · NOT INSTALLED",
                         onClick = { opt.core?.let { onSelectRetroArch(opt.packageName, it) } },
-                        dispatcher = dispatcher,
                         enabled = opt.core != null,
-                        requestInitialFocus = !defaultUsable && index == firstRaUsable,
                     )
                 }
-                DimLine(
-                    "THE CORE IS THE COMMUNITY-STANDARD LIBRETRO CORE FOR THIS " +
-                        "SYSTEM. THE LAUNCH COMMAND USES ITS FULL ON-DEVICE PATH " +
-                        "(/data/data/<PACKAGE>/cores/<CORE>). {file.path} IS FILLED " +
-                        "IN WHEN PEGASUS LAUNCHES THE GAME.",
-                )
+                section {
+                    DimLine(
+                        "THE CORE IS THE COMMUNITY-STANDARD LIBRETRO CORE FOR THIS " +
+                            "SYSTEM. THE LAUNCH COMMAND USES ITS FULL ON-DEVICE PATH " +
+                            "(/data/data/<PACKAGE>/cores/<CORE>). {file.path} IS FILLED " +
+                            "IN WHEN PEGASUS LAUNCHES THE GAME.",
+                    )
+                }
             }
 
             if (standaloneOptions.isNotEmpty()) {
-                SectionLabel("STANDALONE")
-                standaloneOptions.forEachIndexed { index, opt ->
-                    CrystalButton(
+                section { SectionLabel("STANDALONE") }
+                standaloneOptions.forEach { opt ->
+                    control(
                         key = "launcher-sa-${opt.profile.packageName}",
                         label = opt.profile.displayLabel() +
                             if (opt.installed) "" else " · NOT INSTALLED",
                         onClick = { onSelectStandalone(opt.profile) },
-                        dispatcher = dispatcher,
-                        requestInitialFocus = !defaultUsable && firstRaUsable < 0 && index == 0,
                     )
                 }
             }
 
-            SectionLabel("CUSTOM")
-            DimLine("YOUR OWN COMMAND, USED VERBATIM. {file.path} = GAME PATH.")
-            var fieldFocused by remember { mutableStateOf(false) }
-            BasicTextField(
-                value = customText,
-                onValueChange = { customText = it },
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .onFocusChanged {
-                        fieldFocused = it.isFocused
-                        editingCustom = it.isFocused
-                        if (it.isFocused) dispatcher.onFocused("custom-field")
-                    }
-                    .focusable()
-                    .border(
-                        2.dp,
-                        if (fieldFocused) Crystal.Cream else Crystal.Frame,
-                        RoundedCornerShape(2.dp),
-                    )
-                    .background(if (fieldFocused) Crystal.Cream else Crystal.Tile)
-                    .padding(16.dp),
-                textStyle = TextStyle(
-                    fontFamily = Crystal.Mono,
-                    fontSize = Crystal.BodySize,
-                    color = if (fieldFocused) Crystal.CreamInk else Crystal.Ink,
-                ),
-                maxLines = 6,
-            )
-            CrystalButton(
+            section { SectionLabel("CUSTOM") }
+            section {
+                DimLine("YOUR OWN COMMAND, USED VERBATIM. {file.path} = GAME PATH.")
+            }
+            section {
+                var fieldFocused by remember { mutableStateOf(false) }
+                BasicTextField(
+                    value = customText,
+                    onValueChange = { customText = it },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .then(scrollModifier())
+                        .onFocusChanged {
+                            fieldFocused = it.isFocused
+                            editingCustom = it.isFocused
+                            if (it.isFocused) dispatcher.onFocused("custom-field")
+                        }
+                        .focusable()
+                        .border(
+                            2.dp,
+                            if (fieldFocused) Crystal.Cream else Crystal.Frame,
+                            RoundedCornerShape(2.dp),
+                        )
+                        .background(if (fieldFocused) Crystal.Cream else Crystal.Tile)
+                        .padding(16.dp),
+                    textStyle = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontSize = Crystal.BodySize,
+                        color = if (fieldFocused) Crystal.CreamInk else Crystal.Ink,
+                    ),
+                    maxLines = 6,
+                )
+            }
+            control(
                 key = "launcher-save-custom",
                 label = "SAVE CUSTOM COMMAND",
                 onClick = { onSaveCustom(customText) },
-                dispatcher = dispatcher,
                 enabled = customText.isNotBlank(),
             )
-
-            CrystalButton(
+            control(
                 key = "launcher-clear",
                 label = "CLEAR CHOICE",
                 onClick = onClear,
-                dispatcher = dispatcher,
                 danger = true,
-                requestInitialFocus = !defaultUsable && firstRaUsable < 0 && standaloneOptions.isEmpty(),
             )
-            DimLine("CLEARING REMOVES YOUR CHOICE — THE CURATED DEFAULT APPLIES AGAIN, OR NOT CONFIGURED WHEN THERE IS NONE.")
+            section {
+                DimLine(
+                    "CLEARING REMOVES YOUR CHOICE — THE CURATED DEFAULT APPLIES " +
+                        "AGAIN, OR NOT CONFIGURED WHEN THERE IS NONE.",
+                )
+            }
 
-            notice?.let { NoticeBlock(it, onDismissNotice, dispatcher) }
-
-            Spacer(Modifier.padding(8.dp))
-            BackFooter()
+            notice?.let { section { notice(it, onDismissNotice) } }
         }
     }
 }
