@@ -8,16 +8,25 @@ import java.net.URL
 /**
  * GitHub endpoints and the security boundary around them.
  *
- * Only these hosts are ever contacted, and repository-scoped paths must
- * stay inside ciaranf3308-star/crystal-nova-pegasus-theme:
- *   - api.github.com             → commit SHA lookup
+ * Only these hosts are ever contacted:
+ *   - api.github.com             → commit SHA / release lookups
  *   - raw.githubusercontent.com → crystal-version.json
+ *   - github.com                 → release asset download URLs (verified,
+ *                                  never followed blindly)
  *   - codeload.github.com        → ZIP download (serves the archive directly;
  *                                  no CDN hop is followed)
+ *
+ * Repository-scoped paths must stay inside ciaranf3308-star's two
+ * repositories: the theme repo (crystal-nova-pegasus-theme) for theme
+ * updates, and the manager repo (crystal-nova-manager) for the
+ * self-updater's release lookup. Nothing else is reachable.
  */
 object GitHubEndpoints {
     const val OWNER = "ciaranf3308-star"
     const val REPO = "crystal-nova-pegasus-theme"
+
+    /** The manager's own repository — used only by the self-updater. */
+    const val MANAGER_REPO = "crystal-nova-manager"
 
     private val ALLOWED_HOSTS = setOf(
         "api.github.com",
@@ -32,6 +41,18 @@ object GitHubEndpoints {
         "codeload.github.com",
     )
 
+    /**
+     * Hosts on which manager-repo paths are meaningful. The self-updater
+     * reads release metadata from api.github.com, and the release asset's
+     * browser_download_url lives on github.com (GitHub redirects that URL
+     * to its release CDN — handled as a documented one-hop exception
+     * inside the self-update downloader, never by [checkAllowed]).
+     */
+    private val MANAGER_REPO_HOSTS = setOf(
+        "api.github.com",
+        "github.com",
+    )
+
     fun commitApi(branch: String): String =
         "https://api.github.com/repos/$OWNER/$REPO/commits/$branch"
 
@@ -40,6 +61,13 @@ object GitHubEndpoints {
 
     fun zipball(branch: String): String =
         "https://codeload.github.com/$OWNER/$REPO/zip/refs/heads/$branch"
+
+    /**
+     * Latest release of the manager app itself. The `releases/latest`
+     * endpoint never returns drafts or prereleases — stable channel only.
+     */
+    fun managerLatestReleaseApi(): String =
+        "https://api.github.com/repos/$OWNER/$MANAGER_REPO/releases/latest"
 
     /** Throws [SecurityException] when the URL leaves the allowed boundary. */
     fun checkAllowed(url: String) {
@@ -55,8 +83,13 @@ object GitHubEndpoints {
         if (host !in ALLOWED_HOSTS) {
             throw SecurityException("Host not allowed: ${u.host}")
         }
-        if (host in REPO_PATH_HOSTS && "/$OWNER/$REPO" !in u.path) {
-            throw SecurityException("URL escapes $OWNER/$REPO: ${u.path}")
+        if (host in REPO_PATH_HOSTS) {
+            val inThemeRepo = "/$OWNER/$REPO" in u.path
+            val inManagerRepo =
+                host in MANAGER_REPO_HOSTS && "/$OWNER/$MANAGER_REPO" in u.path
+            if (!inThemeRepo && !inManagerRepo) {
+                throw SecurityException("URL escapes $OWNER repositories: ${u.path}")
+            }
         }
     }
 }

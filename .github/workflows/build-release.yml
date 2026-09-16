@@ -37,31 +37,48 @@ jobs:
       - name: Run unit tests
         run: ./gradlew testDebugUnitTest --no-daemon
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --no-daemon
+      - name: Decode signing keystore
+        # The persistent release key lives only in GitHub Secrets. Every
+        # release build is signed with it so the in-app updater's installs
+        # pass Android's same-certificate check.
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > /tmp/cnm-release.keystore
+          echo "CNM_KEYSTORE_PATH=/tmp/cnm-release.keystore" >> "$GITHUB_ENV"
+
+      - name: Build release APK
+        env:
+          CNM_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CNM_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          CNM_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./gradlew assembleRelease --no-daemon
 
       - name: Name the APK
         run: |
-          cp app/build/outputs/apk/debug/app-debug.apk crystal-nova-manager-u1.1.apk
-          ls -la crystal-nova-manager-u1.1.apk
+          cp app/build/outputs/apk/release/app-release.apk crystal-nova-manager-u1.2.apk
+          ls -la crystal-nova-manager-u1.2.apk
 
       - name: Publish GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: Crystal Nova Manager U1.1
-          files: crystal-nova-manager-u1.1.apk
+          name: Crystal Nova Manager U1.2
+          files: crystal-nova-manager-u1.2.apk
           body: |
-            U1.1 bugfix — theme-folder selection is now impossible to get wrong.
+            U1.2 — the manager now updates itself.
 
-            - Picker explicitly says SELECT PEGASUS THEMES FOLDER and shows the
-              expected path (/storage/emulated/0/pegasus-frontend/themes/).
-            - If the theme folder itself is picked, the app normalizes to the
-              parent themes/ directory when SAF permits, otherwise re-prompts.
-            - Installs can never nest to
-              themes/crystal-nova-pegasus-theme/crystal-nova-pegasus-theme/.
-            - The final destination is resolved and shown before install.
-            - After install, theme.cfg and theme.qml are verified directly
-              inside the theme folder.
-            - A nested install left by U1 is detected and repaired automatically.
+            - On launch it checks this repo's releases; when a newer build
+              is out, an UPDATE APP button appears under the header.
+            - UPDATE APP downloads the release APK and hands it to
+              Android's system installer (one tap on its prompt).
+            - On Android 8+, allow "install unknown apps" for Crystal Nova
+              once, in Settings — the app guides you there.
+            - No background checks, no accounts, no telemetry.
 
-            No other updater behaviour changed.
+            ONE-TIME REINSTALL: U1.1 shipped as an unsigned debug build
+            (package io.crystalnova.manager.debug). U1.2 is the first
+            properly signed release build (package io.crystalnova.manager).
+            Uninstall the old app and install this APK fresh — every
+            update after that is one tap, in-app.
+
+            No theme updater behaviour changed.

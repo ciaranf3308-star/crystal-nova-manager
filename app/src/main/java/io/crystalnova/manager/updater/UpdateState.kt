@@ -108,3 +108,41 @@ object UpdateDecider {
         return if (match) Decision.UpToDate else Decision.UpdateAvailable
     }
 }
+
+/**
+ * Self-update state for the manager app itself. Lives in its own flow,
+ * completely separate from the theme state machine — the theme updater
+ * never sees this, and a failed app check never disturbs theme state.
+ */
+sealed interface AppUpdateState {
+    /** Nothing pending. [lastCheckFailed] offers a tap-to-retry affordance. */
+    data class Idle(val lastCheckFailed: Boolean = false) : AppUpdateState
+
+    data object Checking : AppUpdateState
+
+    data class Available(
+        val info: io.crystalnova.manager.data.SelfUpdateInfo,
+        /** Non-destructive notice, e.g. install-permission guidance. */
+        val notice: String? = null,
+    ) : AppUpdateState
+
+    data class Downloading(
+        val downloadedBytes: Long = 0,
+        val totalBytes: Long? = null,
+    ) : AppUpdateState {
+        /** Real percentage only when the server reported a length. */
+        val progress: Float? =
+            if (totalBytes != null && totalBytes > 0) {
+                (downloadedBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+            } else {
+                null
+            }
+    }
+
+    data class Downloaded(val file: java.io.File) : AppUpdateState
+
+    /** The APK was handed to Android's system installer; it owns the UI now. */
+    data object Installing : AppUpdateState
+
+    data class Failed(val message: String) : AppUpdateState
+}

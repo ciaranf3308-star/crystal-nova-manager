@@ -92,12 +92,21 @@ class UpdateManagerTest {
             }
         }
         storage = SafThemeStorage(fs, store)
+        // Theme tests never touch the network for the manager app itself:
+        // a fake self-update checker keeps the app flow deterministic.
+        val noAppUpdate = object : io.crystalnova.manager.data.SelfUpdateChecker(
+            io.crystalnova.manager.data.FakeHttpClient(),
+            io.crystalnova.manager.data.FakeHttpClient(),
+        ) {
+            override fun check(currentVersion: String) = null
+        }
         return UpdateManager(
             storage = storage,
             github = gh,
             workDir = tmp.newFolder("work").apply { mkdirs() },
             scope = this,
             ioDispatcher = StandardTestDispatcher(testScheduler),
+            selfUpdate = noAppUpdate,
         )
     }
 

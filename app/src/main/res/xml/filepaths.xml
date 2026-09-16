@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- FileProvider paths for the self-updater: the downloaded APK lives in
+     <cache>/updater/ and is served read-only to the system installer. -->
+<paths>
+    <cache-path name="updates" path="updater/" />
+</paths>

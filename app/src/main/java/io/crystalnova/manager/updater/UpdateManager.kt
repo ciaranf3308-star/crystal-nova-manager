@@ -1,6 +1,9 @@
 package io.crystalnova.manager.updater
 
+import io.crystalnova.manager.BuildConfig
 import io.crystalnova.manager.data.GitHubRepository
+import io.crystalnova.manager.data.SelfUpdateChecker
+import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.data.StorageException
 import io.crystalnova.manager.data.ThemeStorage
 import io.crystalnova.manager.storage.SafThemeStorage
@@ -31,14 +34,29 @@ class UpdateManager(
     private val workDir: File,
     private val scope: CoroutineScope,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    private val appVersion: String = BuildConfig.VERSION_NAME,
+    private val selfUpdate: SelfUpdateChecker = SelfUpdateChecker(),
 ) {
     private val _state = MutableStateFlow<ManagerState>(ManagerState.NeedsFolder())
     val state: StateFlow<ManagerState> = _state
 
+    /**
+     * Self-update state for the manager app itself. A separate flow on
+     * purpose: the theme state machine above is untouched by app checks,
+     * downloads, or failures.
+     */
+    private val _appUpdate = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle())
+    val appUpdate: StateFlow<AppUpdateState> = _appUpdate
+
     private var job: Job? = null
+    private var appUpdateJob: Job? = null
+
+    /** The release the app-update flow is currently working with. */
+    private var pendingSelfUpdate: SelfUpdateInfo? = null
 
     init {
         refresh()
+        checkAppUpdate()
     }
 
     fun onEvent(event: ManagerEvent) {
@@ -257,5 +275,102 @@ class UpdateManager(
                 )
             }
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Self-update: the manager app checking its own GitHub releases.
+    // Runs on its own flow and its own job; theme state is never touched.
+    // ------------------------------------------------------------------
+
+    /**
+     * Checks the manager's own releases for a newer build. A failed check
+     * (offline, API hiccup) is silent apart from the tap-to-retry hint —
+     * the theme check already reports connectivity problems.
+     */
+    fun checkAppUpdate() {
+        if (_appUpdate.value is AppUpdateState.Downloading ||
+            _appUpdate.value is AppUpdateState.Installing
+        ) {
+            return
+        }
+        appUpdateJob?.cancel()
+        _appUpdate.value = AppUpdateState.Checking
+        appUpdateJob = scope.launch {
+            val result = withContext(ioDispatcher) {
+                runCatching { selfUpdate.check(appVersion) }
+            }
+            result
+                .onSuccess { info ->
+                    _appUpdate.value = if (info == null) {
+                        AppUpdateState.Idle()
+                    } else {
+                        AppUpdateState.Available(info)
+                    }
+                }
+                .onFailure {
+                    _appUpdate.value = AppUpdateState.Idle(lastCheckFailed = true)
+                }
+        }
+    }
+
+    /**
+     * Downloads the available app update into app-private cache. A
+     * completed download for the same version is reused; stale versions
+     * are deleted so the installer can never pick up an old APK.
+     */
+    fun downloadAppUpdate() {
+        val available = _appUpdate.value as? AppUpdateState.Available ?: return
+        appUpdateJob?.cancel()
+        appUpdateJob = scope.launch {
+            _appUpdate.value = AppUpdateState.Downloading()
+            val info: SelfUpdateInfo = available.info
+            pendingSelfUpdate = info
+            val dest = File(workDir, "manager-update-${info.version}.apk")
+            withContext(ioDispatcher) {
+                workDir.listFiles()
+                    ?.filter { it.name.startsWith("manager-update-") && it != dest }
+                    ?.forEach { it.delete() }
+            }
+            if (dest.isFile && dest.length() > 0) {
+                _appUpdate.value = AppUpdateState.Downloaded(dest)
+                return@launch
+            }
+            val result = withContext(ioDispatcher) {
+                runCatching {
+                    selfUpdate.download(info, dest) { done, total ->
+                        _appUpdate.value = AppUpdateState.Downloading(done, total)
+                    }
+                }
+            }
+            result
+                .onSuccess {
+                    _appUpdate.value = AppUpdateState.Downloaded(dest)
+                }
+                .onFailure {
+                    withContext(ioDispatcher) { dest.delete() }
+                    _appUpdate.value = AppUpdateState.Failed("APP DOWNLOAD FAILED")
+                }
+        }
+    }
+
+    /** The APK was handed to Android's system installer. */
+    fun noteAppInstallStarted() {
+        appUpdateJob?.cancel()
+        _appUpdate.value = AppUpdateState.Installing
+    }
+
+    /**
+     * The system needs the one-time "install unknown apps" grant first.
+     * Returns to [AppUpdateState.Available] with guidance; the downloaded
+     * APK (if any) is kept, so the next tap skips straight to install.
+     */
+    fun noteAppNeedsInstallPermission(notice: String) {
+        val info = pendingSelfUpdate ?: return
+        appUpdateJob?.cancel()
+        _appUpdate.value = AppUpdateState.Available(info, notice)
+    }
+
+    fun noteAppUpdateFailed(message: String) {
+        _appUpdate.value = AppUpdateState.Failed(message)
     }
 }

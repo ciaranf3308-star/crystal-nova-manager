@@ -17,6 +17,8 @@ import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.ui.ThemeUpdateScreen
+import io.crystalnova.manager.updater.ApkInstaller
+import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
 import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.UpdateManager
@@ -148,6 +150,7 @@ class MainActivity : ComponentActivity() {
             github = GitHubRepository(),
             workDir = File(cacheDir, "updater").apply { mkdirs() },
             scope = scope,
+            appVersion = BuildConfig.VERSION_NAME,
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
 
@@ -157,6 +160,7 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val state by manager.state.collectAsState()
+            val appUpdate by manager.appUpdate.collectAsState()
             ThemeUpdateScreen(
                 state = state,
                 onEvent = { event ->
@@ -166,7 +170,39 @@ class MainActivity : ComponentActivity() {
                 pegasusLaunchable = isPegasusInstalled(),
                 onPickFolder = { folderPicker.launch(null) },
                 onExit = { finish() },
+                appVersion = BuildConfig.VERSION_NAME,
+                appUpdate = appUpdate,
+                onUpdateApp = { onUpdateApp() },
             )
+        }
+    }
+
+    /**
+     * Self-update button handler. The manager owns check/download state;
+     * the activity only performs the install handoff, which needs a
+     * Context for the FileProvider URI.
+     */
+    private fun onUpdateApp() {
+        when (val s = manager.appUpdate.value) {
+            is AppUpdateState.Available -> manager.downloadAppUpdate()
+            is AppUpdateState.Downloaded -> installApk(s.file)
+            is AppUpdateState.Idle -> manager.checkAppUpdate()
+            is AppUpdateState.Failed -> manager.checkAppUpdate()
+            else -> { /* Checking / Downloading / Installing: busy */ }
+        }
+    }
+
+    private fun installApk(apk: File) {
+        when (val result = ApkInstaller(this).install(apk)) {
+            ApkInstaller.Result.Started -> manager.noteAppInstallStarted()
+            ApkInstaller.Result.NeedsPermission -> {
+                startActivity(ApkInstaller.unknownSourcesIntent(packageName))
+                manager.noteAppNeedsInstallPermission(
+                    "ALLOW \"INSTALL UNKNOWN APPS\" FOR CRYSTAL NOVA, " +
+                        "THEN TAP UPDATE APP AGAIN",
+                )
+            }
+            is ApkInstaller.Result.Failed -> manager.noteAppUpdateFailed(result.message)
         }
     }
 

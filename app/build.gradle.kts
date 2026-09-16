@@ -12,11 +12,26 @@ android {
         applicationId = "io.crystalnova.manager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 2
-        versionName = "1.0.1-u1"
+        versionCode = 3
+        versionName = "1.0.2-u1"
 
         // Retroid Pocket Nova ships Android 13; minSdk 26 keeps SAF
         // (persistable tree permissions) working on older handhelds too.
+    }
+
+    signingConfigs {
+        create("release") {
+            // CI decodes the ANDROID_KEYSTORE_BASE64 secret into the path
+            // named by CNM_KEYSTORE_PATH. Absent locally, the release
+            // build stays unsigned (debug builds are unaffected) — the
+            // persistent key only ever lives in GitHub Secrets.
+            System.getenv("CNM_KEYSTORE_PATH")?.let { path ->
+                storeFile = file(path)
+                storePassword = System.getenv("CNM_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("CNM_KEY_ALIAS")
+                keyPassword = System.getenv("CNM_KEY_PASSWORD")
+            }
+        }
     }
 
     buildTypes {
@@ -25,6 +40,7 @@ android {
         }
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.getByName("release")
         }
     }
 

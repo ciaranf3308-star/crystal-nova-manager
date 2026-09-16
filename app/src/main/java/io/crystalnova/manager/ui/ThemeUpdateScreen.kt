@@ -26,6 +26,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
 import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.Stage
@@ -36,9 +37,13 @@ import io.crystalnova.manager.updater.VersionDisplay
  * architected for THEME / SCRAPER / SETTINGS later — this composable
  * is the THEME section.
  *
- * Pure function of [state]: no Android APIs, so it renders on the JVM
- * for screenshot tests. Controller input (D-pad/A/B) is handled via
- * [FocusDispatcher] + [onPreviewKeyEvent]; touch via clickable.
+ * The MANAGER APP strip above it is the self-updater: it checks this
+ * app's own GitHub releases on launch and offers a one-tap download +
+ * system-installer handoff. It lives outside the theme state machine.
+ *
+ * Pure function of [state] + [appUpdate]: no Android APIs, so it renders
+ * on the JVM for screenshot tests. Controller input (D-pad/A/B) is
+ * handled via [FocusDispatcher] + [onPreviewKeyEvent]; touch via clickable.
  */
 @Composable
 fun ThemeUpdateScreen(
@@ -47,6 +52,9 @@ fun ThemeUpdateScreen(
     pegasusLaunchable: Boolean,
     onPickFolder: () -> Unit,
     onExit: () -> Unit,
+    appVersion: String,
+    appUpdate: AppUpdateState,
+    onUpdateApp: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     val dispatcher = remember { FocusDispatcher() }
@@ -79,6 +87,12 @@ fun ThemeUpdateScreen(
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Header()
+            AppUpdateStrip(
+                appVersion = appVersion,
+                update = appUpdate,
+                dispatcher = dispatcher,
+                onUpdateApp = onUpdateApp,
+            )
             CrystalDivider()
             when (state) {
                 is ManagerState.NeedsFolder -> NeedsFolderBody(dispatcher, onPickFolder, state.message)
@@ -129,6 +143,84 @@ private fun Header() {
                 color = Crystal.Divider,
             ),
         )
+    }
+}
+
+/**
+ * Self-updater strip: always shows the installed manager version, and
+ * grows an action button only when there is something to do (update
+ * available, ready to install, or a failed check worth retrying).
+ */
+@Composable
+private fun AppUpdateStrip(
+    appVersion: String,
+    update: AppUpdateState,
+    dispatcher: FocusDispatcher,
+    onUpdateApp: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionLabel("MANAGER APP")
+            BasicText(
+                text = "v$appVersion",
+                style = TextStyle(
+                    fontFamily = Crystal.Mono,
+                    fontSize = Crystal.SmallSize,
+                    color = Crystal.InkDim,
+                ),
+            )
+        }
+        when (update) {
+            is AppUpdateState.Idle ->
+                if (update.lastCheckFailed) {
+                    CrystalButton(
+                        key = "app-retry",
+                        label = "RETRY APP UPDATE CHECK",
+                        onClick = onUpdateApp,
+                        dispatcher = dispatcher,
+                    )
+                }
+            is AppUpdateState.Checking ->
+                StatusLine("CHECKING FOR APP UPDATES…", Crystal.Divider)
+            is AppUpdateState.Available -> {
+                StatusLine("APP UPDATE AVAILABLE — v${update.info.version}", Crystal.Cream)
+                update.notice?.let { StatusLine(it, Crystal.Bad) }
+                CrystalButton(
+                    key = "app-update",
+                    label = "UPDATE APP",
+                    onClick = onUpdateApp,
+                    dispatcher = dispatcher,
+                )
+            }
+            is AppUpdateState.Downloading -> {
+                val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
+                StatusLine("DOWNLOADING APP UPDATE$pct", Crystal.Divider)
+            }
+            is AppUpdateState.Downloaded -> {
+                StatusLine("APP UPDATE READY TO INSTALL", Crystal.Cream)
+                CrystalButton(
+                    key = "app-install",
+                    label = "INSTALL APP UPDATE",
+                    onClick = onUpdateApp,
+                    dispatcher = dispatcher,
+                )
+            }
+            is AppUpdateState.Installing ->
+                StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
+            is AppUpdateState.Failed -> {
+                StatusLine(update.message, Crystal.Bad)
+                CrystalButton(
+                    key = "app-retry",
+                    label = "RETRY APP UPDATE CHECK",
+                    onClick = onUpdateApp,
+                    dispatcher = dispatcher,
+                )
+            }
+        }
     }
 }
 

@@ -1,14 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <!-- INTERNET is the only permission this app requests: GitHub API +
-         ZIP download. Storage is handled exclusively through the Storage
-         Access Framework (system folder picker + persisted tree URI).
-         No READ/WRITE_EXTERNAL_STORAGE, no MANAGE_EXTERNAL_STORAGE.
+    <!-- INTERNET: GitHub API + ZIP/APK downloads. Storage is handled
+         exclusively through the Storage Access Framework (system folder
+         picker + persisted tree URI). No READ/WRITE_EXTERNAL_STORAGE,
+         no MANAGE_EXTERNAL_STORAGE.
          (AndroidX core contributes its generated
          DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION for its own internal
          dynamic receivers; the app declares nothing else.) -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- REQUEST_INSTALL_PACKAGES: the self-updater hands the downloaded
+         APK to Android's system package installer. The system always
+         shows its own install prompt, and on Android 8+ the user grants
+         "install unknown apps" for this app once, in Settings. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:label="Crystal Nova Manager"
@@ -27,6 +33,18 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Serves the downloaded update APK to the system package
+             installer. Scoped to the updater cache dir only. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/filepaths" />
+        </provider>
 
     </application>
 </manifest>

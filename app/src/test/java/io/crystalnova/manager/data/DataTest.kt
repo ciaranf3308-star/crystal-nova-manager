@@ -93,6 +93,28 @@ class GitHubEndpointsTest {
     }
 
     @Test
+    fun `manager release endpoints are allowed`() {
+        GitHubEndpoints.checkAllowed(GitHubEndpoints.managerLatestReleaseApi())
+        GitHubEndpoints.checkAllowed(
+            "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/v1.0.2-u1/crystal-nova-manager-u1.2.apk",
+        )
+    }
+
+    @Test
+    fun `other owners manager repos are rejected`() {
+        assertThrows(SecurityException::class.java) {
+            GitHubEndpoints.checkAllowed(
+                "https://api.github.com/repos/someone-else/crystal-nova-manager/releases/latest",
+            )
+        }
+        assertThrows(SecurityException::class.java) {
+            GitHubEndpoints.checkAllowed(
+                "https://raw.githubusercontent.com/ciaranf3308-star/crystal-nova-manager/main/payload",
+            )
+        }
+    }
+
+    @Test
     fun `redirect Location headers are re-checked, not trusted`() {
         // A redirect target is validated by the client on every hop; a
         // codeload Location pointing off-allowlist must throw.
