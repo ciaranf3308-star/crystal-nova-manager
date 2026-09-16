@@ -11,8 +11,8 @@ import org.junit.Test
  *
  * The LAUNCHERS screen with 25 systems is far taller than the 960dp
  * viewport. The test first proves the target row starts below the fold
- * (not even composed), then walks D-pad DOWN from the first row to row
- * 12, asserting every focused row lands inside the viewport. Each hop
+ * (not even composed), then walks D-pad DOWN from the first row to the
+ * last row, asserting every focused row lands inside the viewport. Each hop
  * drives worker A's focus-to-viewport engine for real: focusing a row
  * near the bottom edge scrolls it centered, which composes the rows
  * below it, which the next D-pad press can then reach. If the engine
@@ -31,11 +31,12 @@ class NovaFocusBringsIntoViewTest : NovaUiTest() {
             )
         }
 
-        // Sanity: row 12 really starts below the fold (the lazy list has
-        // not composed it yet, which counts as outside the viewport).
-        assertNodeOutsideViewport("launcher-row-sys-12")
+        // Sanity: the last row really starts below the fold (the lazy list
+        // has not composed it yet, which counts as outside the viewport).
+        // (Rows are compact — row 12 is already visible in 960dp.)
+        assertNodeOutsideViewport("launcher-row-sys-24")
 
-        val steps = (0..12).map { i ->
+        val steps = (0..24).map { i ->
             { composeTestRule.onNodeWithTag("launcher-row-sys-$i") }
         }
         assertDpadTraversalInViewport(steps)
