@@ -8,6 +8,12 @@ android {
     namespace = "io.crystalnova.manager"
     compileSdk = 34
 
+    buildFeatures {
+        // Needed for BuildConfig.VERSION_NAME (the self-updater compares
+        // the installed version against the latest GitHub release).
+        buildConfig = true
+    }
+
     defaultConfig {
         applicationId = "io.crystalnova.manager"
         minSdk = 26
