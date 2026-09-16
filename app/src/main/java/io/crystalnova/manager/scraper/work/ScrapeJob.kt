@@ -53,6 +53,16 @@ class ScrapeJob(
         val failed: Int,
         val unmatched: Int,
         val cancelled: Boolean,
+        /** True when index.json was malformed and rebuilt from manifests. */
+        val indexRebuilt: Boolean = false,
+        /** File names dropped by the duplicate-ROM pre-pass. */
+        val skippedDuplicates: List<String> = emptyList(),
+        /**
+         * True when a SAF SecurityException aborted the run: the games
+         * folder grant was revoked mid-scrape. The caller should send the
+         * user back to the folder picker.
+         */
+        val folderAccessLost: Boolean = false,
     )
 
     suspend fun run(
@@ -61,14 +71,38 @@ class ScrapeJob(
         onlyIncomplete: Boolean = false,
         onProgress: (ScrapeProgress) -> Unit,
     ): JobResult {
-        val targets = games.filter { onlyPlatform == null || it.platformSlug == onlyPlatform }
-        val index = loadIndex().toMutableMap()
+        val (deduped, skippedDuplicates) = dedupeEntries(
+            games.filter { onlyPlatform == null || it.platformSlug == onlyPlatform },
+        )
+        val targets = deduped
+        val index = mutableMapOf<String, JSONObject>()
+        val indexRebuilt: Boolean
+        // NOTE: loadIndex()/rebuildIndexFromManifests() may throw
+        // SecurityException on a revoked grant. That propagates out of
+        // run() before the try/finally below, so the finally never
+        // persists an index that was never loaded (an empty map would
+        // blank the last good index). The caller translates it into the
+        // "folder access lost" reselection state.
+        when (val indexLoad = loadIndex()) {
+            is IndexLoad.Ok -> {
+                index.putAll(indexLoad.entries)
+                indexRebuilt = false
+            }
+            is IndexLoad.Corrupt -> {
+                // A malformed index.json is quarantined, never trusted:
+                // rebuild the in-memory index from manifests so the next
+                // write cannot prune entries the run didn't cover.
+                index.putAll(rebuildIndexFromManifests())
+                indexRebuilt = true
+            }
+        }
         var succeeded = 0
         var partial = 0
         var failed = 0
         var unmatched = 0
         var done = 0
         var cancelled = false
+        var folderAccessLost = false
 
         fun emit(current: GameScrapeStatus?) = onProgress(
             ScrapeProgress(targets.size, done, succeeded, partial, failed, unmatched, current, cancelled),
@@ -91,11 +125,18 @@ class ScrapeJob(
                     if (game != null) {
                         val key = "${game.platform}/${game.gameId}"
                         index[key] = ScraperJson.indexEntryToJson(game)
-                        saveIndex(index)
                     }
                 } catch (e: Exception) {
                     if (e is kotlinx.coroutines.CancellationException) {
-                        cancelled = true
+                        // Structured concurrency: a cancelled scrape must
+                        // propagate, never be downgraded to a per-game
+                        // failure. The outer catch marks it cancelled, the
+                        // finally still saves the index, and the caller
+                        // observes the cancellation.
+                        throw e
+                    }
+                    if (isRevocation(e)) {
+                        folderAccessLost = true
                         break
                     }
                     failed++
@@ -110,9 +151,79 @@ class ScrapeJob(
             cancelled = true
             emit(null)
             throw e
+        } finally {
+            // One index write per run — including on cancellation.
+            // Manifests are the per-game source of truth, so a kill loses
+            // nothing but this derived file, which rebuilds from manifests
+            // next pass.
+            // (Previously this rewrote the whole file over SAF after every
+            // game: O(N^2) bytes for large libraries.)
+            saveIndex(index)
         }
         emit(null)
-        return JobResult(succeeded, partial, failed, unmatched, cancelled)
+        return JobResult(
+            succeeded, partial, failed, unmatched, cancelled,
+            indexRebuilt, skippedDuplicates, folderAccessLost,
+        )
+    }
+
+    /**
+     * True when [e] (or any cause in its chain) is a SAF SecurityException:
+     * the persisted games-folder grant was revoked. Callers translate this
+     * into the "folder access lost" reselection state instead of a generic
+     * failure, because no retry can succeed until the user re-picks.
+     */
+    private fun isRevocation(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            if (t is SecurityException) return true
+            t = t.cause
+        }
+        return false
+    }
+
+    /**
+     * Collapses entries that slug to the same (platform, gameId): keeps one
+     * representative per game — preferring .m3u/.cue/.gdi over playable
+     * images over raw .bin/.img/.raw track dumps, lowest disc number on
+     * ties, lexical relative path as the final deterministic tie-break —
+     * and reports the dropped file names. Without this, multi-disc pairs
+     * (two .cue files, no .m3u) and punctuation variants ("A&B" vs "A B")
+     * silently overwrite each other's manifest/assets, last writer wins.
+     */
+    private fun dedupeEntries(games: List<RomEntry>): Pair<List<RomEntry>, List<String>> {
+        val skipped = mutableListOf<String>()
+        val kept = games.groupBy { it.platformSlug to TitleNormalizer.slugify(it.fileName) }
+            .values
+            .map { group ->
+                if (group.size == 1) {
+                    group[0]
+                } else {
+                    val best = group.minWithOrNull(dedupeOrder())!!
+                    skipped += group.filter { it !== best }.map { it.fileName }
+                    best
+                }
+            }
+        return kept to skipped
+    }
+
+    private fun dedupeOrder(): Comparator<RomEntry> {
+        fun extRank(name: String): Int = when (name.substringAfterLast('.', "").lowercase()) {
+            "m3u" -> 0
+            "cue" -> 1
+            "gdi" -> 2
+            // Raw track dumps are never the playable image: they lose to
+            // any sibling image format, including plain extension-less
+            // "everything else".
+            "bin", "img", "raw" -> 4
+            else -> 3
+        }
+        fun discNumber(name: String): Int =
+            Regex("""(?i)[(\[]?\s*disc\s*(\d+)""").find(name)
+                ?.groupValues?.get(1)?.toIntOrNull() ?: Int.MAX_VALUE
+        // Final tie-break is the full relative path (not the bare file
+        // name): deterministic across runs and directory layouts.
+        return compareBy({ extRank(it.fileName) }, { discNumber(it.fileName) }, { it.relativePath })
     }
 
     /**
@@ -141,7 +252,16 @@ class ScrapeJob(
         val baseTitle = TitleNormalizer.normalize(entry.fileName)
             .split(' ').joinToString(" ") { it.replaceFirstChar(Char::uppercaseChar) }
         val metaQuery = ScrapeQuery(entry.platformSlug, baseTitle, entry.relativePath, Region.UNKNOWN)
-        val meta = try { metadataProvider.lookup(metaQuery) } catch (_: Exception) { null }
+        val meta = try {
+            metadataProvider.lookup(metaQuery)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // A revoked SAF grant must abort the run, not masquerade as a
+            // per-game metadata miss for hundreds of games.
+            if (isRevocation(e)) throw e
+            null
+        }
         val title = meta?.title?.ifBlank { null } ?: existing?.title ?: baseTitle
 
         // --- region: cheap cartridge headers, then filename tags ---
@@ -185,7 +305,12 @@ class ScrapeJob(
             coroutineContext.ensureActive()
             val candidates: Map<AssetSlot, List<ArtworkCandidate>> = try {
                 provider.artworkFor(query)
-            } catch (_: Exception) { emptyMap() }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                if (isRevocation(e)) throw e
+                emptyMap()
+            }
             for ((slot, urls) in candidates) {
                 if (slot !in setOf(AssetSlot.BOX_FRONT, AssetSlot.SCREENSHOT, AssetSlot.CLEAR_LOGO)) continue
                 if (assets[slot]?.sourceType == SourceType.REAL) continue
@@ -360,15 +485,23 @@ class ScrapeJob(
                 }
                 val fromHeader = regionDetector.fromHeader(entry.platformSlug, reader)
                 if (fromHeader != Region.UNKNOWN) return fromHeader
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
             } catch (_: Exception) { /* fall through to filename tags */ }
         }
         return regionDetector.fromFileName(entry.fileName)
     }
 
     /** First candidate URL that downloads and looks like an image. */
-    private fun firstDownload(candidates: List<ArtworkCandidate>): Pair<java.io.File, ArtworkCandidate>? {
+    private suspend fun firstDownload(candidates: List<ArtworkCandidate>): Pair<java.io.File, ArtworkCandidate>? {
         for (c in candidates) {
-            val file = try { cache.fetch(c.url) } catch (_: Exception) { null } ?: continue
+            val file = try {
+                cache.fetch(c.url)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                // A cancel mid-download must abort the job, not skip to
+                // the next candidate URL.
+                throw e
+            } catch (_: Exception) { null } ?: continue
             if (looksLikeImage(file)) return file to c
         }
         return null
@@ -391,13 +524,48 @@ class ScrapeJob(
         val name = url.substringAfterLast('/').substringBeforeLast('.')
         return GameMatcher.matchConfidence(title, name)
     }
-    private fun loadIndex(): Map<String, JSONObject> {
-        val text = storage.loadIndexJson() ?: return emptyMap()
+    private sealed interface IndexLoad {
+        data class Ok(val entries: Map<String, JSONObject>) : IndexLoad
+        /** The on-disk index.json was malformed and has been quarantined. */
+        data object Corrupt : IndexLoad
+    }
+
+    private fun loadIndex(): IndexLoad {
+        val bytes = storage.loadIndexBytes() ?: return IndexLoad.Ok(emptyMap())
+        val text = bytes.toString(Charsets.UTF_8)
         return try {
             val root = JSONObject(text)
-            val games = root.optJSONObject("games") ?: return emptyMap()
-            games.keys().asSequence().associateWith { games.getJSONObject(it) }
-        } catch (_: Exception) { emptyMap() }
+            val games = root.optJSONObject("games") ?: return IndexLoad.Ok(emptyMap())
+            IndexLoad.Ok(games.keys().asSequence().associateWith { games.getJSONObject(it) })
+        } catch (_: Exception) {
+            // Malformed index: quarantine the exact original bytes (never
+            // parse them again) and let the caller rebuild from manifests.
+            storage.quarantineIndexBackup(bytes)
+            IndexLoad.Corrupt
+        }
+    }
+
+    /** Rebuilds the in-memory index from stored manifests. Never throws. */
+    private fun rebuildIndexFromManifests(): MutableMap<String, JSONObject> {
+        val out = mutableMapOf<String, JSONObject>()
+        // A revoked grant mid-rebuild must abort, not rebuild an empty
+        // index that the finally would then persist over the good one.
+        val stored = try {
+            storage.listGames()
+        } catch (e: SecurityException) {
+            throw e
+        } catch (_: Exception) { emptyList() }
+        for ((platform, gameId) in stored) {
+            val game = try {
+                storage.loadManifest(platform, gameId)
+            } catch (e: SecurityException) {
+                throw e
+            } catch (_: Exception) { null } ?: continue
+            try {
+                out["$platform/$gameId"] = ScraperJson.indexEntryToJson(game)
+            } catch (_: Exception) { /* skip one bad manifest */ }
+        }
+        return out
     }
 
     private fun saveIndex(index: Map<String, JSONObject>) {

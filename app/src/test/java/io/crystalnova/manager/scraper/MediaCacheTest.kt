@@ -1,9 +1,16 @@
 package io.crystalnova.manager.scraper
 
 import io.crystalnova.manager.data.FakeHttpClient
+import io.crystalnova.manager.data.HttpClient
+import io.crystalnova.manager.data.HttpResponse
 import io.crystalnova.manager.scraper.store.MediaCache
 import io.crystalnova.manager.scraper.store.ScraperStorage
 import io.crystalnova.manager.storage.InMemoryThemeFs
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
@@ -12,6 +19,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
 import java.io.IOException
+import kotlin.system.measureTimeMillis
 
 /**
  * The download cache is persistent: bytes live in SAF-backed
@@ -32,11 +40,11 @@ class MediaCacheTest {
 
     private fun cache(
         storage: ScraperStorage,
-        http: FakeHttpClient,
+        http: HttpClient,
         tmp: File,
     ) = MediaCache(storage, File(tmp, "stage").apply { mkdirs() }, http)
 
-    @Test fun `fetch downloads once then serves from persistent SAF cache`() {
+    @Test fun `fetch downloads once then serves from persistent SAF cache`() = runBlocking {
         val tmp = createTempDir("mediacache")
         val storage = ScraperStorage(InMemoryThemeFs())
         val http = httpServing(pngBytes())
@@ -58,7 +66,7 @@ class MediaCacheTest {
         assertArrayEquals(pngBytes(), storage.readCache(key))
     }
 
-    @Test fun `wiped staging is re-staged from the persistent cache without network`() {
+    @Test fun `wiped staging is re-staged from the persistent cache without network`() = runBlocking {
         val tmp = createTempDir("mediacache")
         val storage = ScraperStorage(InMemoryThemeFs())
         val http = httpServing(pngBytes())
@@ -75,7 +83,7 @@ class MediaCacheTest {
         assertEquals(1, http.requested.size)
     }
 
-    @Test fun `network failure returns null and poisons nothing`() {
+    @Test fun `network failure returns null and poisons nothing`() = runBlocking {
         val tmp = createTempDir("mediacache")
         val storage = ScraperStorage(InMemoryThemeFs())
         val http = httpServing(pngBytes(), failUrls = setOf("https://example.com/down.png"))
@@ -93,5 +101,39 @@ class MediaCacheTest {
         val storage = ScraperStorage(InMemoryThemeFs())
         val cache = cache(storage, httpServing(pngBytes()), tmp)
         assertTrue(cache.keyFor("https://example.com/a.png") != cache.keyFor("https://example.com/b.png"))
+    }
+
+    @Test fun `cancel during download aborts promptly and stays cancelled`() = runBlocking {
+        val tmp = createTempDir("mediacache-cancel")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        // A download that would take ~16 minutes of chunks without
+        // cancellation; each chunk runs the progress callback.
+        val slowHttp = object : HttpClient {
+            override fun get(url: String): HttpResponse = throw IOException("unused")
+            override fun download(url: String, dest: File, onProgress: (Long, Long?) -> Unit) {
+                repeat(10_000) { i ->
+                    onProgress(i.toLong(), 10_000L)
+                    Thread.sleep(100)
+                }
+                dest.writeBytes(byteArrayOf(1))
+            }
+        }
+        val cache = cache(storage, slowHttp, tmp)
+
+        val deferred = async(Dispatchers.Default) { cache.fetch("https://example.com/slow.png") }
+        delay(300) // let the download get going
+        deferred.cancel()
+        var sawCancellation = false
+        val elapsed = measureTimeMillis {
+            try {
+                deferred.await()
+            } catch (_: CancellationException) {
+                sawCancellation = true
+            }
+        }
+        assertTrue("expected CancellationException, not a swallowed null", sawCancellation)
+        assertTrue("cancel took ${elapsed}ms, expected a prompt abort", elapsed < 5_000)
+        // The partial download must not poison the persistent cache.
+        assertNull(storage.readCache(cache.keyFor("https://example.com/slow.png")))
     }
 }

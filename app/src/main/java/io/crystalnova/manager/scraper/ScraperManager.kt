@@ -1,8 +1,10 @@
 package io.crystalnova.manager.scraper
 
 import android.content.Context
+import android.net.Uri
+import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.KeyValueStore
-import io.crystalnova.manager.data.UrlConnectionHttpClient
+import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.Completeness
 import io.crystalnova.manager.scraper.provider.LibretroProvider
 import io.crystalnova.manager.scraper.provider.PegasusFileMetadataProvider
@@ -10,6 +12,7 @@ import io.crystalnova.manager.scraper.scan.DiscoveredSystem
 import io.crystalnova.manager.scraper.scan.LibraryScanner
 import io.crystalnova.manager.scraper.scan.RomEntry
 import io.crystalnova.manager.scraper.store.MediaCache
+import io.crystalnova.manager.scraper.store.ScraperHttpClient
 import io.crystalnova.manager.scraper.store.ScraperStorage
 import io.crystalnova.manager.scraper.work.IndexEntry
 import io.crystalnova.manager.scraper.work.ScrapeJob
@@ -65,6 +68,22 @@ class ScraperManager(
 
     fun hasGamesFolder(): Boolean = prefs.getString(KEY_GAMES_TREE_URI) != null
 
+    /**
+     * True when a games folder is picked AND its persisted SAF grant still
+     * reads. A revoked grant (pref set, root unreadable) is detected here
+     * so the UI can flip back to the folder picker instead of stranding
+     * the user on SCAN FAILED with no re-grant path.
+     */
+    fun hasGamesFolderAccess(): Boolean {
+        val uri = prefs.getString(KEY_GAMES_TREE_URI) ?: return false
+        return try {
+            val doc = DocumentFile.fromTreeUri(context, Uri.parse(uri))
+            doc != null && doc.canRead()
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Raw SAF tree URI of the picked games/ROMs folder, for Diagnostics. */
     fun gamesFolderUri(): String? = prefs.getString(KEY_GAMES_TREE_URI)
 
@@ -119,7 +138,7 @@ class ScraperManager(
     }
 
     fun refresh() {
-        val needs = !hasGamesFolder()
+        val needs = !hasGamesFolderAccess()
         _state.value = _state.value.copy(needsGamesFolder = needs)
         if (!needs) loadStats()
     }
@@ -163,31 +182,83 @@ class ScraperManager(
     fun scan() {
         val treeUri = prefs.getString(KEY_GAMES_TREE_URI) ?: return
         if (_state.value.scanning || _state.value.scraping) return
+        if (!hasGamesFolderAccess()) {
+            _state.value = _state.value.copy(
+                scanning = false,
+                needsGamesFolder = true,
+                notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+            )
+            return
+        }
         _state.value = _state.value.copy(scanning = true, notice = null)
         scope.launch {
             try {
                 val scanner = LibraryScanner(context, treeUri)
                 val result = scanner.scan()
+                // A revoked grant can surface as an empty listing rather
+                // than an exception; that must not read as "no games" —
+                // it would prune the entire index below. Fail into the
+                // reselection state instead (handled by the catch).
+                if (!hasGamesFolderAccess()) throw SecurityException("games folder not accessible")
                 lastScan = result.games
                 pegasusEntries = result.pegasusEntries
+                // Prune ghost index entries (renamed ROMs) after every
+                // successful scan — including an empty one, which means the
+                // folder was readable but holds no games. Asset dirs are
+                // kept until the user deletes them; only the derived index
+                // is pruned.
+                val orphaned = pruneOrphanedIndexEntries(result.games)
                 val entries = readIndexEntries()
+                val notices = buildList {
+                    if (result.games.isEmpty()) add("NO GAMES FOUND IN THIS FOLDER")
+                    if (orphaned > 0) add(
+                        "$orphaned ORPHANED " +
+                            if (orphaned == 1) "ENTRY REMOVED FROM INDEX"
+                            else "ENTRIES REMOVED FROM INDEX",
+                    )
+                }
                 _state.value = _state.value.copy(
                     scanning = false,
                     systems = result.systems,
                     stats = ScraperStats.fromEntries(entries).copy(systems = result.systems),
-                    notice = if (result.games.isEmpty()) "NO GAMES FOUND IN THIS FOLDER" else null,
+                    notice = notices.takeIf { it.isNotEmpty() }?.joinToString(" · "),
                 )
                 clearError()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
-                val msg = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
-                recordError(msg)
-                _state.value = _state.value.copy(
-                    scanning = false,
-                    notice = msg,
-                )
+                if (isRevocation(e) || !hasGamesFolderAccess()) {
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        needsGamesFolder = true,
+                        notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+                    )
+                } else {
+                    val msg = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
+                    recordError(msg)
+                    _state.value = _state.value.copy(
+                        scanning = false,
+                        notice = msg,
+                    )
+                }
             }
         }
+    }
+
+    /**
+     * Removes index entries whose ROM no longer resolves against [games].
+     * Returns the number removed. Never throws.
+     */
+    private fun pruneOrphanedIndexEntries(games: List<RomEntry>): Int {
+        return try {
+            val scannedKeys = games
+                .map { it.platformSlug to TitleNormalizer.slugify(it.fileName) }
+                .toSet()
+            val text = storage().loadIndexJson() ?: return 0
+            val (pruned, removed) =
+                ScraperStorage.pruneOrphanedEntries(text, scannedKeys) ?: return 0
+            if (removed > 0) storage().saveIndexJson(pruned)
+            removed
+        } catch (_: Exception) { 0 }
     }
 
     fun selectPlatform(slug: String?) {
@@ -201,25 +272,43 @@ class ScraperManager(
     private fun launchScrape(onlyIncomplete: Boolean) {
         if (_state.value.scraping) return
         val treeUri = prefs.getString(KEY_GAMES_TREE_URI) ?: return
+        if (!hasGamesFolderAccess()) {
+            _state.value = _state.value.copy(
+                needsGamesFolder = true,
+                notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+            )
+            return
+        }
         _state.value = _state.value.copy(scraping = true, notice = null)
         scrapeJob = scope.launch {
+            // Staging dir for this run's downloads; wiped in the finally
+            // below — staged files are disposable copies of the persistent
+            // SAF cache, never the source of truth.
+            val mediaCache = MediaCache(
+                // Persistent downloads live in SAF crystal-nova-data/cache/;
+                // the app-private dir is disposable staging only.
+                // NOTE: the scraper MUST use ScraperHttpClient, not the
+                // updater's UrlConnectionHttpClient — the latter
+                // enforces a GitHub-only endpoint boundary that
+                // rejects the Libretro artwork CDN outright.
+                storage(),
+                File(context.cacheDir, "scraper-stage").apply { mkdirs() },
+                ScraperHttpClient(),
+            )
             try {
                 val scanner = LibraryScanner(context, treeUri)
                 val games = lastScan.ifEmpty {
                     scanner.scan().also {
+                        // Same guard as the scan path: a revoked grant can
+                        // surface as an empty listing, never as "no games".
+                        if (!hasGamesFolderAccess()) throw SecurityException("games folder not accessible")
                         lastScan = it.games
                         pegasusEntries = it.pegasusEntries
                     }.games
                 }
                 val job = ScrapeJob(
                     storage = storage(),
-                    cache = MediaCache(
-                        // Persistent downloads live in SAF crystal-nova-data/cache/;
-                        // the app-private dir is disposable staging only.
-                        storage(),
-                        File(context.cacheDir, "scraper-stage").apply { mkdirs() },
-                        UrlConnectionHttpClient(),
-                    ),
+                    cache = mediaCache,
                     artworkProviders = listOf(LibretroProvider()),
                     metadataProvider = PegasusFileMetadataProvider(pegasusEntries),
                     openRomInput = { entry -> scanner.openInput(entry) },
@@ -232,20 +321,37 @@ class ScraperManager(
                         _state.value = _state.value.copy(progress = p)
                     },
                 )
-                if (result.cancelled) {
-                    _state.value = _state.value.copy(notice = "SCRAPE CANCELLED")
+                if (result.folderAccessLost || !hasGamesFolderAccess()) {
+                    _state.value = _state.value.copy(
+                        needsGamesFolder = true,
+                        notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+                    )
+                } else if (result.cancelled) {
+                    val notices = mutableListOf("SCRAPE CANCELLED")
+                    notices += runNotices(result)
+                    _state.value = _state.value.copy(notice = notices.joinToString(" · "))
                 } else {
                     clearError()
+                    val notices = runNotices(result)
+                    if (notices.isNotEmpty()) {
+                        _state.value = _state.value.copy(notice = notices.joinToString(" · "))
+                    }
                 }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
                     _state.value = _state.value.copy(notice = "SCRAPE CANCELLED")
+                } else if (isRevocation(e) || !hasGamesFolderAccess()) {
+                    _state.value = _state.value.copy(
+                        needsGamesFolder = true,
+                        notice = "FOLDER ACCESS LOST — PLEASE RESELECT",
+                    )
                 } else {
                     val msg = "SCRAPE FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
                     recordError(msg)
                     _state.value = _state.value.copy(notice = msg)
                 }
             } finally {
+                mediaCache.clearStaging()
                 val entries = readIndexEntries()
                 _state.value = _state.value.copy(
                     scraping = false,
@@ -259,6 +365,31 @@ class ScraperManager(
     fun cancelScrape() {
         scrapeJob?.cancel()
         scrapeJob = null
+    }
+
+    /** Notices derived from a finished scrape run (index rebuild, dupes). */
+    private fun runNotices(result: ScrapeJob.JobResult): List<String> {
+        val notices = mutableListOf<String>()
+        if (result.indexRebuilt) notices += "INDEX REBUILT FROM MANIFESTS"
+        // Every skipped ROM surfaces individually: a truncated "+N more"
+        // would hide exactly which files lost the dedupe race.
+        for (name in result.skippedDuplicates) {
+            notices += "DUPLICATE ROM SKIPPED: $name"
+        }
+        return notices
+    }
+
+    /**
+     * True when [e] (or any cause in its chain) is a SAF
+     * SecurityException: the persisted games-folder grant was revoked.
+     */
+    private fun isRevocation(e: Throwable): Boolean {
+        var t: Throwable? = e
+        while (t != null) {
+            if (t is SecurityException) return true
+            t = t.cause
+        }
+        return false
     }
 
     fun dismissNotice() {

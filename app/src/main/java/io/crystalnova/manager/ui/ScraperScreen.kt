@@ -80,7 +80,7 @@ fun ScraperScreen(
                 if (state.scraping) {
                     ProgressBody(state, dispatcher, onCancel)
                 } else {
-                    OptionsBody(state, dispatcher, onScan, onSelectPlatform, onStartScrape, onRetry)
+                    OptionsBody(state, dispatcher, onScan, onSelectPlatform, onStartScrape, onRetry, onPickGamesFolder)
                 }
             }
             state.notice?.let {
@@ -151,6 +151,7 @@ private fun OptionsBody(
     onSelectPlatform: (String?) -> Unit,
     onStartScrape: () -> Unit,
     onRetry: () -> Unit,
+    onPickGamesFolder: () -> Unit,
 ) {
     SectionLabel("SYSTEM")
     // Platform picker: ALL + one row per discovered system.
@@ -189,6 +190,13 @@ private fun OptionsBody(
         key = "retry-incomplete",
         label = "RETRY INCOMPLETE",
         onClick = onRetry,
+        dispatcher = dispatcher,
+    )
+    CrystalDivider()
+    CrystalButton(
+        key = "change-games-folder",
+        label = "CHANGE GAMES FOLDER",
+        onClick = onPickGamesFolder,
         dispatcher = dispatcher,
     )
 }

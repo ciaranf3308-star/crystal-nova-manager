@@ -1,8 +1,12 @@
 package io.crystalnova.manager.scraper.store
 
 import io.crystalnova.manager.data.HttpClient
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import java.io.File
 import java.security.MessageDigest
+import kotlin.coroutines.coroutineContext
 
 /**
  * Two-level download cache for provider artwork.
@@ -32,26 +36,47 @@ class MediaCache(
 
     /**
      * Returns a staged file for [url], downloading first when absent from
-     * the persistent cache. Returns null on network failure.
+     * the persistent cache. Returns null on network failure. Suspends so a
+     * scrape cancellation aborts an in-flight download promptly instead of
+     * waiting out the connect/read timeouts.
      */
-    fun fetch(url: String): File? {
+    suspend fun fetch(url: String): File? {
         val key = keyFor(url)
-        val cached: ByteArray? = try { storage.readCache(key) } catch (_: Exception) { null }
+        val cached: ByteArray? = try {
+            storage.readCache(key)
+        } catch (e: SecurityException) {
+            // Revoked grant: abort, don't masquerade as a cache miss.
+            throw e
+        } catch (_: Exception) { null }
         val bytes: ByteArray = if (cached != null && cached.isNotEmpty()) {
             cached
         } else {
             val downloaded = downloadBytes(url) ?: return null
-            try { storage.writeCache(key, downloaded) } catch (_: Exception) { /* best-effort */ }
+            try {
+                storage.writeCache(key, downloaded)
+            } catch (e: SecurityException) {
+                throw e
+            } catch (_: Exception) { /* best-effort */ }
             downloaded
         }
         return stage(key, bytes)
     }
 
-    private fun downloadBytes(url: String): ByteArray? {
+    private suspend fun downloadBytes(url: String): ByteArray? {
         val tmp = File(stagingDir, "dl-${System.nanoTime()}.tmp")
+        val job = coroutineContext[Job]
         return try {
-            http.download(url, tmp) { _, _ -> }
+            // Cooperative cancellation: the progress callback runs per
+            // buffer chunk inside the client's read loop, so a cancelled
+            // scrape aborts the socket promptly via CancellationException.
+            http.download(url, tmp) { _, _ -> job?.ensureActive() }
             if (tmp.length() == 0L) null else tmp.readBytes()
+        } catch (e: CancellationException) {
+            // Never swallow cancellation as a mere download failure.
+            throw e
+        } catch (e: SecurityException) {
+            // Never swallow revocation as a mere download failure either.
+            throw e
         } catch (_: Exception) {
             null
         } finally {

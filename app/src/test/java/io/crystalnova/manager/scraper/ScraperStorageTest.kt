@@ -142,4 +142,75 @@ class ScraperStorageTest {
         assertNull(s.readBytes("games/gba/slug/front.png.tmp"))
         assertNull(s.readBytes("games/gba/slug/front.png.bak"))
     }
+
+    @Test fun `pruneOrphanedEntries removes ghost index entries`() {
+        fun entry(platform: String, gameId: String): org.json.JSONObject =
+            org.json.JSONObject()
+                .put("platform", platform)
+                .put("gameId", gameId)
+                .put("title", gameId)
+
+        val games = org.json.JSONObject()
+            .put("gba/kept", entry("gba", "kept"))
+            .put("gba/ghost", entry("gba", "ghost"))
+            // No platform/gameId fields: falls back to the key itself.
+            .put("snes/legacy", org.json.JSONObject().put("title", "legacy"))
+        val index = org.json.JSONObject()
+            .put("version", 1)
+            .put("games", games)
+
+        val (pruned, removed) = ScraperStorage.pruneOrphanedEntries(
+            index.toString(),
+            setOf("gba" to "kept"),
+        )!!
+
+        assertEquals(2, removed)
+        val back = org.json.JSONObject(pruned).getJSONObject("games")
+        assertTrue(back.has("gba/kept"))
+        assertFalse(back.has("gba/ghost"))
+        assertFalse(back.has("snes/legacy"))
+    }
+
+    @Test fun `pruneOrphanedEntries returns null for malformed index text`() {
+        assertNull(ScraperStorage.pruneOrphanedEntries("not json {{{", setOf("gba" to "x")))
+    }
+
+    @Test fun `revoked grant propagates instead of degrading to nulls`() {
+        // A ThemeFs whose root() throws SecurityException: every storage
+        // op must let it through so the caller lands in the reselection
+        // state — never absorb it into null/false/empty.
+        val revokedFs = object : io.crystalnova.manager.storage.ThemeFs
+                by InMemoryThemeFs() {
+            override fun root(): io.crystalnova.manager.storage.FsNode? =
+                throw SecurityException("grant revoked")
+        }
+        val storage = ScraperStorage(revokedFs)
+        fun assertRevoked(label: String, block: () -> Unit) {
+            try {
+                block()
+                fail("$label: expected SecurityException")
+            } catch (_: SecurityException) { /* expected */ }
+        }
+        assertRevoked("loadIndexJson") { storage.loadIndexJson() }
+        assertRevoked("loadIndexBytes") { storage.loadIndexBytes() }
+        assertRevoked("saveIndexJson") { storage.saveIndexJson("{}") }
+        assertRevoked("quarantineIndexBackup") { storage.quarantineIndexBackup(byteArrayOf(1)) }
+        assertRevoked("listGames") { storage.listGames() }
+        assertRevoked("readCache") { storage.readCache("k") }
+        assertRevoked("writeCache") { storage.writeCache("k", byteArrayOf(1)) }
+        assertRevoked("gameDir") { storage.gameDir("gba", "g") }
+        assertRevoked("loadManifest") { storage.loadManifest("gba", "g") }
+        assertRevoked("saveManifest") {
+            storage.saveManifest(
+                ScrapedGame(platform = "gba", gameId = "g", romRelativePath = "gba/G.gba", title = "G"),
+            )
+        }
+        assertRevoked("saveAsset") {
+            storage.saveAsset(
+                "gba", "g", AssetSlot.BOX_FRONT,
+                AssetProvenance(SourceType.GENERATED, "t", localPath = "games/gba/g/front.png"),
+                byteArrayOf(1), null,
+            )
+        }
+    }
 }

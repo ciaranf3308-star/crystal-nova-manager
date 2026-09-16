@@ -6,6 +6,7 @@ import io.crystalnova.manager.scraper.model.ScrapedGame
 import io.crystalnova.manager.scraper.model.SourceType
 import io.crystalnova.manager.storage.FsNode
 import io.crystalnova.manager.storage.ThemeFs
+import org.json.JSONObject
 
 /**
  * SAF storage for the persistent sibling directory `crystal-nova-data/`.
@@ -25,6 +26,37 @@ class ScraperStorage(private val fs: ThemeFs) {
         const val CACHE_DIR = "cache"
         const val INDEX_NAME = "index.json"
         const val MANIFEST_NAME = "manifest.json"
+
+        /**
+         * Pure helper: removes index.json entries whose (platform, gameId)
+         * is not in [scannedKeys] (e.g. renamed ROMs whose old slug lingers
+         * as a ghost entry). Returns the pruned JSON text plus the number
+         * of entries removed, or null when [indexText] is not a usable
+         * index. Asset directories are untouched — only the derived index
+         * is pruned; the user deletes asset dirs separately.
+         */
+        fun pruneOrphanedEntries(
+            indexText: String,
+            scannedKeys: Set<Pair<String, String>>,
+        ): Pair<String, Int>? {
+            val root = try {
+                JSONObject(indexText)
+            } catch (_: Exception) { return null }
+            val games = root.optJSONObject("games") ?: return null
+            var removed = 0
+            for (key in games.keys().asSequence().toList()) {
+                val o = games.optJSONObject(key) ?: continue
+                val platform = o.optString("platform", "")
+                    .ifEmpty { key.substringBefore('/') }
+                val gameId = o.optString("gameId", "")
+                    .ifEmpty { key.substringAfter('/') }
+                if ((platform to gameId) !in scannedKeys) {
+                    games.remove(key)
+                    removed++
+                }
+            }
+            return root.toString() to removed
+        }
     }
 
     /** Result of an asset save attempt. */
@@ -36,12 +68,30 @@ class ScraperStorage(private val fs: ThemeFs) {
     }
 
     private fun dataRoot(): FsNode? {
-        val root = try { fs.root() } catch (_: SecurityException) { return null } ?: return null
+        // Null only when no folder was ever picked. A revoked grant throws
+        // SecurityException out of fs.root()/find()/mkdir() and must
+        // propagate — degrading to null here would masquerade revocation
+        // as an empty library downstream.
+        val root = fs.root() ?: return null
         return fs.find(root, DATA_DIR_NAME) ?: fs.mkdir(root, DATA_DIR_NAME)
     }
 
+    /**
+     * A revoked SAF grant must propagate to the caller's reselection
+     * handling — never be absorbed into a null/false/empty result. Call
+     * at the top of every generic catch in this class.
+     */
+    private fun rethrowIfRevoked(e: Exception) {
+        if (e is SecurityException) throw e
+    }
+
     private fun ensureDir(parent: FsNode, name: String): FsNode? =
-        try { fs.find(parent, name) ?: fs.mkdir(parent, name) } catch (_: Exception) { null }
+        try {
+            fs.find(parent, name) ?: fs.mkdir(parent, name)
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            null
+        }
 
     fun gameDir(platform: String, gameId: String): FsNode? {
         val root = dataRoot() ?: return null
@@ -89,6 +139,7 @@ class ScraperStorage(private val fs: ThemeFs) {
             writeAtomically(dir, slot.fileName, bytes)
             SaveResult.Saved
         } catch (e: Exception) {
+            rethrowIfRevoked(e)
             SaveResult.Failed(e.message ?: "write failed")
         }
     }
@@ -98,7 +149,10 @@ class ScraperStorage(private val fs: ThemeFs) {
         return try {
             writeAtomically(dir, MANIFEST_NAME, ScraperJson.manifestToJson(game).toByteArray())
             true
-        } catch (_: Exception) { false }
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            false
+        }
     }
 
     fun loadManifest(platform: String, gameId: String): ScrapedGame? {
@@ -106,7 +160,10 @@ class ScraperStorage(private val fs: ThemeFs) {
         val node = fs.find(dir, MANIFEST_NAME) ?: return null
         return try {
             ScraperJson.manifestFromJson(fs.openInput(node).bufferedReader().readText())
-        } catch (_: Exception) { null }
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            null
+        }
     }
 
     /** Reads a raw file under the data dir by relative path. */
@@ -116,10 +173,23 @@ class ScraperStorage(private val fs: ThemeFs) {
         for (part in relativePath.split('/')) {
             node = fs.find(node, part) ?: return null
         }
-        return try { fs.openInput(node).use { it.readBytes() } } catch (_: Exception) { null }
+        return try {
+            fs.openInput(node).use { it.readBytes() }
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            null
+        }
     }
 
     fun loadIndexJson(): String? = readBytes(INDEX_NAME)?.toString(Charsets.UTF_8)
+
+    /**
+     * Raw bytes of index.json, or null when absent/unreadable. Prefer this
+     * over [loadIndexJson] when the bytes themselves matter (quarantining a
+     * malformed index): a String round-trip through UTF-8 would replace
+     * invalid sequences and the backup would no longer be byte-exact.
+     */
+    fun loadIndexBytes(): ByteArray? = readBytes(INDEX_NAME)
 
     /**
      * Persistent download cache (`crystal-nova-data/cache/`). Keys are
@@ -129,18 +199,52 @@ class ScraperStorage(private val fs: ThemeFs) {
     fun readCache(key: String): ByteArray? {
         val dir = cacheDir() ?: return null
         val node = fs.find(dir, key) ?: return null
-        return try { fs.openInput(node).use { it.readBytes() } } catch (_: Exception) { null }
+        return try {
+            fs.openInput(node).use { it.readBytes() }
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            null
+        }
     }
 
     fun writeCache(key: String, bytes: ByteArray): Boolean {
         val dir = cacheDir() ?: return false
-        return try { writeAtomically(dir, key, bytes); true } catch (_: Exception) { false }
+        return try {
+            writeAtomically(dir, key, bytes)
+            true
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            false
+        }
     }
 
     fun saveIndexJson(json: String): Boolean {
         val root = dataRoot() ?: return false
-        return try { writeAtomically(root, INDEX_NAME, json.toByteArray()); true }
-        catch (_: Exception) { false }
+        return try {
+            writeAtomically(root, INDEX_NAME, json.toByteArray())
+            true
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            false
+        }
+    }
+
+    /**
+     * Quarantines [bytes] as a sibling of index.json
+     * (`index.json.corrupt-<millis>`) so a malformed index is never lost
+     * silently and never parsed again. Returns the backup file name, or
+     * null when storage is unavailable.
+     */
+    fun quarantineIndexBackup(bytes: ByteArray): String? {
+        val root = dataRoot() ?: return null
+        val name = "$INDEX_NAME.corrupt-${System.currentTimeMillis()}"
+        return try {
+            writeAtomically(root, name, bytes)
+            name
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            null
+        }
     }
 
     /** Lists all stored game manifests: (platform, gameId) pairs. */

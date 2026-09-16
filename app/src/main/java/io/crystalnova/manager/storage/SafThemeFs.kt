@@ -14,6 +14,13 @@ private class DocNode(val doc: DocumentFile) : FsNode
  * The user picks the themes/ folder once with the system picker; the
  * persisted tree URI permission is the only storage access the app holds.
  * No MANAGE_EXTERNAL_STORAGE, no broad media permissions.
+ *
+ * Revocation contract: EVERY method may throw [SecurityException] when the
+ * persisted grant is revoked mid-operation. Nothing here degrades to an
+ * empty value — a silent empty listing would masquerade revocation as an
+ * empty library (and, worse, let callers prune real data). Callers
+ * translate the exception into the "folder access lost" reselection
+ * state. The single null case is [root] when no folder was ever picked.
  */
 class SafThemeFs(
     private val context: Context,
@@ -21,16 +28,27 @@ class SafThemeFs(
 ) : ThemeFs {
 
     override fun root(): FsNode? {
+        // No folder picked yet: null, not an exception.
         val uriString = treeUriString() ?: return null
-        return try {
-            val doc = DocumentFile.fromTreeUri(context, Uri.parse(uriString))
-            // fromTreeUri returns null when the persisted permission is gone.
-            if (doc == null || !doc.canRead()) null else DocNode(doc)
-        } catch (_: SecurityException) {
-            null
+        // A revoked grant surfaces here as a null DocumentFile, an
+        // unreadable root, or a SecurityException — all three mean
+        // "access lost" and all three throw, so callers can tell "not
+        // configured" (null) apart from "revoked" (throws).
+        val doc = try {
+            DocumentFile.fromTreeUri(context, Uri.parse(uriString))
+        } catch (e: SecurityException) {
+            throw e
         } catch (_: Exception) {
             null
+        } ?: throw SecurityException("storage not accessible: $uriString")
+        try {
+            if (!doc.canRead()) throw SecurityException("storage not readable: $uriString")
+        } catch (e: SecurityException) {
+            throw e
+        } catch (_: Exception) {
+            throw SecurityException("storage not readable: $uriString")
         }
+        return DocNode(doc)
     }
 
     private fun doc(node: FsNode): DocumentFile = (node as DocNode).doc

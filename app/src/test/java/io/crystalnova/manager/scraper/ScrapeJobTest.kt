@@ -29,6 +29,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import org.json.JSONObject
 import java.io.File
 import java.io.IOException
 
@@ -295,5 +296,176 @@ class ScrapeJobTest {
         }
         val manifests = (1..30).count { storage.loadManifest("gba", "game-$it") != null }
         assertTrue("cancelled job should not finish all games, did $manifests", manifests < 30)
+    }
+
+    @Test fun `multi-disc cue pair collapses to disc one with a skip notice`() = runBlocking {
+        val tmp = createTempDir("scrape-dedupe")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        // Listed disc-2-first on purpose: the kept representative must be
+        // order-independent.
+        val games = listOf(
+            entry("Final Fantasy VII (Disc 2).cue"),
+            entry("Final Fantasy VII (Disc 1).cue"),
+        )
+        val result = job(storage, fakeHttp(), tmp = tmp).run(games, onProgress = {})
+
+        assertEquals(listOf("Final Fantasy VII (Disc 2).cue"), result.skippedDuplicates)
+        val kept = storage.loadManifest("gba", "final-fantasy-vii")
+        assertNotNull(kept)
+        assertTrue(kept!!.romRelativePath.endsWith("(Disc 1).cue"))
+    }
+
+    @Test fun `punctuation-variant roms collapse to one game`() = runBlocking {
+        val tmp = createTempDir("scrape-dedupe2")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        val games = listOf(entry("A&B.gba"), entry("A B.gba"))
+        val result = job(storage, fakeHttp(), tmp = tmp).run(games, onProgress = {})
+
+        assertEquals(1, result.skippedDuplicates.size)
+        assertNotNull(storage.loadManifest("gba", "a-b"))
+        // Progress totals are deduplicated, not double-counted.
+        assertEquals(1, result.succeeded + result.partial + result.unmatched + result.failed)
+    }
+
+    @Test fun `raw bin loses to cue in dedupe`() = runBlocking {
+        val tmp = createTempDir("scrape-dedupe-bin")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        val games = listOf(entry("Game.bin"), entry("Game.cue"))
+        val result = job(storage, fakeHttp(), tmp = tmp).run(games, onProgress = {})
+
+        assertEquals(listOf("Game.bin"), result.skippedDuplicates)
+        val kept = storage.loadManifest("gba", "game")
+        assertNotNull(kept)
+        assertTrue(kept!!.romRelativePath.endsWith("Game.cue"))
+    }
+
+    @Test fun `dedupe tie-break is the lexical relative path`() = runBlocking {
+        val tmp = createTempDir("scrape-dedupe-path")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        fun pathEntry(rel: String, name: String) = RomEntry(
+            platformSlug = "gba",
+            platformLabel = "Game Boy Advance",
+            relativePath = rel,
+            fileName = name,
+            size = 1024,
+            lastModified = 2048,
+        )
+        // Same slug, same extension, no disc numbers — listed in reverse
+        // lexical order on purpose; the winner must still be deterministic.
+        val games = listOf(
+            pathEntry("gba/z/Game.gba", "Game.gba"),
+            pathEntry("gba/a/Game.gba", "Game.gba"),
+        )
+        val result = job(storage, fakeHttp(), tmp = tmp).run(games, onProgress = {})
+
+        assertEquals(1, result.skippedDuplicates.size)
+        val kept = storage.loadManifest("gba", "game")
+        assertNotNull(kept)
+        assertTrue(
+            "expected the lexically-first path to win, kept ${kept!!.romRelativePath}",
+            kept.romRelativePath.endsWith("gba/a/Game.gba"),
+        )
+    }
+
+    @Test fun `revoked grant at run start aborts without touching the index`() = runBlocking {
+        val tmp = createTempDir("scrape-revoked-start")
+        val fs = InMemoryThemeFs()
+        // Seed a good index through the healthy fs first.
+        val healthy = ScraperStorage(fs)
+        healthy.saveManifest(
+            ScrapedGame(
+                platform = "gba",
+                gameId = "seed-game",
+                romRelativePath = "gba/Seed Game (E).gba",
+                title = "Seed Game",
+            ),
+        )
+        assertTrue(healthy.saveIndexJson("""{"version":1,"games":{"gba/seed-game":{}}}"""))
+
+        val revokedFs = object : io.crystalnova.manager.storage.ThemeFs by fs {
+            override fun root(): io.crystalnova.manager.storage.FsNode? =
+                throw SecurityException("grant revoked")
+        }
+        try {
+            job(ScraperStorage(revokedFs), fakeHttp(), tmp = tmp)
+                .run(listOf(entry("Seed Game (E).gba")), onProgress = {})
+            fail("expected SecurityException")
+        } catch (_: SecurityException) {
+            // Expected: the caller translates this into the reselection state.
+        }
+        // The stored index is untouched — no blank-out on the way out.
+        val root = JSONObject(healthy.loadIndexJson()!!)
+        assertTrue(root.getJSONObject("games").has("gba/seed-game"))
+    }
+
+    @Test fun `revoked folder access aborts the run with folderAccessLost`() = runBlocking {
+        val tmp = createTempDir("scrape-revoked")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        val revokedMeta = object : MetadataProvider {
+            override val id = "revoked"
+            override val displayName = "Revoked"
+            override val requiresApiKey = false
+            override suspend fun lookup(query: ScrapeQuery): GameMetadata? =
+                throw SecurityException("permission revoked")
+        }
+        val games = listOf(entry("Game One.gba"), entry("Game Two.gba"))
+        val result = job(storage, fakeHttp(), meta = revokedMeta, tmp = tmp)
+            .run(games, onProgress = {})
+
+        assertTrue("expected folderAccessLost", result.folderAccessLost)
+        assertEquals(0, result.succeeded + result.partial + result.failed)
+    }
+
+    @Test fun `malformed index quarantine preserves the exact bytes`() = runBlocking {
+        val tmp = createTempDir("scrape-corrupt-bytes")
+        val fs = InMemoryThemeFs()
+        val storage = ScraperStorage(fs)
+        // Invalid UTF-8: a String round-trip would replace 0xFF/0xFE with
+        // U+FFFD, so the quarantine must be written from the raw bytes.
+        // (Also malformed JSON: org.json leniently accepts an unquoted
+        // trailing value, so the garbage sits where a key is required.)
+        val raw = byteArrayOf(
+            0x7b,
+            0xff.toByte(), 0xfe.toByte(),
+        )
+        val dataDir = fs.mkdir(fs.root()!!, "crystal-nova-data") as InMemoryThemeFs.Node
+        fs.openOutput(fs.createFile(dataDir, "index.json")).use { it.write(raw) }
+
+        val result = job(storage, fakeHttp(), tmp = tmp)
+            .run(listOf(entry()), onProgress = {})
+
+        assertTrue("expected indexRebuilt", result.indexRebuilt)
+        val backupName = dataDir.children.keys.first { it.startsWith("index.json.corrupt-") }
+        val backupNode = dataDir.children[backupName]!!
+        assertEquals(raw.toList(), fs.openInput(backupNode).use { it.readBytes() }.toList())
+    }
+
+    @Test fun `malformed index is quarantined and rebuilt from manifests`() = runBlocking {
+        val tmp = createTempDir("scrape-corrupt")
+        val fs = InMemoryThemeFs()
+        val storage = ScraperStorage(fs)
+        storage.saveManifest(
+            ScrapedGame(
+                platform = "gba",
+                gameId = "seed-game",
+                romRelativePath = "gba/Seed Game (E).gba",
+                title = "Seed Game",
+            ),
+        )
+        storage.saveIndexJson("this is not json {{{")
+
+        val result = job(storage, fakeHttp(), tmp = tmp)
+            .run(listOf(entry("Seed Game (E).gba")), onProgress = {})
+
+        assertTrue("expected indexRebuilt", result.indexRebuilt)
+        // index.json parses again and still carries the seeded game.
+        val root = JSONObject(storage.loadIndexJson()!!)
+        assertTrue(root.getJSONObject("games").has("gba/seed-game"))
+        // The corrupt file was quarantined beside the index, not deleted.
+        val dataDir = fs.rootNode.children["crystal-nova-data"]!!
+        assertTrue(
+            "expected a quarantine backup",
+            dataDir.children.keys.any { it.startsWith("index.json.corrupt-") },
+        )
     }
 }

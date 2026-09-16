@@ -60,4 +60,51 @@ class ScraperMatchTest {
     @Test fun `slugify produces filesystem-safe ids`() {
         assertEquals("mario-golf-advance-tour", TitleNormalizer.slugify("Mario Golf: Advance Tour (E).gba"))
     }
+
+    @Test fun `slugify is deterministic and filesystem-safe across unicode inputs`() {
+        val cases = mapOf(
+            "Pokémon Emerald (U).gba" to "pok-mon-emerald",
+            "ポケモン Pokémon Red (J).gb" to "pok-mon-red",
+            // Pure-CJK: the ASCII fold erases everything, so the slug is a
+            // deterministic "game-<fnv1a>" fallback, distinct per title.
+            "ドラゴンクエスト.gba" to "game-" + TitleNormalizer.fnv1aHex("ドラゴンクエスト"),
+            "ファイナルファンタジー.gba" to "game-" + TitleNormalizer.fnv1aHex("ファイナルファンタジー"),
+            // Punctuation-only: same fallback shape, distinct per name.
+            "!!!.gba" to "game-" + TitleNormalizer.fnv1aHex("!!!"),
+            "???.gba" to "game-" + TitleNormalizer.fnv1aHex("???"),
+            // Whitespace-only after tag-stripping: the fallback hashes the
+            // extension-stripped basename (" (E)"), per the parity contract.
+            " (E).gba" to "game-" + TitleNormalizer.fnv1aHex(" (E)"),
+        )
+        for ((fileName, expected) in cases) {
+            val slug = TitleNormalizer.slugify(fileName)
+            assertEquals(expected, slug)
+            // Deterministic across calls.
+            assertEquals(slug, TitleNormalizer.slugify(fileName))
+            // Filesystem-safe charset.
+            assertTrue("$slug is not url/file safe", slug.matches(Regex("[a-z0-9-]+")))
+        }
+        // Distinct slugs for distinct games — no silent "game" collapse.
+        assertEquals(cases.size, cases.values.toSet().size)
+    }
+
+    @Test fun `fnv1a matches the known test vector`() {
+        // FNV-1a 32-bit of "foobar" is the canonical check value; the
+        // Pegasus theme's JS mirror must produce this too.
+        assertEquals("bf9cf968", TitleNormalizer.fnv1aHex("foobar"))
+        assertEquals("811c9dc5", TitleNormalizer.fnv1aHex(""))
+    }
+
+    @Test fun `slugify is independent of the default locale`() {
+        val previous = java.util.Locale.getDefault()
+        try {
+            // Turkish: "I".lowercase() -> "ı" with the default locale,
+            // which would break byte-parity with the theme's JS resolver.
+            java.util.Locale.setDefault(java.util.Locale("tr", "TR"))
+            assertEquals("i", TitleNormalizer.normalize("I.gba"))
+            assertEquals("pok-mon-emerald", TitleNormalizer.slugify("Pokémon Emerald (U).gba"))
+        } finally {
+            java.util.Locale.setDefault(previous)
+        }
+    }
 }

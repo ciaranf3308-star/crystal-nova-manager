@@ -48,7 +48,12 @@ class LibraryScanner(
 
     suspend fun scan(): ScanResult {
         val root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
-            ?: return ScanResult(emptyList(), emptyList(), emptyMap())
+            // fromTreeUri returns null when the persisted SAF grant is
+            // gone. Throw (rather than returning an empty result) so the
+            // caller lands in the "folder access lost" reselection state —
+            // an empty result would look like a genuinely empty library and
+            // would now also prune the whole index.
+            ?: throw SecurityException("games folder not accessible")
         val games = mutableListOf<RomEntry>()
         val systems = mutableListOf<DiscoveredSystem>()
         val pegasus = mutableMapOf<String, List<PegasusMetadataReader.Entry>>()
