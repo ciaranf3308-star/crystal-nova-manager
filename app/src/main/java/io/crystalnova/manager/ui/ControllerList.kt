@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -123,7 +124,14 @@ import kotlinx.coroutines.launch
  * height is read during composition by absolutely nobody — it is only
  * read inside [requestScroll], so the state wrapper is just convenient
  * storage; no recomposition is triggered off it).
+ *
+ * Marked [Stable] because the instance is remembered once per list/grid
+ * and its identity never changes; without this, Compose infers
+ * instability from the lambda/map fields and `remember(engine, ...)`
+ * call sites would invalidate (recreating focus nodes and refiring
+ * focus callbacks) on every recomposition.
  */
+@Stable
 class ControllerScrollEngine internal constructor(
     private val animateTo: suspend (index: Int, scrollOffset: Int) -> Unit,
     private val isComfortablyVisible: (index: Int, insetPx: Int) -> Boolean,
@@ -145,7 +153,6 @@ class ControllerScrollEngine internal constructor(
      */
     fun requestScroll(index: Int, scope: CoroutineScope) {
         if (index < 0) return
-        if (true) return // TEMP-DIAG: disable scroll
         scrollJob?.cancel()
         scrollJob = scope.launch {
             val vp = viewportHeightPx
