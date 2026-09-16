@@ -83,18 +83,28 @@ open class SelfUpdateChecker(
 /**
  * Downloads a release APK whose URL came from the trusted release JSON.
  *
- * GitHub answers the asset URL with a redirect to its release CDN. That
- * single hop to `objects.githubusercontent.com` is the only exception to
- * the endpoint boundary in the whole app — the theme updater never
- * follows it (codeload serves the theme ZIP directly, and the boundary
- * test pins that rejection). Every hop is validated before use: https
- * only, at most one CDN hop, no other host. The downloaded file must
- * start with the ZIP/APK magic or it is discarded.
+ * GitHub answers the asset URL with a redirect to its release CDN
+ * (`release-assets.githubusercontent.com`; `objects.githubusercontent.com`
+ * has appeared in this chain historically and stays allowed). That single
+ * CDN hop is the only exception to the endpoint boundary in the whole app
+ * — the theme updater never follows it (codeload serves the theme ZIP
+ * directly, and the boundary test pins that rejection). Every hop is
+ * validated before use: https only, at most one CDN hop, no other host.
+ * The downloaded file must start with the ZIP/APK magic or it is discarded.
  */
 class ReleaseAssetHttpClient : HttpClient {
 
     companion object {
-        private const val RELEASE_CDN_HOST = "objects.githubusercontent.com"
+        /**
+         * GitHub release-CDN hosts. In practice `releases/download/…`
+         * 302-redirects to `release-assets.githubusercontent.com`, which
+         * serves the file directly; `objects.githubusercontent.com` is
+         * kept because it has appeared in this chain historically.
+         */
+        private val RELEASE_CDN_HOSTS = setOf(
+            "objects.githubusercontent.com",
+            "release-assets.githubusercontent.com",
+        )
         private const val MAX_REDIRECTS = 5
     }
 
@@ -172,7 +182,7 @@ class ReleaseAssetHttpClient : HttpClient {
             throw SecurityException("Malformed redirect URL", e)
         }
         if (!u.protocol.equals("https", ignoreCase = true) ||
-            !u.host.equals(RELEASE_CDN_HOST, ignoreCase = true)
+            !RELEASE_CDN_HOSTS.contains(u.host.lowercase())
         ) {
             throw SecurityException("Unexpected redirect during app download: ${u.host}")
         }

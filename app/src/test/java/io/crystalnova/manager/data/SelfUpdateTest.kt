@@ -121,6 +121,19 @@ class SelfUpdateTest {
     }
 
     @Test
+    fun `download hop allows the release-assets CDN redirect`() {
+        // Regression test (2026-09-16): GitHub's releases/download URL
+        // 302s to release-assets.githubusercontent.com in practice, not
+        // objects.githubusercontent.com. Rejecting it broke every in-app
+        // update on a real device ("App download failed").
+        assetClient.checkDownloadHop(
+            "https://release-assets.githubusercontent.com/github-production-release-asset-abc123/file.apk?token=xyz",
+            startUrl,
+            cdnHopUsed = false,
+        )
+    }
+
+    @Test
     fun `download hop rejects a second CDN redirect`() {
         try {
             assetClient.checkDownloadHop(cdnUrl, startUrl, cdnHopUsed = true)
