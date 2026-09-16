@@ -90,6 +90,8 @@ dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
     androidTestImplementation(composeBom)
+    // Lets testImplementation resolve BOM-managed versions (ui-test-junit4).
+    testImplementation(composeBom)
 
     // collection-ktx is superseded by collection/collection-jvm; exclude the
     // old artifact to avoid duplicate classes with the BOM's collection 1.4.0.
@@ -110,4 +112,10 @@ dependencies {
     // android.jar's org.json is stubbed ("Stub!"); unit tests need the real
     // implementation. Test-scoped only — on device the framework provides it.
     testImplementation("org.json:json:20240303")
+    // Compose UI testing on the JVM: createComposeRule() etc. Version is
+    // BOM-managed (2024.09.00 -> ui-test-junit4 1.7.2).
+    testImplementation("androidx.compose.ui:ui-test-junit4")
+    // Drives Compose's createComposeRule() on the JVM so CI's
+    // testDebugUnitTest step (no emulator) can run UI tests.
+    testImplementation("org.robolectric:robolectric:4.13")
 }
