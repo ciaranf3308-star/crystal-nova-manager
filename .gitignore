@@ -1,0 +1,33 @@
+# Gradle
+.gradle/
+build/
+**/build/
+
+# Local configuration — machine-specific, never commit
+local.properties
+
+# Kotlin incremental compilation caches
+.kotlin/
+
+# Android Studio / IntelliJ
+.idea/
+*.iml
+*.iws
+*.ipr
+.DS_Store
+
+# Generated APKs / AABs — build locally via ./gradlew assembleDebug
+*.apk
+*.aab
+*.ap_
+
+# NDK / native build outputs
+.externalNativeBuild/
+.cxx/
+
+# Signing configs (if ever added)
+*.jks
+*.keystore
+
+# Deferred Paparazzi screenshot sources (Phase U1: no screenshots)
+.paparazzi-hold/
