@@ -1,38 +1,23 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.input.key.KeyEventType
-import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import android.os.SystemClock
 import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
 import io.crystalnova.manager.updater.ManagerState
@@ -40,70 +25,46 @@ import io.crystalnova.manager.updater.Stage
 import io.crystalnova.manager.updater.VersionDisplay
 
 /**
- * Phase U1 implements the THEME section only. The home screen is
- * architected for THEME / SCRAPER / SETTINGS later — this composable
- * is the THEME section.
+ * THEME: the theme updater. Same updater behavior and transaction
+ * logic as before — only the presentation is reorganized:
  *
- * The MANAGER APP strip above it is the self-updater: it checks this
- * app's own GitHub releases on launch and offers a one-tap download +
- * system-installer handoff. It lives outside the theme state machine.
+ * - Primary block: installed/latest versions, status, UPDATE THEME /
+ *   rollback / retry / Pegasus launch. This is what the screen is for.
+ * - Secondary block (visually subordinate): the MANAGER APP
+ *   self-updater, the themes-folder config, and a DIAGNOSTICS entry.
  *
- * Pure function of [state] + [appUpdate]: no Android APIs, so it renders
- * on the JVM for screenshot tests. Controller input (D-pad/A/B) is
- * handled via [FocusDispatcher] + [onPreviewKeyEvent]; touch via clickable.
+ * Controller B pops one level via the activity's navigator; it never
+ * dismisses an in-flight updater transaction (the UpdateManager owns
+ * the transaction and survives screen changes).
+ *
+ * Pure function of [state] + [appUpdate]: no Android APIs, so it
+ * renders on the JVM for screenshot tests.
  */
 @Composable
-fun ThemeUpdateScreen(
+fun ThemeScreen(
     state: ManagerState,
     onEvent: (ManagerEvent) -> Unit,
     pegasusLaunchable: Boolean,
     onPickFolder: () -> Unit,
-    onExit: () -> Unit,
     appVersion: String,
     appUpdate: AppUpdateState,
     onUpdateApp: () -> Unit,
-    modifier: Modifier = Modifier,
-    /** Hidden diagnostics entry: 5 taps on the version label. */
+    /** Routes to the DIAGNOSTICS destination (the 5-tap entry lives on HOME). */
     onDiagnostics: () -> Unit = {},
+    /** Pops one navigation level (B). */
+    onBack: () -> Unit = {},
+    modifier: Modifier = Modifier,
 ) {
     val dispatcher = remember { FocusDispatcher() }
-    Box(
-        modifier = modifier
-            .fillMaxSize()
-            .background(Crystal.Background)
-            .onPreviewKeyEvent { e ->
-                if (e.type != KeyEventType.KeyUp) return@onPreviewKeyEvent false
-                when (e.key) {
-                    // Gamepad A / D-pad center / Enter confirms the focused action.
-                    Key.ButtonA, Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
-                        dispatcher.activateFocused()
-                        true
-                    }
-                    // Gamepad B goes back.
-                    Key.ButtonB -> {
-                        onBack(state, onEvent, onExit)
-                        true
-                    }
-                    else -> false
-                }
-            }
-            .padding(horizontal = 48.dp, vertical = 32.dp),
-    ) {
+    ScreenRoot(onBack = onBack, dispatcher = dispatcher, modifier = modifier) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
                 .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Header()
-            AppUpdateStrip(
-                appVersion = appVersion,
-                update = appUpdate,
-                dispatcher = dispatcher,
-                onUpdateApp = onUpdateApp,
-                onDiagnostics = onDiagnostics,
-            )
-            CrystalDivider()
+            CrystalHeader()
+            SectionLabel("THEME")
             when (state) {
                 is ManagerState.NeedsFolder -> NeedsFolderBody(dispatcher, onPickFolder, state.message)
                 is ManagerState.Ready -> ReadyBody(state, dispatcher, onEvent, pegasusLaunchable)
@@ -114,142 +75,41 @@ fun ThemeUpdateScreen(
                 is ManagerState.RollbackDone -> RollbackDoneBody(state, dispatcher, onEvent)
                 is ManagerState.RollbackFailed -> RollbackFailedBody(state, dispatcher, onEvent)
             }
-            Spacer(Modifier.weight(1f))
             CrystalDivider()
-            Keycap(key = "B", label = "BACK / EXIT")
-        }
-    }
-}
-
-private fun onBack(
-    state: ManagerState,
-    onEvent: (ManagerEvent) -> Unit,
-    onExit: () -> Unit,
-) {
-    when (state) {
-        is ManagerState.Ready -> onExit()
-        is ManagerState.NeedsFolder -> onExit()
-        else -> onEvent(ManagerEvent.Dismiss)
-    }
-}
-
-@Composable
-private fun Header() {
-    Column {
-        BasicText(
-            text = "CRYSTAL NOVA",
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontWeight = FontWeight.Bold,
-                fontSize = Crystal.TitleSize,
-                color = Crystal.Ink,
-            ),
-        )
-        BasicText(
-            text = "MANAGER",
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontSize = Crystal.TitleSize,
-                color = Crystal.Divider,
-            ),
-        )
-    }
-}
-
-/**
- * Self-updater strip: always shows the installed manager version, and
- * grows an action button only when there is something to do (update
- * available, ready to install, or a failed check worth retrying).
- */
-@Composable
-private fun AppUpdateStrip(
-    appVersion: String,
-    update: AppUpdateState,
-    dispatcher: FocusDispatcher,
-    onUpdateApp: () -> Unit,
-    onDiagnostics: () -> Unit,
-) {
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            SectionLabel("MANAGER APP")
-            // Hidden diagnostics entry: 5 taps within 3 seconds. No
-            // visual affordance — this is a dev/support screen.
-            var taps by remember { mutableIntStateOf(0) }
-            var lastTapMs by remember { mutableLongStateOf(0L) }
-            BasicText(
-                text = "v$appVersion",
-                modifier = Modifier.clickable(
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                ) {
-                    val now = SystemClock.uptimeMillis()
-                    taps = if (now - lastTapMs > 3000) 1 else taps + 1
-                    lastTapMs = now
-                    if (taps >= 5) {
-                        taps = 0
-                        onDiagnostics()
-                    }
-                },
-                style = TextStyle(
-                    fontFamily = Crystal.Mono,
-                    fontSize = Crystal.SmallSize,
-                    color = Crystal.InkDim,
-                ),
-            )
-        }
-        when (update) {
-            is AppUpdateState.Idle ->
-                if (update.lastCheckFailed) {
+            SectionLabel("MANAGER")
+            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    AppUpdateSection(
+                        appVersion = appVersion,
+                        update = appUpdate,
+                        dispatcher = dispatcher,
+                        onUpdateApp = onUpdateApp,
+                    )
+                    CrystalDivider()
+                    DimLine("THEME STORAGE FOLDER")
                     CrystalButton(
-                        key = "app-retry",
-                        label = "RETRY APP UPDATE CHECK",
-                        onClick = onUpdateApp,
+                        key = "change-themes-folder",
+                        label = "CHANGE THEMES FOLDER",
+                        onClick = onPickFolder,
+                        dispatcher = dispatcher,
+                    )
+                    CrystalButton(
+                        key = "open-diagnostics",
+                        label = "DIAGNOSTICS",
+                        onClick = onDiagnostics,
                         dispatcher = dispatcher,
                     )
                 }
-            is AppUpdateState.Checking ->
-                StatusLine("CHECKING FOR APP UPDATES…", Crystal.Divider)
-            is AppUpdateState.Available -> {
-                StatusLine("APP UPDATE AVAILABLE — v${update.info.version}", Crystal.Cream)
-                update.notice?.let { StatusLine(it, Crystal.Bad) }
-                CrystalButton(
-                    key = "app-update",
-                    label = "UPDATE APP",
-                    onClick = onUpdateApp,
-                    dispatcher = dispatcher,
-                )
             }
-            is AppUpdateState.Downloading -> {
-                val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
-                StatusLine("DOWNLOADING APP UPDATE$pct", Crystal.Divider)
-            }
-            is AppUpdateState.Downloaded -> {
-                StatusLine("APP UPDATE READY TO INSTALL", Crystal.Cream)
-                CrystalButton(
-                    key = "app-install",
-                    label = "INSTALL APP UPDATE",
-                    onClick = onUpdateApp,
-                    dispatcher = dispatcher,
-                )
-            }
-            is AppUpdateState.Installing ->
-                StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
-            is AppUpdateState.Failed -> {
-                StatusLine(update.message, Crystal.Bad)
-                CrystalButton(
-                    key = "app-retry",
-                    label = "RETRY APP UPDATE CHECK",
-                    onClick = onUpdateApp,
-                    dispatcher = dispatcher,
-                )
-            }
+            Spacer(Modifier.weight(1f))
+            BackFooter()
         }
     }
 }
+
+// ------------------------------------------------------------------
+// Primary block: theme transaction rendering (logic unchanged).
+// ------------------------------------------------------------------
 
 @Composable
 private fun VersionColumns(installed: VersionDisplay?, latest: VersionDisplay?) {
@@ -311,8 +171,6 @@ private fun ReadyBody(
     onEvent: (ManagerEvent) -> Unit,
     pegasusLaunchable: Boolean,
 ) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             VersionColumns(state.installed, state.latest)
@@ -347,7 +205,7 @@ private fun ReadyBody(
     if (state.updateAvailable && !state.checking) {
         CrystalButton(
             key = "update",
-            label = "UPDATE CRYSTAL",
+            label = "UPDATE THEME",
             onClick = { onEvent(ManagerEvent.StartUpdate) },
             dispatcher = dispatcher,
             requestInitialFocus = true,
@@ -389,8 +247,6 @@ private fun NeedsFolderBody(
     onPick: () -> Unit,
     message: String?,
 ) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             BasicText(
@@ -432,8 +288,6 @@ private fun NeedsFolderBody(
 
 @Composable
 private fun UpdatingBody(state: ManagerState.Updating) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Stage.entries.forEach { stage ->
@@ -477,8 +331,6 @@ private fun FailedBody(
     dispatcher: FocusDispatcher,
     onEvent: (ManagerEvent) -> Unit,
 ) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusLine(state.message, Crystal.Bad)
@@ -509,8 +361,6 @@ private fun DoneBody(
     onEvent: (ManagerEvent) -> Unit,
     pegasusLaunchable: Boolean,
 ) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusLine("✓ UPDATE INSTALLED — v${state.version.version}", Crystal.Good)
@@ -543,8 +393,6 @@ private fun DoneBody(
 
 @Composable
 private fun RollingBackBody(state: ManagerState.RollingBack) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         StatusLine("ROLLING BACK — ${state.stage.name}", Crystal.Cream)
     }
@@ -556,8 +404,6 @@ private fun RollbackDoneBody(
     dispatcher: FocusDispatcher,
     onEvent: (ManagerEvent) -> Unit,
 ) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             StatusLine(
@@ -589,8 +435,6 @@ private fun RollbackFailedBody(
     dispatcher: FocusDispatcher,
     onEvent: (ManagerEvent) -> Unit,
 ) {
-    SectionLabel("THEME")
-    Spacer(Modifier.height(4.dp))
     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
         StatusLine(state.message, Crystal.Bad)
     }
@@ -603,15 +447,81 @@ private fun RollbackFailedBody(
     )
 }
 
+// ------------------------------------------------------------------
+// Secondary block: the MANAGER APP self-updater (logic unchanged).
+// The hidden 5-tap diagnostics entry now lives on HOME's version
+// label; this section shows the plain installed version.
+// ------------------------------------------------------------------
+
 @Composable
-private fun StatusLine(text: String, color: androidx.compose.ui.graphics.Color) {
-    BasicText(
-        text = text,
-        style = TextStyle(
-            fontFamily = Crystal.Mono,
-            fontWeight = FontWeight.Bold,
-            fontSize = Crystal.BodySize,
-            color = color,
-        ),
-    )
+private fun AppUpdateSection(
+    appVersion: String,
+    update: AppUpdateState,
+    dispatcher: FocusDispatcher,
+    onUpdateApp: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionLabel("MANAGER APP")
+            BasicText(
+                text = "v$appVersion",
+                style = TextStyle(
+                    fontFamily = Crystal.Mono,
+                    fontSize = Crystal.SmallSize,
+                    color = Crystal.InkDim,
+                ),
+            )
+        }
+        when (update) {
+            is AppUpdateState.Idle ->
+                if (update.lastCheckFailed) {
+                    CrystalButton(
+                        key = "app-retry",
+                        label = "RETRY APP UPDATE CHECK",
+                        onClick = onUpdateApp,
+                        dispatcher = dispatcher,
+                    )
+                }
+            is AppUpdateState.Checking ->
+                StatusLine("CHECKING FOR APP UPDATES…", Crystal.Divider)
+            is AppUpdateState.Available -> {
+                StatusLine("APP UPDATE AVAILABLE — v${update.info.version}", Crystal.Cream)
+                update.notice?.let { StatusLine(it, Crystal.Bad) }
+                CrystalButton(
+                    key = "app-update",
+                    label = "UPDATE APP",
+                    onClick = onUpdateApp,
+                    dispatcher = dispatcher,
+                )
+            }
+            is AppUpdateState.Downloading -> {
+                val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
+                StatusLine("DOWNLOADING APP UPDATE$pct", Crystal.Divider)
+            }
+            is AppUpdateState.Downloaded -> {
+                StatusLine("APP UPDATE READY TO INSTALL", Crystal.Cream)
+                CrystalButton(
+                    key = "app-install",
+                    label = "INSTALL APP UPDATE",
+                    onClick = onUpdateApp,
+                    dispatcher = dispatcher,
+                )
+            }
+            is AppUpdateState.Installing ->
+                StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
+            is AppUpdateState.Failed -> {
+                StatusLine(update.message, Crystal.Bad)
+                CrystalButton(
+                    key = "app-retry",
+                    label = "RETRY APP UPDATE CHECK",
+                    onClick = onUpdateApp,
+                    dispatcher = dispatcher,
+                )
+            }
+        }
+    }
 }

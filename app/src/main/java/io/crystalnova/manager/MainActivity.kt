@@ -9,41 +9,40 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.unit.dp
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.SafThemeStorage
-import io.crystalnova.manager.ui.Crystal
-import io.crystalnova.manager.ui.CrystalButton
-import io.crystalnova.manager.diag.DiagnosticsInfo
+import io.crystalnova.manager.storage.StorageLocations
+import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
 import io.crystalnova.manager.ui.FocusDispatcher
-import io.crystalnova.manager.ui.ScraperScreen
-import io.crystalnova.manager.ui.ThemeUpdateScreen
+import io.crystalnova.manager.ui.HomeScreen
+import io.crystalnova.manager.ui.LibraryScreen
+import io.crystalnova.manager.ui.Navigator
+import io.crystalnova.manager.ui.PlaceholderScreen
+import io.crystalnova.manager.ui.ProgressScreen
+import io.crystalnova.manager.ui.SettingsScreen
+import io.crystalnova.manager.ui.SystemScreen
+import io.crystalnova.manager.ui.ThemeScreen
+import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
-import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.UpdateManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.File
 
 private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueStore {
@@ -56,6 +55,12 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueS
     }
 }
 
+/**
+ * Navigation hub. Owns the [Navigator] back stack, the managers, and
+ * the SAF folder pickers; each [Dest] renders a focused screen from
+ * ui/. Controller/system back pops exactly one level from any child
+ * destination and only exits from HOME.
+ */
 class MainActivity : ComponentActivity() {
 
     companion object {
@@ -72,15 +77,21 @@ class MainActivity : ComponentActivity() {
 
     private lateinit var manager: UpdateManager
     private lateinit var storage: SafThemeStorage
+    private lateinit var locations: StorageLocations
     private lateinit var scraper: ScraperManager
     private val scope = MainScope()
 
-    /** Hidden diagnostics overlay state (5 taps on the version label). */
-    private val showDiagnostics = mutableStateOf(false)
+    /** The remembered [Navigator], mirrored here for the back callback. */
+    private var navigator: Navigator? = null
+
     private var diagnosticsInfo: DiagnosticsInfo? by mutableStateOf(null)
+    /** Last ROM/MEDIA adopt failure, surfaced on the Settings screen. */
+    private var locationError: String? by mutableStateOf(null)
 
-    private enum class Section { THEME, SCRAPER }
-
+    /**
+     * Themes-root picker. Keeps the U1.1 normalize + guidance behavior:
+     * picking the theme folder itself re-prompts for the themes/ parent.
+     */
     private val folderPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             var folderNotice: String? = null
@@ -108,18 +119,44 @@ class MainActivity : ComponentActivity() {
             manager.refresh(folderNotice)
         }
 
-    private val gamesFolderPicker =
+    /**
+     * ROM library picker. The SAF grant is taken inside
+     * [StorageLocations.adoptTreeUri]; on success the scraper refreshes
+     * so the Library screen flips from the picker prompt to the grid.
+     */
+    private val romPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
-                try {
-                    contentResolver.takePersistableUriPermission(
-                        uri,
-                        Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                            Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-                    )
-                    scraper.setGamesFolder(uri.toString())
-                } catch (_: SecurityException) {
-                    // Stay on the scraper onboarding screen; user can retry.
+                val ok = locations.adoptTreeUri(
+                    contentResolver, uri, LocationKind.ROM, storage.treeUri,
+                )
+                if (ok) {
+                    locationError = null
+                    scraper.refresh()
+                } else {
+                    locationError = "COULD NOT KEEP ROM LIBRARY ACCESS — PLEASE TRY AGAIN"
+                }
+            }
+        }
+
+    /**
+     * MEDIA library picker. Adopting rewrites the theme bridge so
+     * Pegasus finds the media without a reinstall ([StorageLocations]
+     * does that inside adopt); we write the bridge once more for
+     * self-healing, then refresh the scraper.
+     */
+    private val mediaPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                val ok = locations.adoptTreeUri(
+                    contentResolver, uri, LocationKind.MEDIA, storage.treeUri,
+                )
+                if (ok) {
+                    locationError = null
+                    locations.writeBridge(storage.treeUri)
+                    scraper.refresh()
+                } else {
+                    locationError = "COULD NOT KEEP MEDIA LIBRARY ACCESS — PLEASE TRY AGAIN"
                 }
             }
         }
@@ -185,6 +222,10 @@ class MainActivity : ComponentActivity() {
         val prefs = SharedPrefsStore(getSharedPreferences("crystal-nova-manager", MODE_PRIVATE))
         val fs = SafThemeFs(this) { prefs.getString(SafThemeStorage.KEY_TREE_URI) }
         storage = SafThemeStorage(fs, prefs)
+        locations = StorageLocations(this, prefs)
+        // Self-healing: make sure the theme bridge reflects the
+        // persisted media location even if a previous run died mid-adopt.
+        locations.writeBridge(storage.treeUri)
         // U1.1: repair a U1-persisted root that points at the theme folder
         // itself before the manager's initial refresh reads it.
         val pendingFolderNotice = maybeRepairPersistedRoot()
@@ -202,102 +243,164 @@ class MainActivity : ComponentActivity() {
             prefs = prefs,
             themesTreeUri = { storage.treeUri },
             scope = scope,
+            storageLocations = locations,
         )
+        // Seed the library status block on HOME on first paint.
+        scraper.refresh()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
-            override fun handleOnBackPressed() = handleBack()
+            override fun handleOnBackPressed() {
+                val nav = navigator
+                if (nav == null || nav.onBack()) finish()
+            }
         })
 
         setContent {
-            var section by remember { mutableStateOf(Section.THEME) }
-            val tabDispatcher = remember { FocusDispatcher() }
-            val diagDispatcher = remember { FocusDispatcher() }
-            val diagOpen by showDiagnostics
+            val nav = remember { Navigator() }
+            // Idempotent mirror for the back callback above.
+            navigator = nav
+            val scraperState by scraper.state.collectAsState()
+            val themeState by manager.state.collectAsState()
+            val appUpdate by manager.appUpdate.collectAsState()
+            val locError = locationError
             val diagInfo = diagnosticsInfo
-            if (diagOpen && diagInfo != null) {
-                DiagnosticsScreen(
-                    info = diagInfo,
-                    dispatcher = diagDispatcher,
-                    onRefresh = {
-                        scope.launch(Dispatchers.IO) {
-                            diagnosticsInfo = buildDiagnostics()
-                        }
+            val pop: () -> Unit = { nav.onBack() }
+
+            when (val dest = nav.current) {
+                is Dest.Home -> HomeScreen(
+                    themeState = themeState,
+                    scraperState = scraperState,
+                    appVersion = BuildConfig.VERSION_NAME,
+                    onLibrary = {
+                        scraper.refresh()
+                        nav.navigate(Dest.Library)
                     },
-                    onClose = { showDiagnostics.value = false },
+                    onTheme = { nav.navigate(Dest.Theme) },
+                    onSettings = { nav.navigate(Dest.Settings) },
+                    onDiagnostics = { openDiagnostics(nav) },
+                    onExit = { finish() },
                 )
-            } else {
-            Column(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .background(Crystal.Background),
-            ) {
-                // Section tabs: THEME | SCRAPER. Controller-navigable.
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 48.dp, vertical = 12.dp),
-                ) {
-                    for (tab in Section.entries) {
-                        val selected = tab == section
-                        androidx.compose.foundation.layout.Box(
-                            modifier = Modifier.weight(1f).padding(horizontal = 4.dp),
-                        ) {
-                            CrystalButton(
-                                key = "tab-$tab",
-                                label = (if (selected) "> " else "") + tab.name,
-                                onClick = {
-                                    section = tab
-                                    if (tab == Section.SCRAPER) scraper.refresh()
-                                },
-                                dispatcher = tabDispatcher,
-                            )
-                        }
-                    }
-                }
-                when (section) {
-                    Section.THEME -> {
-                        val state by manager.state.collectAsState()
-                        val appUpdate by manager.appUpdate.collectAsState()
-                        ThemeUpdateScreen(
-                            state = state,
-                            onEvent = { event ->
-                                if (event === ManagerEvent.OpenPegasus) openPegasus()
-                                else manager.onEvent(event)
-                            },
-                            pegasusLaunchable = isPegasusInstalled(),
-                            onPickFolder = { folderPicker.launch(null) },
-                            onExit = { finish() },
-                            appVersion = BuildConfig.VERSION_NAME,
-                            appUpdate = appUpdate,
-                            onUpdateApp = { onUpdateApp() },
-                            onDiagnostics = {
+                is Dest.Library -> LibraryScreen(
+                    state = scraperState,
+                    onPickRomLibrary = { romPicker.launch(null) },
+                    onSelectSystem = { slug, label ->
+                        nav.navigate(Dest.System(slug, label))
+                    },
+                    onRescan = { scraper.scan() },
+                    onDismissNotice = { scraper.dismissNotice() },
+                    onBack = pop,
+                )
+                is Dest.System -> SystemScreen(
+                    slug = dest.slug,
+                    label = dest.label,
+                    state = scraperState,
+                    onScrape = {
+                        // selectPlatform(null) = all systems.
+                        scraper.selectPlatform(dest.slug.ifEmpty { null })
+                        scraper.startScrape()
+                        nav.navigate(Dest.Progress)
+                    },
+                    onRetryIncomplete = {
+                        scraper.selectPlatform(dest.slug.ifEmpty { null })
+                        scraper.retryIncomplete()
+                        nav.navigate(Dest.Progress)
+                    },
+                    onBack = pop,
+                )
+                is Dest.Progress -> ProgressScreen(
+                    state = scraperState,
+                    onCancel = { scraper.cancelScrape() },
+                    onDone = { nav.onBack() },
+                    onDismissNotice = { scraper.dismissNotice() },
+                    onBack = pop,
+                )
+                is Dest.Theme -> ThemeScreen(
+                    state = themeState,
+                    onEvent = { event ->
+                        if (event === ManagerEvent.OpenPegasus) openPegasus()
+                        else manager.onEvent(event)
+                    },
+                    pegasusLaunchable = isPegasusInstalled(),
+                    onPickFolder = { folderPicker.launch(null) },
+                    appVersion = BuildConfig.VERSION_NAME,
+                    appUpdate = appUpdate,
+                    onUpdateApp = { onUpdateApp() },
+                    onDiagnostics = { openDiagnostics(nav) },
+                    onBack = pop,
+                )
+                is Dest.Settings -> SettingsScreen(
+                    romLocation = scraperState.romLocation,
+                    mediaLocation = scraperState.mediaLocation,
+                    themesRootLabel = themesRootLabel(),
+                    locationError = locError,
+                    onDismissLocationError = { locationError = null },
+                    onPickRom = { romPicker.launch(null) },
+                    onPickMedia = { mediaPicker.launch(null) },
+                    onClearRom = {
+                        locations.clearLocation(LocationKind.ROM, storage.treeUri)
+                        locations.writeBridge(storage.treeUri)
+                        scraper.refresh()
+                    },
+                    onClearMedia = {
+                        locations.clearLocation(LocationKind.MEDIA, storage.treeUri)
+                        locations.writeBridge(storage.treeUri)
+                        scraper.refresh()
+                    },
+                    onPickThemesRoot = { folderPicker.launch(null) },
+                    onDiagnostics = { openDiagnostics(nav) },
+                    onBack = pop,
+                )
+                is Dest.Diagnostics -> {
+                    val diagDispatcher = remember { FocusDispatcher() }
+                    val info = diagInfo
+                    if (info != null) {
+                        DiagnosticsScreen(
+                            info = info,
+                            dispatcher = diagDispatcher,
+                            onRefresh = {
                                 // SAF index read happens here; keep it off
                                 // the main thread for large libraries.
                                 scope.launch(Dispatchers.IO) {
                                     diagnosticsInfo = buildDiagnostics()
-                                    showDiagnostics.value = true
                                 }
                             },
+                            onClose = { nav.onBack() },
                         )
-                    }
-                    Section.SCRAPER -> {
-                        val scraperState by scraper.state.collectAsState()
-                        ScraperScreen(
-                            state = scraperState,
-                            onPickGamesFolder = { gamesFolderPicker.launch(null) },
-                            onScan = { scraper.scan() },
-                            onSelectPlatform = { scraper.selectPlatform(it) },
-                            onStartScrape = { scraper.startScrape() },
-                            onRetry = { scraper.retryIncomplete() },
-                            onCancel = { scraper.cancelScrape() },
-                            onDismissNotice = { scraper.dismissNotice() },
-                            onExit = { finish() },
+                    } else {
+                        // Safety net: openDiagnostics always sets the info
+                        // before navigating, so this should not happen.
+                        PlaceholderScreen(
+                            label = "LOADING DIAGNOSTICS…",
+                            onBack = pop,
                         )
                     }
                 }
             }
+        }
+    }
+
+    /**
+     * Opens the hidden Diagnostics destination. The SAF index read runs
+     * off the main thread; navigation happens only after the payload is
+     * ready.
+     */
+    private fun openDiagnostics(nav: Navigator) {
+        scope.launch(Dispatchers.IO) {
+            val info = buildDiagnostics()
+            withContext(Dispatchers.Main) {
+                diagnosticsInfo = info
+                nav.navigate(Dest.Diagnostics)
             }
         }
+    }
+
+    /** Friendly one-line label for the persisted themes root. */
+    private fun themesRootLabel(): String {
+        val raw = storage.treeUri ?: return "NOT SELECTED"
+        val name = runCatching {
+            DocumentFile.fromTreeUri(this, Uri.parse(raw))?.name
+        }.getOrNull()
+        return if (name != null) "THEMES: $name" else "THEMES FOLDER SELECTED"
     }
 
     /**
@@ -338,19 +441,6 @@ class MainActivity : ComponentActivity() {
                 )
             }
             is ApkInstaller.Result.Failed -> manager.noteAppUpdateFailed(result.message)
-        }
-    }
-
-    private fun handleBack() {
-        if (showDiagnostics.value) {
-            showDiagnostics.value = false
-            return
-        }
-        when (manager.state.value) {
-            is ManagerState.Ready,
-            is ManagerState.NeedsFolder,
-            -> finish()
-            else -> manager.onEvent(ManagerEvent.Dismiss)
         }
     }
 
