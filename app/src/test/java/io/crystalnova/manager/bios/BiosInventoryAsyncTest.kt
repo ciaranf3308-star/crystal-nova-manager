@@ -1,5 +1,6 @@
 package io.crystalnova.manager.bios
 
+import io.crystalnova.manager.bios.BiosInventory.BiosScanState
 import io.crystalnova.manager.data.KeyValueStore
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.Executors

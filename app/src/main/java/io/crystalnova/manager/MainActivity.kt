@@ -60,7 +60,7 @@ import io.crystalnova.manager.ui.BiosScreenState
 import io.crystalnova.manager.ui.BiosStatusRow
 import io.crystalnova.manager.bios.BiosFirmwareTable
 import io.crystalnova.manager.bios.BiosInventory
-import io.crystalnova.manager.bios.BiosScanState
+import io.crystalnova.manager.bios.BiosInventory.BiosScanState
 import io.crystalnova.manager.bios.BiosRootState
 import io.crystalnova.manager.bios.BiosStatus
 import io.crystalnova.manager.diag.CrashReporter
