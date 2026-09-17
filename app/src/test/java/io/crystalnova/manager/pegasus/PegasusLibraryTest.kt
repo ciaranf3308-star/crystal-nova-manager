@@ -748,4 +748,30 @@ class PegasusLibraryTest {
         val report = lib.systemMetafileReport()
         assertEquals(GameDirsOutcome.Updated(1), report.gameDirs)
     }
+
+    @Test
+    fun inject_gameDirsFailedOutcome_roundTripDoesNotAccumulatePrefixes() {
+        val f = Fixture()
+        val lib = f.lib
+        f.legacyPicked = true
+        lib.legacyWrite = { _, _ -> false }
+        adoptRomRoot(f.prefs)
+        lib.gameSource = {
+            listOf(game("gba", "Game Boy Advance", "Mario Golf", "$romRoot/gba/mario.gba"))
+        }
+
+        runBlocking { lib.inject() }
+
+        val first = lib.systemMetafileReport().gameDirs
+        assertEquals(GameDirsOutcome.Failed("WRITE FAILED"), first)
+        assertEquals("SKIPPED — WRITE FAILED", first.display())
+
+        // A second BUILD re-persists the outcome: the reason must not
+        // grow "SKIPPED —" prefixes across repeated builds.
+        runBlocking { lib.inject() }
+
+        val second = lib.systemMetafileReport().gameDirs
+        assertEquals(GameDirsOutcome.Failed("WRITE FAILED"), second)
+        assertEquals("SKIPPED — WRITE FAILED", second.display())
+    }
 }

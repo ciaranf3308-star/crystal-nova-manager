@@ -582,13 +582,22 @@ class PegasusLibrary(
         }
     }
 
+    /**
+     * Reads back the persisted game_dirs.txt merge outcome. Must be the
+     * exact inverse of [GameDirsOutcome.display]: the display strings are
+     * what the Diagnostics panel shows, and a successful merge ("WRITTEN ·
+     * N ADDED") must never read back as a failure — nor may a Failed
+     * reason accumulate "SKIPPED —" prefixes across repeated BUILDs.
+     */
     private fun lastGameDirsOutcome(): GameDirsOutcome {
         val raw = prefs.getString(KEY_GAMEDIRS_STATUS) ?: return GameDirsOutcome.SkippedNoGrant
         if (raw == GameDirsOutcome.Unchanged.display()) return GameDirsOutcome.Unchanged
         if (raw == GameDirsOutcome.SkippedNoGrant.display()) return GameDirsOutcome.SkippedNoGrant
-        val updated = Regex("""UPDATED · (\d+) ADDED""").find(raw)
+        val updated = Regex("""WRITTEN · (\d+) ADDED""").find(raw)
         if (updated != null) return GameDirsOutcome.Updated(updated.groupValues[1].toInt())
-        return GameDirsOutcome.Failed(raw.removePrefix("FAILED — "))
+        val failed = Regex("""^SKIPPED — (.*)$""").find(raw)
+        if (failed != null) return GameDirsOutcome.Failed(failed.groupValues[1])
+        return GameDirsOutcome.Failed(raw)
     }
 
     // ------------------------------------------------------------------
