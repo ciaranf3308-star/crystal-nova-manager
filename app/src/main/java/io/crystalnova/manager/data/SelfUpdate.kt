@@ -200,7 +200,10 @@ class ReleaseAssetHttpClient : HttpClient {
         (URL(url).openConnection() as HttpURLConnection).apply {
             instanceFollowRedirects = false
             connectTimeout = 15_000
-            readTimeout = 30_000
+            // APK downloads are multi-megabyte; a 30s stall timeout is
+            // tight on slow handheld WiFi (the tiny manifest fetch is
+            // unaffected — it uses its own client).
+            readTimeout = 60_000
             setRequestProperty("User-Agent", "CrystalNovaManager/1.0")
         }
 }

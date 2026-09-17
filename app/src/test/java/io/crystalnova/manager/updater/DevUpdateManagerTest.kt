@@ -177,7 +177,7 @@ class DevUpdateManagerTest {
         manager.downloadAppUpdate()
         advanceUntilIdle()
         val state = manager.appUpdate.value as AppUpdateState.Failed
-        assertEquals("APP DOWNLOAD FAILED", state.message)
+        assertEquals("DOWNLOAD FAILED: Dev APK checksum mismatch", state.message)
     }
 
     @Test

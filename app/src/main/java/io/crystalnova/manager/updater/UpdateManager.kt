@@ -418,7 +418,12 @@ class UpdateManager(
                 }
                 .onFailure {
                     withContext(ioDispatcher) { dest.delete() }
-                    _appUpdate.value = AppUpdateState.Failed("APP DOWNLOAD FAILED")
+                    // Surface the root cause (HTTP status, checksum
+                    // mismatch, timeout, redirect rejection): a bare
+                    // "failed" tells the user nothing and makes
+                    // device-specific download issues undebuggable.
+                    val cause = it.message?.takeIf { m -> m.isNotBlank() } ?: "UNKNOWN ERROR"
+                    _appUpdate.value = AppUpdateState.Failed("DOWNLOAD FAILED: $cause")
                 }
         }
     }

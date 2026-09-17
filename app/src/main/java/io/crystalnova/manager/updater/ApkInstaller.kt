@@ -53,7 +53,11 @@ class ApkInstaller(private val activity: ComponentActivity) {
             activity.startActivity(intent)
             Result.Started
         } catch (e: Exception) {
-            Result.Failed("COULD NOT OPEN INSTALLER")
+            // Include the cause: on-device install handoff failures
+            // (missing FileProvider path, no handler for the intent)
+            // are otherwise indistinguishable from download failures.
+            val cause = e.message?.takeIf { m -> m.isNotBlank() } ?: e.javaClass.simpleName
+            Result.Failed("COULD NOT OPEN INSTALLER: $cause")
         }
     }
 
