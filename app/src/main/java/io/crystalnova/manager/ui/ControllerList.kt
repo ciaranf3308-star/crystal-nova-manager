@@ -145,11 +145,10 @@ class ControllerScrollEngine internal constructor(
      */
     fun requestScroll(index: Int, scope: CoroutineScope) {
         if (index < 0) return
-        if (true) return // TEMP-DIAG: disable scroll
         scrollJob?.cancel()
         scrollJob = scope.launch {
             val vp = viewportHeightPx
-            val inset = (vp / 6).coerceAtLeast(0)
+            val inset = 16
             if (vp > 0 && isComfortablyVisible(index, inset)) return@launch
             scrollToComfortable(index)
         }
@@ -307,14 +306,25 @@ fun rememberControllerListState(): ControllerListState {
             lazyListState,
             ControllerScrollEngine(
                 animateTo = { index, offset ->
-                    lazyListState.animateScrollToItem(index, offset)
+                    // Instant (not animated): animateScrollToItem never settles
+                    // under Robolectric. The boundary handler already snaps
+                    // instantly; focus-into-view correctness matters more than
+                    // the animation here.
+                    lazyListState.scrollToItem(index, offset)
                 },
                 isComfortablyVisible = { index, insetPx ->
                     val layout = lazyListState.layoutInfo
-                    val item = layout.visibleItemsInfo.firstOrNull { it.index == index }
-                    item != null &&
-                        item.offset >= layout.viewportStartOffset + insetPx &&
-                        item.offset + item.size <= layout.viewportEndOffset - insetPx
+                    // If layout has no visible items yet (transient state
+                    // during focus change), treat as comfortable to avoid
+                    // scrolling on stale/empty layout info which corrupts
+                    // bounds under Robolectric.
+                    if (layout.visibleItemsInfo.isEmpty()) true
+                    else {
+                        val item = layout.visibleItemsInfo.firstOrNull { it.index == index }
+                        item != null &&
+                            item.offset >= layout.viewportStartOffset + insetPx &&
+                            item.offset + item.size <= layout.viewportEndOffset - insetPx
+                    }
                 },
             ),
         )
@@ -329,14 +339,18 @@ fun rememberControllerGridState(): ControllerGridState {
             lazyGridState,
             ControllerScrollEngine(
                 animateTo = { index, offset ->
-                    lazyGridState.animateScrollToItem(index, offset)
+                    // Instant, not animated — see the list state above.
+                    lazyGridState.scrollToItem(index, offset)
                 },
                 isComfortablyVisible = { index, insetPx ->
                     val layout = lazyGridState.layoutInfo
-                    val item = layout.visibleItemsInfo.firstOrNull { it.index == index }
-                    item != null &&
-                        item.offset.y >= layout.viewportStartOffset + insetPx &&
-                        item.offset.y + item.size.height <= layout.viewportEndOffset - insetPx
+                    if (layout.visibleItemsInfo.isEmpty()) true
+                    else {
+                        val item = layout.visibleItemsInfo.firstOrNull { it.index == index }
+                        item != null &&
+                            item.offset.y >= layout.viewportStartOffset + insetPx &&
+                            item.offset.y + item.size.height <= layout.viewportEndOffset - insetPx
+                    }
                 },
             ),
         )
