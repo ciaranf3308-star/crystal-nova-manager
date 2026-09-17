@@ -123,18 +123,6 @@ import kotlinx.coroutines.launch
  * height is read during composition by absolutely nobody — it is only
  * read inside [requestScroll], so the state wrapper is just convenient
  * storage; no recomposition is triggered off it).
- *
- * Marked [Stable] because the instance is remembered once per list/grid
- * and its identity never changes; without this, Compose infers
- * instability from the lambda/map fields and `remember(engine, ...)`
- * call sites would invalidate (recreating focus nodes and refiring
- * focus callbacks) on every recomposition.
- *
- * NOTE: @Stable was removed — it caused the 25-row traversal test to
- * fail with empty bounds at step 1 under Robolectric. The instability
- * (recreating the modifier on recomposition) was actually masking the
- * issue; with a stable engine the focus callback fires reliably and
- * exposes the real problem.
  */
 class ControllerScrollEngine internal constructor(
     private val animateTo: suspend (index: Int, scrollOffset: Int) -> Unit,
@@ -157,14 +145,11 @@ class ControllerScrollEngine internal constructor(
      */
     fun requestScroll(index: Int, scope: CoroutineScope) {
         if (index < 0) return
+        if (true) return // TEMP-DIAG: disable scroll
         scrollJob?.cancel()
         scrollJob = scope.launch {
             val vp = viewportHeightPx
-            // Small edge margin (not vp/6): only scroll when the item is
-            // actually near/outside the viewport edge. The aggressive vp/6
-            // inset was triggering scrolls for clearly-visible items,
-            // disrupting the layout under Robolectric.
-            val inset = 16
+            val inset = (vp / 6).coerceAtLeast(0)
             if (vp > 0 && isComfortablyVisible(index, inset)) return@launch
             scrollToComfortable(index)
         }
@@ -322,13 +307,7 @@ fun rememberControllerListState(): ControllerListState {
             lazyListState,
             ControllerScrollEngine(
                 animateTo = { index, offset ->
-                    // Instant (not animated): animateScrollToItem never settles
-                    // under Robolectric — the test clock does not drive it and
-                    // the lazy layout is left with empty bounds. The boundary
-                    // handler already snaps instantly for the same reason;
-                    // focus-into-view correctness matters more than the
-                    // animation here.
-                    lazyListState.scrollToItem(index, offset)
+                    lazyListState.animateScrollToItem(index, offset)
                 },
                 isComfortablyVisible = { index, insetPx ->
                     val layout = lazyListState.layoutInfo
@@ -350,8 +329,7 @@ fun rememberControllerGridState(): ControllerGridState {
             lazyGridState,
             ControllerScrollEngine(
                 animateTo = { index, offset ->
-                    // Instant, not animated — see the list state above.
-                    lazyGridState.scrollToItem(index, offset)
+                    lazyGridState.animateScrollToItem(index, offset)
                 },
                 isComfortablyVisible = { index, insetPx ->
                     val layout = lazyGridState.layoutInfo
@@ -374,7 +352,6 @@ fun rememberControllerGridState(): ControllerGridState {
  * A null [engine] returns the modifier unchanged, so call sites can
  * pass the engine straight through without branching.
  */
-@Composable
 @Composable
 fun Modifier.controllerScrollItem(engine: ControllerScrollEngine?, index: Int): Modifier {
     if (engine == null) return this
