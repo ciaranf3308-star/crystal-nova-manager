@@ -7,6 +7,12 @@ import android.net.Uri
 import android.util.Log
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.KeyValueStore
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.launch
 
 /** One file found by the recursive BIOS scan. */
 data class BiosFile(
@@ -33,10 +39,13 @@ sealed interface BiosRootState {
  *   the persisted ROM root ([BiosDiscovery]); a SAF grant is adopted
  *   explicitly via [adoptBiosTreeUri] — Crystal never assumes access.
  * - Scanning is recursive ([BiosFile.relativePath] keeps nesting) with
- *   depth/file caps, because a copied EmuDeck tree nests.
- * - PS2 is the only platform whose status can gate READY; see
- *   [ps2Status] / [ps2Issue]. Optional/HLE platforms always report
- *   READY and never create issues.
+ *   depth/file caps, because a copied EmuDeck tree nests — and it
+ *   always runs on [ioDispatcher], never on Main (the v22 scraper
+ *   lesson). Results are cached in [scanState]; HOME readiness and
+ *   the BIOS screen read the cache only.
+ * - PS2 is the only platform whose firmware is tracked and the only
+ *   one that can gate READY; see [ps2Status] / [ps2Issue]. Nothing
+ *   else is asserted and nothing else gates.
  *
  * User-owned files only: Crystal never distributes, downloads, or
  * links firmware. A valid-looking file on the SD card is
@@ -47,7 +56,9 @@ sealed interface BiosRootState {
  * auto-detected.
  *
  * [lister] is a seam for JVM unit tests; null means the SAF-backed
- * default. [logger] is the same Logcat seam [StorageLocations] uses.
+ * default. [accessOverride] overrides the SAF readability probe for
+ * tests (null = real check). [logger] is the same Logcat seam
+ * [StorageLocations] uses.
  */
 class BiosInventory(
     private val context: Context?,
@@ -56,6 +67,14 @@ class BiosInventory(
     internal var lister: ((treeUri: String) -> List<BiosFile>?)? = null,
     private val logger: (tag: String, msg: String, err: Throwable?) -> Unit =
         { tag, msg, err -> Log.w(tag, msg, err) },
+    /**
+     * Injectable dispatcher seam for the recursive SAF scan (same
+     * pattern as the v22 scraper fix): blocking filesystem I/O must
+     * never run on Main. Defaults to [Dispatchers.IO].
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
+    /** Test seam: overrides the SAF readability probe (null = real check). */
+    internal var accessOverride: Boolean? = null,
 ) {
     companion object {
         const val KEY_BIOS_TREE_URI = "bios_tree_uri"
@@ -66,6 +85,65 @@ class BiosInventory(
     }
 
     fun biosTreeUri(): String? = prefs.getString(KEY_BIOS_TREE_URI)
+
+    /**
+     * Lifecycle of the cached recursive BIOS scan.
+     *
+     * - NotScanned: no scan yet, the grant is gone, or the folder was
+     *   (re)adopted — nothing cached.
+     * - Scanning: a scan is running on [ioDispatcher]. UI observes
+     *   this and shows progress instead of blocking.
+     * - Ready: the last completed scan. HOME readiness and the BIOS
+     *   screen read [files] only — zero recursive SAF traversal on
+     *   the calling thread, in particular never inside Compose.
+     */
+    sealed interface BiosScanState {
+        data object NotScanned : BiosScanState
+        data object Scanning : BiosScanState
+        data class Ready(val files: List<BiosFile>) : BiosScanState
+    }
+
+    /** The cached scan result; observed from Compose via collectAsState(). */
+    val scanState = MutableStateFlow<BiosScanState>(BiosScanState.NotScanned)
+
+    private var scanJob: Job? = null
+
+    /**
+     * Runs the recursive SAF scan on [ioDispatcher] and caches the
+     * result in [scanState]. HOME readiness and the BIOS screen read
+     * the cache only — the blocking walk never happens on the calling
+     * thread (never on Main, never inside Compose). Concurrent calls
+     * coalesce into the in-flight scan. Returns the scan Job (also a
+     * test seam).
+     *
+     * Triggered on: app startup, BIOS folder adopt/re-pick, and manual
+     * refresh — never during rendering.
+     */
+    @Synchronized
+    fun requestScan(scope: CoroutineScope): Job {
+        scanJob?.let { if (it.isActive) return it }
+        scanState.value = BiosScanState.Scanning
+        val job = scope.launch(ioDispatcher) {
+            val files = scan()
+            scanState.value =
+                if (files == null) BiosScanState.NotScanned else BiosScanState.Ready(files)
+        }
+        job.invokeOnCompletion {
+            if (job.isCancelled && scanState.value is BiosScanState.Scanning) {
+                scanState.value = BiosScanState.NotScanned
+            }
+        }
+        scanJob = job
+        return job
+    }
+
+    /** Drops the cached scan and cancels any in-flight scan. */
+    @Synchronized
+    private fun invalidateScanCache() {
+        scanJob?.cancel()
+        scanJob = null
+        scanState.value = BiosScanState.NotScanned
+    }
 
     fun isPs2ImportConfirmed(): Boolean =
         prefs.getString(KEY_PS2_IMPORT_CONFIRMED) == "1"
@@ -94,6 +172,7 @@ class BiosInventory(
             // A newly adopted folder may hold a different BIOS than the
             // one the user previously confirmed — re-verify from scratch.
             prefs.remove(KEY_PS2_IMPORT_CONFIRMED)
+            invalidateScanCache()
             true
         } catch (e: SecurityException) {
             logger(TAG, "persistable permission denied for BIOS folder", e)
@@ -111,10 +190,12 @@ class BiosInventory(
         } catch (e: Exception) {
             logger(TAG, "clearBiosFolder failed", e)
         }
+        invalidateScanCache()
     }
 
     /** True when the persisted BIOS grant still reads. */
     fun hasBiosAccess(): Boolean {
+        accessOverride?.let { return it }
         val uri = biosTreeUri() ?: return false
         val ctx = context ?: return false
         return try {
@@ -260,20 +341,6 @@ class BiosInventory(
             BiosStatus.IMPORT_REQUIRED -> BiosIssue("PS2", "BIOS REQUIRED")
             BiosStatus.FOUND_UNVERIFIED -> BiosIssue("PS2", "BIOS UNVERIFIED")
             else -> null
-        }
-    }
-
-    /**
-     * Display status for any platform on the BIOS screen. Non-PS2
-     * platforms never gate: OPTIONAL (HLE fallback) reads READY,
-     * everything else NOT_REQUIRED.
-     */
-    fun statusForPlatform(platformSlug: String): BiosStatus {
-        val fw = BiosFirmwareTable.forPlatform(platformSlug) ?: return BiosStatus.NOT_REQUIRED
-        return when (fw.requirement) {
-            BiosRequirement.REQUIRED -> BiosStatus.IMPORT_REQUIRED // refined by ps2Status with real data
-            BiosRequirement.OPTIONAL -> BiosStatus.READY
-            BiosRequirement.NOT_REQUIRED -> BiosStatus.NOT_REQUIRED
         }
     }
 }

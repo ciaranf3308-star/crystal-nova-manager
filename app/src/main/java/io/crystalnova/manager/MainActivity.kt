@@ -60,6 +60,7 @@ import io.crystalnova.manager.ui.BiosScreenState
 import io.crystalnova.manager.ui.BiosStatusRow
 import io.crystalnova.manager.bios.BiosFirmwareTable
 import io.crystalnova.manager.bios.BiosInventory
+import io.crystalnova.manager.bios.BiosScanState
 import io.crystalnova.manager.bios.BiosRootState
 import io.crystalnova.manager.bios.BiosStatus
 import io.crystalnova.manager.diag.CrashReporter
@@ -212,6 +213,9 @@ class MainActivity : ComponentActivity() {
                 if (ok) {
                     biosNotice = null
                     biosRev++
+                    // Fresh folder: the adopt invalidated the cache, so
+                    // re-verify from scratch on IO.
+                    biosInventory.requestScan(scope)
                 } else {
                     biosNotice = "COULD NOT KEEP BIOS FOLDER ACCESS — PLEASE TRY AGAIN"
                 }
@@ -343,6 +347,11 @@ class MainActivity : ComponentActivity() {
             prefs = prefs,
             romTreeUriProvider = { locations.romTreeUri() },
         )
+        // v24: the recursive BIOS scan is blocking SAF I/O (depth 8,
+        // up to 2000 files) — it runs on Dispatchers.IO and caches
+        // into biosInventory.scanState. Every reader takes the cached
+        // result only; nothing here runs on Main.
+        biosInventory.requestScan(scope)
         // Self-healing: make sure the theme bridge reflects the
         // persisted media location even if a previous run died mid-adopt.
         locations.writeBridge(storage.treeUri)
@@ -387,6 +396,11 @@ class MainActivity : ComponentActivity() {
             val scraperState by scraper.state.collectAsState()
             val themeState by manager.state.collectAsState()
             val appUpdate by manager.appUpdate.collectAsState()
+            // v24: the cached BIOS scan state. The recursive SAF scan
+            // runs on Dispatchers.IO (BiosInventory.requestScan);
+            // Compose reads the cache only — zero recursive SAF
+            // traversal on Main, ever.
+            val biosScan by biosInventory.scanState.collectAsState()
             val locError = locationError
             val diagInfo = diagnosticsInfo
             // The manager's own update channel (DEV / CANDIDATE vs STABLE),
@@ -405,16 +419,19 @@ class MainActivity : ComponentActivity() {
                     @Suppress("UNUSED_VARIABLE")
                     val homeProfilesRev = pegasusProfilesRev
                     // v24: firmware issues ride the same readiness model.
-                    // Recomputed when profiles, the scan, or BIOS state
-                    // change; the SAF scan is IO, hence inside remember
-                    // next to pegasusRows().
+                    // Recomputed when profiles, the scan, BIOS
+                    // attestation, or the cached BIOS scan change. The
+                    // recursive SAF scan runs on Dispatchers.IO and
+                    // HOME reads only the cached result — remember {}
+                    // never does blocking I/O on Main.
                     @Suppress("UNUSED_VARIABLE")
                     val homeBiosRev = biosRev
-                    val homeReadiness = remember(homeProfilesRev, homeBiosRev, scraperState.systems) {
+                    val homeReadiness = remember(homeProfilesRev, homeBiosRev, scraperState.systems, biosScan) {
                         val rows = pegasusRows()
                         val ps2Games = rows.firstOrNull { it.slug == "ps2" }?.gameCount ?: 0
+                        val cachedFiles = (biosScan as? BiosScanState.Ready)?.files
                         val biosIssues = listOfNotNull(
-                            biosInventory.ps2Issue(ps2Games, biosInventory.scan()),
+                            biosInventory.ps2Issue(ps2Games, cachedFiles),
                         )
                         // v23: HOME's game count comes from the authoritative
                         // discovered ROM library (PegasusSystemRow.gameCount
@@ -572,25 +589,30 @@ class MainActivity : ComponentActivity() {
                 )
                 is Dest.Bios -> {
                     // v24: BIOS state recomputes when the folder is
-                    // adopted, the import is attested, or the library
-                    // changes (PS2 game presence gates everything).
+                    // adopted, the import is attested, the library
+                    // changes (PS2 game presence gates everything), or
+                    // the cached BIOS scan completes. The scan itself
+                    // runs on Dispatchers.IO — this block reads the
+                    // cache only, never the SAF tree.
                     @Suppress("UNUSED_VARIABLE")
                     val biosScreenRev = biosRev
                     @Suppress("UNUSED_VARIABLE")
                     val biosScreenProfilesRev = pegasusProfilesRev
                     val rows = pegasusRows()
                     val ps2Games = rows.firstOrNull { it.slug == "ps2" }?.gameCount ?: 0
-                    val files = biosInventory.scan()
+                    val files = (biosScan as? BiosScanState.Ready)?.files
+                    val biosScanning = biosScan is BiosScanState.Scanning
                     val ps2Status = biosInventory.ps2Status(ps2Games, files)
                     val detected = biosInventory.detectPs2Bios(files ?: emptyList())
                         ?: biosInventory.detectPs2Unverified(files ?: emptyList())
                     val rootState = biosInventory.probeRoot()
                     val rootDisplay = (rootState as? BiosRootState.Granted)?.displayPath
+                    // v24 is PS2-first: the only firmware row with a
+                    // real, scanned status. Other platforms are out of
+                    // scope — omitted, never overclaimed, never gating.
                     val statusRows = BiosFirmwareTable.statusScreenPlatforms().map { fw ->
-                        val st = if (fw.platformSlug == "ps2") ps2Status
-                        else biosInventory.statusForPlatform(fw.platformSlug)
-                        BiosStatusRow(fw.label, st)
-                    } + BiosStatusRow("GBA", BiosStatus.NOT_REQUIRED)
+                        BiosStatusRow(fw.label, ps2Status)
+                    }
                     val launcherIssues = rows.filter { it.gameCount > 0 }.any {
                         it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
                     }
@@ -609,6 +631,7 @@ class MainActivity : ComponentActivity() {
                                 BiosFirmwareTable.PS2.emulatorPackage.orEmpty(),
                             ),
                             notice = biosNotice,
+                            scanning = biosScanning,
                         ),
                         onSelectBiosFolder = {
                             // Open the picker at the preferred `bios/`

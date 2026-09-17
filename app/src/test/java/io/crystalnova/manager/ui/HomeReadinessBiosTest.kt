@@ -9,7 +9,8 @@ import org.junit.Test
 /**
  * v24: firmware problems feed the existing HOME readiness issue model.
  * Only genuinely required firmware for systems with games present
- * (PS2) can block READY — optional/HLE firmware and artwork
+ * (PS2) can block READY — other platforms' firmware is out of scope
+ * for v24, artwork
  * completeness never gate, and the library count still comes from the
  * ROM library, never the scraper index.
  */

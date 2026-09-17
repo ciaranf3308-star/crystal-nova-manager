@@ -32,6 +32,8 @@ data class BiosScreenState(
     val hasLauncherIssues: Boolean,
     val netherSX2Installed: Boolean,
     val notice: String? = null,
+    /** True while the recursive BIOS scan is running on Dispatchers.IO. */
+    val scanning: Boolean = false,
 )
 
 private fun biosStatusText(s: BiosStatus): String = when (s) {
@@ -53,8 +55,12 @@ private fun biosStatusColor(s: BiosStatus): Color = when (s) {
  *
  * - the BIOS folder (preferred: the `bios/` sibling of the ROM root;
  *   SAF re-pick only when there is no grant),
- * - a BIOS STATUS list (only systems Crystal exposes where firmware
- *   matters; HLE-covered systems read READY and never block),
+ * - a BIOS STATUS list — v24 is PS2-first, so this is the PS2 row
+ *   with its real scanned status. Other platforms' firmware is out
+ *   of scope: omitted, never overclaimed, never gating.
+ * - the scan runs on Dispatchers.IO and the screen reads the cached
+ *   result (a SCANNING line shows while it runs) — never blocking
+ *   the UI thread,
  * - the PS2 setup flow: NetherSX2 keeps its BIOS in app-private
  *   storage, which Crystal cannot write on Android 11+, so the one
  *   supported path is the in-app import: [ OPEN BIOS SETUP ] launches
@@ -114,6 +120,9 @@ fun BiosScreen(
                     requestInitialFocus = isInitialFocus("bios-primary"),
                     modifier = Modifier.fillMaxWidth(),
                 )
+            }
+            if (state.scanning) {
+                StatusLine("SCANNING BIOS FOLDER…", Crystal.InkDim)
             }
 
             BasicText(

@@ -5,9 +5,9 @@ package io.crystalnova.manager.bios
  *
  * - REQUIRED: the configured emulator cannot boot games without real
  *   firmware (PS2 / NetherSX2). Only these create setup issues.
- * - OPTIONAL: the configured emulator ships an HLE fallback, so games
- *   boot without firmware (PS1 / RetroArch, Saturn / YabaSanshiro,
- *   Dreamcast / Flycast). Never gates READY.
+ * - OPTIONAL: reserved for a platform whose configured emulator is
+ *   known-good with an HLE fallback. v24 tracks no such platform —
+ *   PS2 is the only firmware entry. Never gates READY.
  * - NOT_REQUIRED: firmware is irrelevant for this platform.
  */
 enum class BiosRequirement { REQUIRED, OPTIONAL, NOT_REQUIRED }
@@ -15,8 +15,9 @@ enum class BiosRequirement { REQUIRED, OPTIONAL, NOT_REQUIRED }
 /**
  * Firmware state of one platform, from the on-SD inventory.
  *
- * - READY: firmware present and usable, or not needed (HLE fallback /
- *   not required / no games present).
+ * - READY: firmware present and usable (PS2: a valid-looking BIOS
+ *   is on the SD card and the emulator-side import is attested), or
+ *   firmware is not needed (no games present for the platform).
  * - FOUND_UNVERIFIED: a candidate file exists but does not look like a
  *   real BIOS (name/size mismatch) — never presented as READY.
  * - REQUIRED_MISSING: games are present, firmware is required, and no
@@ -54,11 +55,13 @@ data class BiosFirmware(
 )
 
 /**
- * The v24 firmware table. PS2 is the only REQUIRED entry: NetherSX2
- * throws a BIOS-required error without a real imported BIOS. PS1,
- * Saturn and Dreamcast run on their configured emulators' HLE
- * firmware, so they report READY and never block. Everything else is
- * NOT_REQUIRED.
+ * The v24 firmware table. Deliberately PS2-only: NetherSX2 throws a
+ * BIOS-required error without a real imported BIOS, and PS2 is the
+ * only platform whose firmware can block READY. Every other
+ * platform's firmware is out of scope for v24 — Crystal asserts
+ * nothing about their HLE fallbacks or BIOS state (in particular,
+ * Saturn has no verified launcher configured, so no Saturn firmware
+ * claim is made), and nothing optional ever gates.
  */
 object BiosFirmwareTable {
     const val PS2_BIOS_SIZE = 4_194_304L // 4 MiB — every retail PS2 BIOS
@@ -72,20 +75,12 @@ object BiosFirmwareTable {
         emulatorPackage = "xyz.aethersx2.android",
     )
 
-    private val optional = listOf(
-        BiosFirmware("psx", "PS1", BiosRequirement.OPTIONAL, Regex("(?i)^scph.*\\.bin$"), 524_288L, null),
-        BiosFirmware("saturn", "SATURN", BiosRequirement.OPTIONAL, Regex("(?i)^.*\\.bin$"), 0L, null),
-        BiosFirmware("dreamcast", "DREAMCAST", BiosRequirement.OPTIONAL, Regex("(?i)^dc_boot\\.bin$"), 2_097_152L, null),
-    )
-
-    private val bySlug: Map<String, BiosFirmware> =
-        (listOf(PS2) + optional).associateBy { it.platformSlug }
+    private val bySlug: Map<String, BiosFirmware> = mapOf(PS2.platformSlug to PS2)
 
     fun forPlatform(platformSlug: String): BiosFirmware? = bySlug[platformSlug]
 
     /** Platforms shown on the BIOS status screen, in display order. */
-    fun statusScreenPlatforms(): List<BiosFirmware> =
-        listOf(PS2) + optional
+    fun statusScreenPlatforms(): List<BiosFirmware> = listOf(PS2)
 }
 
 /**

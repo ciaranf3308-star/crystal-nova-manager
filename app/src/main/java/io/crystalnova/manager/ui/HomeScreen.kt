@@ -37,7 +37,8 @@ import io.crystalnova.manager.updater.AppUpdateState
  * scanned, Pegasus installed, every launcher configured with its
  * emulator present, and no blocking firmware issues. Artwork
  * completeness never blocks READY — a game launches with or without
- * its box art. Optional/HLE firmware never blocks READY either; only
+ * its box art. Other platforms' firmware is out of scope for v24 and
+ * never blocks READY either; only
  * genuinely required firmware for systems with games present (PS2)
  * can add an issue.
  */

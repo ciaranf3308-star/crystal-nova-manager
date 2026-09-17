@@ -19,8 +19,8 @@ private class FakeBiosPrefs : KeyValueStore {
 
 /**
  * PS2 firmware state machine + inventory rules. PS2 is the only
- * platform that can gate READY: optional/HLE platforms always report
- * READY, everything else NOT_REQUIRED.
+ * platform whose firmware is tracked and the only one that can gate
+ * READY; other platforms are out of scope for v24 and never gate.
  */
 class BiosInventoryTest {
 
@@ -114,21 +114,23 @@ class BiosInventoryTest {
         assertNull(inv.biosTreeUri())
     }
 
-    // ---------- other platforms never gate ----------
+    // ---------- firmware table honesty (v24 is PS2-first) ----------
 
     @Test
-    fun optionalPlatforms_reportReady() {
-        val inv = inventory()
-        assertEquals(BiosStatus.READY, inv.statusForPlatform("psx"))
-        assertEquals(BiosStatus.READY, inv.statusForPlatform("saturn"))
-        assertEquals(BiosStatus.READY, inv.statusForPlatform("dreamcast"))
-    }
-
-    @Test
-    fun irrelevantPlatforms_reportNotRequired() {
-        val inv = inventory()
-        assertEquals(BiosStatus.NOT_REQUIRED, inv.statusForPlatform("gba"))
-        assertEquals(BiosStatus.NOT_REQUIRED, inv.statusForPlatform("nope"))
+    fun firmwareTable_isPs2Only() {
+        // No other platform may claim a verified firmware status:
+        // Saturn has no configured launcher, and PS1/Dreamcast
+        // firmware is out of scope for v24 — nothing optional is
+        // presented as READY without being scanned.
+        assertEquals(
+            listOf("ps2"),
+            BiosFirmwareTable.statusScreenPlatforms().map { it.platformSlug },
+        )
+        assertNull(BiosFirmwareTable.forPlatform("psx"))
+        assertNull(BiosFirmwareTable.forPlatform("saturn"))
+        assertNull(BiosFirmwareTable.forPlatform("dreamcast"))
+        assertNull(BiosFirmwareTable.forPlatform("gba"))
+        assertNull(BiosFirmwareTable.forPlatform("nope"))
     }
 
     // ---------- root probe ----------
