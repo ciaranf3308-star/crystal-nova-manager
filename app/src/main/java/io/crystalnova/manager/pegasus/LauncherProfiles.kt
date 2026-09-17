@@ -22,7 +22,9 @@ package io.crystalnova.manager.pegasus
  * - STANDALONE: a preset standalone emulator, verified package +
  *   activity + path handoff only (NetherSX2, PPSSPP).
  * - VIEW_INTENT: generic `am start -a android.intent.action.VIEW`
- *   template for emulators that consume the game via intent data.
+ *   template for emulators that consume the game via intent data
+ *   (official Dolphin: verified from StartupHandler.getGamesFromIntent
+ *   — intent data content URI; the handler is action-agnostic).
  * - CUSTOM: freeform command, stored verbatim.
  */
 enum class LauncherType { RETROARCH, STANDALONE, VIEW_INTENT, CUSTOM }
@@ -51,6 +53,9 @@ data class LauncherProfile(
     val extraKey: String = "",
     /** STANDALONE + DATA: prefix before the path, e.g. `file://`. */
     val dataPrefix: String = "",
+    /** VIEW_INTENT: append `--grant-read-uri-permission` so the target
+     *  can open the SAF content URI via ContentResolver. */
+    val grantUriPermission: Boolean = false,
     /** CUSTOM: the verbatim launch command. */
     val command: String = "",
 ) {
@@ -89,12 +94,13 @@ data class LauncherProfile(
                 PathHandoff.DATA -> add("-d \"$dataPrefix{file.path}\"")
             }
         }
-        LauncherType.VIEW_INTENT -> listOf(
-            "am start --user 0",
-            "-a android.intent.action.VIEW",
-            "-n $packageName/$activity",
-            "-d \"{file.uri}\"",
-        )
+        LauncherType.VIEW_INTENT -> buildList {
+            add("am start --user 0")
+            add("-a android.intent.action.VIEW")
+            add("-n $packageName/$activity")
+            add("-d \"{file.uri}\"")
+            if (grantUriPermission) add("--grant-read-uri-permission")
+        }
         LauncherType.CUSTOM -> command.lines()
     }
 
@@ -166,6 +172,59 @@ object LauncherPresets {
         handoff = PathHandoff.DATA,
         dataPrefix = "file://",
     )
+    /**
+     * Official Dolphin (GameCube). Verified from current
+     * dolphin-emu/dolphin main-branch source:
+     * - applicationId `org.dolphinemu.dolphinemu`
+     * - `.ui.main.MainActivity` is the only exported activity
+     *   (`EmulationActivity` is exported="false")
+     * - `StartupHandler.getGamesFromIntent` reads the ROM from the
+     *   launch intent: ClipData URIs first, then intent data
+     *   (content URI — "compatible with scoped storage"), then the
+     *   `AutoStartFiles`/`AutoStartFile` path extras. The handler
+     *   never checks the intent action, so ACTION_VIEW with the game
+     *   as intent data is a correct external handoff; the SAF content
+     *   URI (`{file.uri}`) is the right form for external-SD ROMs.
+     * - `MainActivity.onCreate` calls `StartupHandler.HandleInit`,
+     *   which launches EmulationActivity internally when a game is
+     *   present in the intent.
+     */
+    val DOLPHIN = LauncherProfile(
+        type = LauncherType.VIEW_INTENT,
+        packageName = "org.dolphinemu.dolphinemu",
+        activity = ".ui.main.MainActivity",
+    )
+    /**
+     * Azahar (Nintendo 3DS). Verified from azahar-emu/Azahar
+     * main-branch source:
+     * - applicationId `org.azahar_emu.azahar` (vanilla flavor;
+     *   googlePlay flavor keeps `io.github.lime3ds.android` for the
+     *   Play Store listing)
+     * - `org.citra.citra_emu.activities.EmulationActivity` is
+     *   exported="true" (Citra-derived Java namespace, unchanged by
+     *   the rebrand) with an ACTION_VIEW intent-filter for
+     *   scheme="content" mimeType="application/octet-stream"
+     * - `EmulationFragment.onCreate` reads the ROM from
+     *   `intent.data`, opens it via ContentResolver (SAF-safe, with a
+     *   file-descriptor fallback for SAF-exclusive URIs), and builds
+     *   the Game from the URI. `--grant-read-uri-permission` is
+     *   required so the openFileDescriptor call does not throw
+     *   SecurityException.
+     * Vanilla (Obtainium) is preferred; the Play variant shares the
+     * same activity class and is the deterministic fallback.
+     */
+    val AZAHAR = LauncherProfile(
+        type = LauncherType.VIEW_INTENT,
+        packageName = "org.azahar_emu.azahar",
+        activity = "org.citra.citra_emu.activities.EmulationActivity",
+        grantUriPermission = true,
+    )
+    val AZAHAR_PLAY = LauncherProfile(
+        type = LauncherType.VIEW_INTENT,
+        packageName = "io.github.lime3ds.android",
+        activity = "org.citra.citra_emu.activities.EmulationActivity",
+        grantUriPermission = true,
+    )
     /** Every package the picker detects via PackageManager (also the manifest <queries> list). */
     val knownEmulatorPackages: List<String> = listOf(
         RETROARCH_AARCH64,
@@ -173,12 +232,17 @@ object LauncherPresets {
         "xyz.aethersx2.android",
         "org.ppsspp.ppsspp",
         "org.ppsspp.ppssppgold",
+        "org.dolphinemu.dolphinemu",
+        "org.azahar_emu.azahar",
+        "io.github.lime3ds.android",
     )
 
     fun standaloneName(packageName: String): String = when (packageName) {
         "xyz.aethersx2.android" -> "NETHERSX2"
         "org.ppsspp.ppsspp" -> "PPSSPP"
         "org.ppsspp.ppssppgold" -> "PPSSPP GOLD"
+        "org.dolphinemu.dolphinemu" -> "DOLPHIN"
+        "org.azahar_emu.azahar", "io.github.lime3ds.android" -> "AZAHAR"
         else -> packageName.uppercase()
     }
 
@@ -221,20 +285,24 @@ object LauncherPresets {
     fun standaloneFor(slug: String): List<LauncherProfile> = when (slug) {
         "ps2" -> listOf(NETHER_SX2)
         "psp" -> listOf(PPSSPP, PPSSPP_GOLD)
+        "gamecube" -> listOf(DOLPHIN)
+        "n3ds" -> listOf(AZAHAR, AZAHAR_PLAY)
         else -> emptyList()
     }
 
     /**
      * Default launcher profile per platform slug, or null when the
      * system stays NOT CONFIGURED:
-     * - n3ds / gamecube / saturn / 3do / amiga / c64: no verified core
-     *   or standalone intent — CUSTOM only.
+     * - saturn / 3do / amiga / c64: no verified core or standalone
+     *   intent — CUSTOM only.
      * - arcade: several equally-valid cores (mame2003-plus, fbneo) —
      *   never silently pick one.
      */
     fun defaultProfile(slug: String): LauncherProfile? = when (slug) {
         "ps2" -> NETHER_SX2
         "psp" -> PPSSPP
+        "gamecube" -> DOLPHIN
+        "n3ds" -> AZAHAR
         else -> defaultCore(slug)?.let { retroArch(core = it) }
     }
 }

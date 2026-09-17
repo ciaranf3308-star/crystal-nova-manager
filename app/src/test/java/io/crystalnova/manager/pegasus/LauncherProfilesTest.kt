@@ -97,6 +97,53 @@ class LauncherProfilesTest {
     fun defaultProfile_verifiedSystems() {
         assertEquals(LauncherPresets.NETHER_SX2, LauncherPresets.defaultProfile("ps2"))
         assertEquals(LauncherPresets.PPSSPP, LauncherPresets.defaultProfile("psp"))
+        assertEquals(LauncherPresets.DOLPHIN, LauncherPresets.defaultProfile("gamecube"))
+        assertEquals(LauncherPresets.AZAHAR, LauncherPresets.defaultProfile("n3ds"))
+    }
+
+    @Test
+    fun azaharPreset_launchLines() {
+        // Verified contract: exported EmulationActivity + ROM as intent
+        // data (SAF content URI) with a read-permission grant, from
+        // EmulationFragment.onCreate via ContentResolver.
+        assertEquals(
+            listOf(
+                "am start --user 0",
+                "-a android.intent.action.VIEW",
+                "-n org.azahar_emu.azahar/org.citra.citra_emu.activities.EmulationActivity",
+                "-d \"{file.uri}\"",
+                "--grant-read-uri-permission",
+            ),
+            LauncherPresets.AZAHAR.launchLines(),
+        )
+        assertEquals(
+            listOf(
+                "am start --user 0",
+                "-a android.intent.action.VIEW",
+                "-n io.github.lime3ds.android/org.citra.citra_emu.activities.EmulationActivity",
+                "-d \"{file.uri}\"",
+                "--grant-read-uri-permission",
+            ),
+            LauncherPresets.AZAHAR_PLAY.launchLines(),
+        )
+        assertTrue(LauncherPresets.AZAHAR.isConfigured())
+        assertTrue(LauncherPresets.AZAHAR_PLAY.isConfigured())
+    }
+
+    @Test
+    fun dolphinPreset_launchLines() {
+        // Verified contract: exported MainActivity + ROM as intent data
+        // (SAF content URI) via StartupHandler.getGamesFromIntent.
+        assertEquals(
+            listOf(
+                "am start --user 0",
+                "-a android.intent.action.VIEW",
+                "-n org.dolphinemu.dolphinemu/.ui.main.MainActivity",
+                "-d \"{file.uri}\"",
+            ),
+            LauncherPresets.DOLPHIN.launchLines(),
+        )
+        assertTrue(LauncherPresets.DOLPHIN.isConfigured())
     }
 
     @Test
@@ -110,9 +157,9 @@ class LauncherProfilesTest {
 
     @Test
     fun defaultProfile_notConfiguredSystems() {
-        // n3ds / gamecube / saturn / 3do / amiga / c64: no verified core or
-        // standalone intent — NOT CONFIGURED, never a fabricated command.
-        listOf("n3ds", "gamecube", "saturn", "3do", "amiga", "c64").forEach { slug ->
+        // saturn / 3do / amiga / c64: no verified core or standalone
+        // intent — NOT CONFIGURED, never a fabricated command.
+        listOf("saturn", "3do", "amiga", "c64").forEach { slug ->
             assertNull("slug $slug must have no default profile", LauncherPresets.defaultProfile(slug))
         }
     }
@@ -128,6 +175,9 @@ class LauncherProfilesTest {
         assertEquals("NETHERSX2", LauncherPresets.standaloneName("xyz.aethersx2.android"))
         assertEquals("PPSSPP", LauncherPresets.standaloneName("org.ppsspp.ppsspp"))
         assertEquals("PPSSPP GOLD", LauncherPresets.standaloneName("org.ppsspp.ppssppgold"))
+        assertEquals("DOLPHIN", LauncherPresets.standaloneName("org.dolphinemu.dolphinemu"))
+        assertEquals("AZAHAR", LauncherPresets.standaloneName("org.azahar_emu.azahar"))
+        assertEquals("AZAHAR", LauncherPresets.standaloneName("io.github.lime3ds.android"))
     }
 
     @Test
@@ -136,6 +186,9 @@ class LauncherProfilesTest {
             LauncherPresets.NETHER_SX2,
             LauncherPresets.PPSSPP,
             LauncherPresets.PPSSPP_GOLD,
+            LauncherPresets.DOLPHIN,
+            LauncherPresets.AZAHAR,
+            LauncherPresets.AZAHAR_PLAY,
         ).forEach { p ->
             assertTrue(
                 "${p.packageName} missing from knownEmulatorPackages",
@@ -150,6 +203,11 @@ class LauncherProfilesTest {
         assertEquals(
             listOf(LauncherPresets.PPSSPP, LauncherPresets.PPSSPP_GOLD),
             LauncherPresets.standaloneFor("psp"),
+        )
+        assertEquals(listOf(LauncherPresets.DOLPHIN), LauncherPresets.standaloneFor("gamecube"))
+        assertEquals(
+            listOf(LauncherPresets.AZAHAR, LauncherPresets.AZAHAR_PLAY),
+            LauncherPresets.standaloneFor("n3ds"),
         )
         assertTrue(LauncherPresets.standaloneFor("gba").isEmpty())
         assertTrue(LauncherPresets.standaloneFor("n3ds").isEmpty())

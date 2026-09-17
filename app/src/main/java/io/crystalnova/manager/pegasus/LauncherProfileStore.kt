@@ -100,6 +100,7 @@ class LauncherProfileStore(private val prefs: KeyValueStore) {
         .put("handoff", p.handoff.name)
         .put("extraKey", p.extraKey)
         .put("dataPrefix", p.dataPrefix)
+        .put("grantUriPermission", p.grantUriPermission)
         .put("command", p.command)
         .put("source", source.name)
 
@@ -123,6 +124,7 @@ class LauncherProfileStore(private val prefs: KeyValueStore) {
             handoff = handoff,
             extraKey = o.optString("extraKey"),
             dataPrefix = o.optString("dataPrefix"),
+            grantUriPermission = o.optBoolean("grantUriPermission", false),
             command = o.optString("command"),
         )
     }

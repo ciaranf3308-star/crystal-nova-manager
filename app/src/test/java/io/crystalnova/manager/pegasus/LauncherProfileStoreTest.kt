@@ -20,6 +20,7 @@ class LauncherProfileStoreTest {
                 packageName = "com.example.emu",
                 activity = "com.example.emu.Play",
             ),
+            "n3ds" to LauncherPresets.AZAHAR,
             "dreamcast" to LauncherProfile(
                 type = LauncherType.CUSTOM,
                 command = "am start --user 0\n  -n com.example/.Main",
@@ -49,8 +50,13 @@ class LauncherProfileStoreTest {
 
     @Test
     fun effectiveProfile_unknownSystem_isNull() {
-        assertNull(store().effectiveProfile("n3ds"))
         assertNull(store().effectiveProfile("arcade"))
+    }
+
+    @Test
+    fun effectiveProfile_n3ds_defaultsToAzahar() {
+        assertEquals(LauncherPresets.AZAHAR, store().effectiveProfile("n3ds"))
+        assertTrue(store().all().isEmpty())
     }
 
     @Test
