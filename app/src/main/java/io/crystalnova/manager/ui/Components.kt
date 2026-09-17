@@ -152,7 +152,6 @@ fun CrystalButton(
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
-    val scrollModifier = Modifier.controllerScrollItem(scrollEngine, scrollIndex)
     val tagModifier = if (testTag != null) Modifier.testTag(testTag) else Modifier
     LaunchedEffect(key, onClick) {
         dispatcher.register(key, onClick)
@@ -186,7 +185,7 @@ fun CrystalButton(
             // so D-pad focus on this button is always observed and
             // scrolled to a comfortable viewport position. The test tag
             // rides the same node, above focus/click.
-            .then(scrollModifier)
+            // TEMP: scrollModifier removed to isolate test failure.
             .then(tagModifier)
             .focusRequester(focusRequester)
             .onFocusChanged {
