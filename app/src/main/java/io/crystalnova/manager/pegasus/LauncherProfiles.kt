@@ -105,6 +105,22 @@ data class LauncherProfile(
         LauncherType.VIEW_INTENT -> "VIEW INTENT"
         LauncherType.CUSTOM -> "CUSTOM"
     }
+
+    /**
+     * Compact one-line label for dense launcher rows, e.g.
+     * `RETROARCH · MGBA`. The libretro build suffix carries no
+     * information on a handheld row, so it is trimmed; the full
+     * filename stays visible in the per-system picker.
+     */
+    fun shortLabel(): String = when (type) {
+        LauncherType.RETROARCH -> "RETROARCH · " + core
+            .uppercase()
+            .removeSuffix("_LIBRETRO_ANDROID.SO")
+            .removeSuffix(".SO")
+        LauncherType.STANDALONE -> LauncherPresets.standaloneName(packageName)
+        LauncherType.VIEW_INTENT -> "VIEW INTENT"
+        LauncherType.CUSTOM -> "CUSTOM"
+    }
 }
 
 /**

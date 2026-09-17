@@ -72,8 +72,9 @@ class NovaNoStrandedControlTest : NovaUiTest() {
         assertDpadTraversalInViewport(
             listOf(
                 { composeTestRule.onNodeWithTag("pegasus-setup-config") },
-                { composeTestRule.onNodeWithTag("pegasus-setup-refresh") },
+                { composeTestRule.onNodeWithTag("pegasus-setup-autoconfigure") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-launchers") },
+                { composeTestRule.onNodeWithTag("pegasus-setup-refresh") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-inject") },
                 // DISMISS has no testTag by construction; exact label text.
                 { composeTestRule.onNodeWithText("DISMISS") },

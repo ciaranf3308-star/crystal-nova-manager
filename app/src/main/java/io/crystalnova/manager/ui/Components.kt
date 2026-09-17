@@ -6,6 +6,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -100,7 +101,7 @@ fun CrystalPanel(
             .clip(RoundedCornerShape(2.dp))
             .background(Crystal.Tile)
             .border(2.dp, Crystal.Frame, RoundedCornerShape(2.dp))
-            .padding(12.dp),
+            .padding(8.dp),
     ) {
         content()
         Canvas(modifier = Modifier.matchParentSize()) {
@@ -150,6 +151,12 @@ fun CrystalButton(
     scrollEngine: ControllerScrollEngine? = null,
     scrollIndex: Int = 0,
     testTag: String? = null,
+    /**
+     * Optional secondary line (e.g. a game count under a system name),
+     * rendered smaller and dimmer. Null keeps the classic single-line
+     * button exactly as before.
+     */
+    subLabel: String? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -203,18 +210,42 @@ fun CrystalButton(
                 RoundedCornerShape(2.dp),
             )
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 12.dp, horizontal = 16.dp),
+            .padding(vertical = 8.dp, horizontal = 14.dp),
     ) {
-        BasicText(
-            text = label,
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontWeight = FontWeight.Bold,
-                fontSize = Crystal.ButtonSize,
-                color = fg,
-                textAlign = TextAlign.Center,
-            ),
-        )
+        if (subLabel == null) {
+            BasicText(
+                text = label,
+                style = TextStyle(
+                    fontFamily = Crystal.Mono,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = Crystal.ButtonSize,
+                    color = fg,
+                    textAlign = TextAlign.Center,
+                ),
+            )
+        } else {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                BasicText(
+                    text = label,
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = Crystal.ButtonSize,
+                        color = fg,
+                        textAlign = TextAlign.Center,
+                    ),
+                )
+                BasicText(
+                    text = subLabel,
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontSize = Crystal.SmallSize,
+                        color = if (focused) Crystal.CreamInk else Crystal.InkDim,
+                        textAlign = TextAlign.Center,
+                    ),
+                )
+            }
+        }
     }
 }
 

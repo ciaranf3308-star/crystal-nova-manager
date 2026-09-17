@@ -2,9 +2,7 @@ package io.crystalnova.manager
 
 import android.content.Intent
 import android.content.SharedPreferences
-import android.content.pm.PackageManager
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
@@ -20,8 +18,11 @@ import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.pegasus.EmulatorDetector
+import io.crystalnova.manager.pegasus.LauncherAutoConfig
 import io.crystalnova.manager.pegasus.LauncherPresets
 import io.crystalnova.manager.pegasus.LauncherProfile
+import io.crystalnova.manager.pegasus.LauncherSource
 import io.crystalnova.manager.pegasus.LauncherType
 import io.crystalnova.manager.pegasus.PegasusLibrary
 import io.crystalnova.manager.scraper.match.PlatformTable
@@ -50,10 +51,12 @@ import io.crystalnova.manager.ui.SystemScreen
 import io.crystalnova.manager.ui.ThemeScreen
 import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
+import io.crystalnova.manager.diag.EmulatorPackageStatus
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
 import io.crystalnova.manager.updater.ManagerEvent
+import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.UpdateManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.Dispatchers
@@ -115,6 +118,10 @@ class MainActivity : ComponentActivity() {
     private var pegasusNotice: String? by mutableStateOf(null)
     /** True while an explicit INJECT / REFRESH is running. */
     private var pegasusBusy: Boolean by mutableStateOf(false)
+    /** True while the setup assistant is applying safe launcher defaults. */
+    private var pegasusAutoBusy: Boolean by mutableStateOf(false)
+    /** PackageManager-backed detection of known emulator apps. */
+    private val emulatorDetector: EmulatorDetector by lazy { EmulatorDetector(this) }
     /**
      * Bumped on every launcher-profile change so the Pegasus screens
      * recompose (profiles live in SharedPreferences, not in a flow).
@@ -334,12 +341,39 @@ class MainActivity : ComponentActivity() {
             val pop: () -> Unit = { nav.onBack() }
 
             when (val dest = nav.current) {
-                is Dest.Home -> HomeScreen(
-                    scraperState = scraperState,
-                    appVersion = appVersionLabel,
-                    appUpdate = appUpdate,
-                    pegasusReady = isPegasusInstalled(),
-                    onUpdateApp = { onUpdateApp() },
+                is Dest.Home -> {
+                    // Recompute the Pegasus tile subtitle only when the
+                    // profiles or the scanned systems change: pegasusRows()
+                    // does PackageManager lookups, so it must not run on
+                    // every recomposition (e.g. scan progress ticks).
+                    @Suppress("UNUSED_VARIABLE")
+                    val homeProfilesRev = pegasusProfilesRev
+                    val pegasusSubtitle = remember(homeProfilesRev, scraperState.systems) {
+                        val rows = pegasusRows()
+                        val withGames = rows.filter { it.gameCount > 0 }
+                        val issues = withGames.count {
+                            it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
+                        }
+                        when {
+                            withGames.isEmpty() -> "NO GAMES SCANNED"
+                            issues == 0 -> "READY"
+                            else -> "$issues NEED SETUP"
+                        }
+                    }
+                    val themeSubtitle = when (val s = themeState) {
+                        is ManagerState.Ready ->
+                            s.installed?.let { "v${it.version}" } ?: "NOT INSTALLED"
+                        else -> "—"
+                    }
+                    HomeScreen(
+                        scraperState = scraperState,
+                        appVersion = appVersionLabel,
+                        appUpdate = appUpdate,
+                        pegasusReady = isPegasusInstalled(),
+                        pegasusSubtitle = pegasusSubtitle,
+                        themeSubtitle = themeSubtitle,
+                        settingsSubtitle = "${updateChannel.name} CHANNEL",
+                        onUpdateApp = { onUpdateApp() },
                     onLibrary = {
                         scraper.refresh()
                         nav.navigate(Dest.Library)
@@ -349,7 +383,8 @@ class MainActivity : ComponentActivity() {
                     onSettings = { nav.navigate(Dest.Settings) },
                     onDiagnostics = { openDiagnostics(nav) },
                     onExit = { finish() },
-                )
+                    )
+                }
                 is Dest.Library -> LibraryScreen(
                     state = scraperState,
                     onPickRomLibrary = { romPicker.launch(null) },
@@ -483,6 +518,8 @@ class MainActivity : ComponentActivity() {
                         onDismissNotice = { pegasusNotice = null },
                         onOpenPegasus = { openPegasus() },
                         onBack = pop,
+                        autoConfiguring = pegasusAutoBusy,
+                        onAutoConfigure = { autoConfigureLaunchers() },
                     )
                 }
                 is Dest.PegasusLaunchers -> {
@@ -623,6 +660,9 @@ class MainActivity : ComponentActivity() {
         themesRoot = storage.treeUri,
         scraper = scraper.diagnosticsSnapshot(),
         lastCrashTrace = CrashReporter.readTrace(this),
+        emulatorPackages = emulatorDetector.detectionReport().map { (pkg, installed) ->
+            EmulatorPackageStatus(pkg, installed)
+        },
     )
 
     /**
@@ -663,29 +703,20 @@ class MainActivity : ComponentActivity() {
 
     /**
      * Emulator packages from [LauncherPresets.knownEmulatorPackages]
-     * that are installed. The manifest <queries> block keeps these
-     * visible on Android 11+; anything not visible reads as missing,
-     * never as installed.
+     * that are installed. Delegates to [EmulatorDetector]; the
+     * manifest <queries> block keeps these visible on Android 11+ —
+     * anything not visible reads as missing, never as installed.
      */
-    private fun installedEmulatorPackages(): Set<String> {
-        val pm = packageManager
-        return LauncherPresets.knownEmulatorPackages.filterTo(mutableSetOf()) { pkg ->
-            runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                    pm.getPackageInfo(pkg, PackageManager.PackageInfoFlags.of(0))
-                } else {
-                    @Suppress("DEPRECATION")
-                    pm.getPackageInfo(pkg, 0)
-                }
-            }.isSuccess
-        }
-    }
+    private fun installedEmulatorPackages(): Set<String> =
+        emulatorDetector.installedPackages()
 
     /**
      * One row per recognized system: game count from the last library
      * scan, launcher status from the stored profile or the curated
      * default ("NOT CONFIGURED" when neither exists), and whether the
-     * named emulator app is installed (CUSTOM needs no app).
+     * named emulator app is installed (CUSTOM needs no app). The
+     * effective profile and its USER/AUTO source ride along so the
+     * launchers screen can render compact rows without re-deriving.
      */
     private fun pegasusRows(): List<PegasusSystemRow> {
         val installed = installedEmulatorPackages()
@@ -703,7 +734,37 @@ class MainActivity : ComponentActivity() {
                     it.type == LauncherType.CUSTOM || it.packageName in installed
                 } ?: true,
                 isDefault = explicit == null,
+                profile = configured,
+                source = if (explicit != null) {
+                    pegasus.profiles.getSource(platform.slug)
+                } else {
+                    LauncherSource.USER
+                },
             )
+        }
+    }
+
+    /**
+     * The setup assistant: applies safe launcher defaults for systems
+     * with games. Explicit USER choices are never overwritten; systems
+     * with no safe installed launcher stay NEEDS ATTENTION. Runs off
+     * the main thread; the summary lands in [pegasusNotice].
+     */
+    private fun autoConfigureLaunchers() {
+        if (pegasusAutoBusy) return
+        pegasusAutoBusy = true
+        pegasusNotice = null
+        scope.launch(Dispatchers.IO) {
+            val installed = installedEmulatorPackages()
+            val slugsWithGames = scraper.state.value.systems
+                .filter { it.gameCount > 0 }
+                .map { it.platformSlug }
+            val outcome = LauncherAutoConfig.apply(pegasus.profiles, slugsWithGames, installed)
+            withContext(Dispatchers.Main) {
+                pegasusAutoBusy = false
+                pegasusProfilesRev++
+                pegasusNotice = outcome.summary()
+            }
         }
     }
 

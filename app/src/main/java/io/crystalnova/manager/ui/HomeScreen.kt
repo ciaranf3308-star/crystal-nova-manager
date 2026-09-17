@@ -32,7 +32,9 @@ import io.crystalnova.manager.updater.AppUpdateState
  * visible at once on the 1280×960 Nova viewport:
  *
  * - header: CRYSTAL NOVA + version (5-tap opens DIAGNOSTICS)
- * - 2×2 grid: LIBRARY / PEGASUS / THEME / SETTINGS
+ * - 2×2 grid: LIBRARY / PEGASUS / THEME / SETTINGS as compact
+ *   handheld-firmware tiles (not giant accessibility buttons), each
+ *   with a small live subtitle so the freed space stays informative
  * - manager-app update banner when an update is available (never buried)
  * - one-line status strip: ROM ✓ MEDIA ✓ PEGASUS ✓
  * - pinned footer: A SELECT · B EXIT
@@ -46,6 +48,9 @@ fun HomeScreen(
     appVersion: String,
     appUpdate: AppUpdateState,
     pegasusReady: Boolean,
+    pegasusSubtitle: String,
+    themeSubtitle: String,
+    settingsSubtitle: String,
     onUpdateApp: () -> Unit,
     onLibrary: () -> Unit,
     onTheme: () -> Unit,
@@ -55,6 +60,12 @@ fun HomeScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val romReady = scraperState.romLocation is LocationState.Ready
+    val librarySubtitle = if (!romReady) {
+        "NO LIBRARY"
+    } else {
+        "${scraperState.systems.size} SYSTEMS · ${scraperState.stats.totalGames} GAMES"
+    }
     ScreenScaffold(
         routeKey = "home",
         title = "HOME",
@@ -66,7 +77,7 @@ fun HomeScreen(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -85,8 +96,9 @@ fun HomeScreen(
                 VersionTapLabel(appVersion = appVersion, onDiagnostics = onDiagnostics)
             }
             // The 2×2 destination grid owns the middle of the screen.
-            // Tiles are fixed-height so all four destinations are always
-            // visible simultaneously; the grid never scrolls here.
+            // Tiles are compact firmware-style cards with a live
+            // subtitle each, so all four destinations plus their status
+            // are visible simultaneously; the grid never scrolls here.
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
             ) {
@@ -97,35 +109,39 @@ fun HomeScreen(
                     initialFocus = ::isInitialFocus,
                     // Rows center in the leftover space so the 2×2 block
                     // sits mid-screen instead of clinging to the top.
-                    verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically),
+                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
                 ) {
                     control(
                         key = "home-library",
                         testTag = "home-library",
                         label = "LIBRARY",
+                        subLabel = librarySubtitle,
                         onClick = onLibrary,
-                        modifier = Modifier.height(280.dp),
+                        modifier = Modifier.height(160.dp),
                     )
                     control(
                         key = "home-pegasus",
                         testTag = "home-pegasus",
                         label = "PEGASUS",
+                        subLabel = pegasusSubtitle,
                         onClick = onPegasusSetup,
-                        modifier = Modifier.height(280.dp),
+                        modifier = Modifier.height(160.dp),
                     )
                     control(
                         key = "home-theme",
                         testTag = "home-theme",
                         label = "THEME",
+                        subLabel = themeSubtitle,
                         onClick = onTheme,
-                        modifier = Modifier.height(280.dp),
+                        modifier = Modifier.height(160.dp),
                     )
                     control(
                         key = "home-settings",
                         testTag = "home-settings",
                         label = "SETTINGS",
+                        subLabel = settingsSubtitle,
                         onClick = onSettings,
-                        modifier = Modifier.height(280.dp),
+                        modifier = Modifier.height(160.dp),
                     )
                 }
             }
@@ -192,7 +208,7 @@ private fun UpdateBanner(
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(12.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.weight(1f)) {

@@ -16,9 +16,10 @@ import io.crystalnova.manager.storage.LocationState
 /**
  * LIBRARY: the scraper's front door. Status header first (ROM and
  * MEDIA friendly paths, never raw content:// URIs), then the systems
- * as a compact 3-column card grid — never a giant stacked list. When
- * no ROM library is configured (or its grant was lost), the grid is
- * replaced by a prominent SELECT ROM LIBRARY action.
+ * as a compact 4-column card grid — system name dominant, game count
+ * secondary — never a giant stacked list. When no ROM library is
+ * configured (or its grant was lost), the grid is replaced by a
+ * prominent SELECT ROM LIBRARY action.
  */
 @Composable
 fun LibraryScreen(
@@ -40,13 +41,13 @@ fun LibraryScreen(
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             StatusLine("ROM LIBRARY: ${friendlyLocation(state.romLocation)}")
             StatusLine("MEDIA LIBRARY: ${friendlyLocation(state.mediaLocation)}")
             if (!romReady) {
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatusLine("SELECT YOUR ROMS FOLDER", Crystal.Cream)
                         DimLine(
                             "EACH SUBFOLDER IS TREATED AS ONE SYSTEM. " +
@@ -69,31 +70,43 @@ fun LibraryScreen(
             } else {
                 // The grid is this screen's single scroll container:
                 // D-pad focus on a below-the-fold card scrolls it into
-                // view via the controller grid state.
+                // view via the controller grid state. Four compact
+                // columns fit many more systems per screen; the name is
+                // the card's visual anchor, the count a small second line.
                 Box(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                 ) {
                     ControllerGrid(
                         state = gridState,
                         dispatcher = dispatcher,
-                        columns = GridCells.Fixed(3),
+                        columns = GridCells.Fixed(4),
                         initialFocus = ::isInitialFocus,
                     ) {
                         control(
                             key = "library-card-all",
                             testTag = "library-card-all",
-                            label = "ALL SYSTEMS\n${state.stats.totalGames} GAMES",
+                            label = "ALL SYSTEMS",
+                            subLabel = "${state.stats.totalGames} GAMES",
                             onClick = { onSelectSystem("", "ALL SYSTEMS") },
                         )
                         state.systems.forEach { sys ->
                             control(
                                 key = libraryCardKey(sys),
                                 testTag = libraryCardKey(sys),
-                                label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES",
+                                label = sys.label.uppercase(),
+                                subLabel = "${sys.gameCount} GAMES",
                                 onClick = { onSelectSystem(sys.platformSlug, sys.label) },
                             )
                         }
                     }
+                }
+                // Truthful scan feedback: current folder, systems x/y,
+                // games found so far. Never a percentage.
+                if (state.scanning) {
+                    StatusLine(
+                        state.scanProgress?.displayLine() ?: "SCANNING…",
+                        Crystal.Divider,
+                    )
                 }
                 CrystalButton(
                     key = "library-rescan",

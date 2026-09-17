@@ -65,7 +65,14 @@ class LibraryScanner(
         val pegasusEntries: Map<String, List<PegasusMetadataReader.Entry>>,
     )
 
-    suspend fun scan(): ScanResult {
+    /**
+     * Walks every top-level folder of the games root. [onProgress] is
+     * invoked after each system folder completes with a truthful
+     * counter snapshot: the folder total is a cheap pre-count of the
+     * root's immediate subdirectories, so the x/y is real, never a
+     * fake percentage.
+     */
+    suspend fun scan(onProgress: (ScanProgress) -> Unit = {}): ScanResult {
         val root = DocumentFile.fromTreeUri(context, Uri.parse(treeUri))
             // fromTreeUri returns null when the persisted SAF grant is
             // gone. Throw (rather than returning an empty result) so the
@@ -80,9 +87,9 @@ class LibraryScanner(
         readPegasusFile(root)?.let { pegasus[""] = it }
         coroutineContext.ensureActive()
 
-        for (dir in root.listFiles()) {
+        val dirs = root.listFiles().filter { it.isDirectory }
+        for (dir in dirs) {
             coroutineContext.ensureActive()
-            if (!dir.isDirectory) continue
             val dirName = dir.name ?: continue
             val platform = PlatformTable.byFolderName(dirName)
             readPegasusFile(dir)?.let { pegasus[dirName] = it }
@@ -132,6 +139,7 @@ class LibraryScanner(
                 gameCount = count,
                 sourceFolderName = dirName,
             )
+            onProgress(ScanProgress(dirName, systems.size, dirs.size, games.size))
         }
         return ScanResult(systems.sortedBy { it.label }, games, pegasus)
     }

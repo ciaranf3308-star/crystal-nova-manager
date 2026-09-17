@@ -425,6 +425,7 @@ class ControllerListContent(
         requestInitialFocus: Boolean = initialFocus(key),
         modifier: Modifier = Modifier,
         testTag: String? = null,
+        subLabel: String? = null,
     ) {
         section(key = key) {
             control(
@@ -436,6 +437,7 @@ class ControllerListContent(
                 requestInitialFocus = requestInitialFocus,
                 modifier = modifier,
                 testTag = testTag,
+                subLabel = subLabel,
             )
         }
     }
@@ -464,6 +466,7 @@ class SectionScope(
         requestInitialFocus: Boolean = initialFocus(key),
         modifier: Modifier = Modifier,
         testTag: String? = null,
+        subLabel: String? = null,
     ) {
         if (key != null) keyToIndex[key] = itemIndex
         CrystalButton(
@@ -478,6 +481,7 @@ class SectionScope(
             scrollEngine = engine,
             scrollIndex = itemIndex,
             testTag = testTag,
+            subLabel = subLabel,
         )
     }
 
@@ -583,6 +587,7 @@ class ControllerGridContent(
         requestInitialFocus: Boolean = initialFocus(key),
         modifier: Modifier = Modifier,
         testTag: String? = null,
+        subLabel: String? = null,
     ) {
         val index = nextIndex++
         if (key != null) keyToIndex[key] = index
@@ -603,6 +608,7 @@ class ControllerGridContent(
                 scrollEngine = eng,
                 scrollIndex = index,
                 testTag = testTag,
+                subLabel = subLabel,
             )
         }
     }

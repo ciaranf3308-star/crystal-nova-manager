@@ -4,14 +4,24 @@ import io.crystalnova.manager.data.KeyValueStore
 import org.json.JSONObject
 
 /**
+ * How a stored launcher choice came to be. AUTO entries are written by
+ * the setup assistant and may be refreshed by it; USER entries are
+ * explicit manual choices and are never overwritten automatically.
+ */
+enum class LauncherSource { USER, AUTO }
+
+/**
  * Persists per-platform launcher choices as one JSON object in
  * [KeyValueStore] (`pegasus_launcher_profiles`):
- * `{ "<slug>": { "type": "RETROARCH", "package": "…", "core": "…", … } }`.
+ * `{ "<slug>": { "type": "RETROARCH", "package": "…", "core": "…",
+ *   "source": "USER" } }`.
  *
- * Only user-chosen profiles are stored; [effectiveProfile] falls back
- * to [LauncherPresets.defaultProfile] so curated defaults apply
- * without being written. Clearing a slug removes the override and
- * re-exposes the default (or NOT CONFIGURED when there is none).
+ * Only user-chosen (or auto-configured) profiles are stored;
+ * [effectiveProfile] falls back to [LauncherPresets.defaultProfile] so
+ * curated defaults apply without being written. Clearing a slug removes
+ * the override and re-exposes the default (or NOT CONFIGURED when there
+ * is none). Entries written before the source flag existed read back as
+ * USER — a legacy explicit choice is never treated as auto-configured.
  *
  * Uses org.json like the rest of the codebase (ScraperJson) — the
  * round-trip is covered by JVM unit tests run in CI.
@@ -21,20 +31,39 @@ class LauncherProfileStore(private val prefs: KeyValueStore) {
         const val KEY = "pegasus_launcher_profiles"
     }
 
-    /** The user's explicit choice, or null when none was made. */
+    /** The explicit choice for [slug] (user or auto-configured), or null when none was made. */
     fun get(slug: String): LauncherProfile? {
         val root = readRoot() ?: return null
         val o = root.optJSONObject(slug) ?: return null
         return fromJson(o)
     }
 
+    /**
+     * How the stored choice for [slug] came to be. Defaults to USER:
+     * entries written before the flag existed were always explicit
+     * manual picks, and slates with no entry have no source at all.
+     */
+    fun getSource(slug: String): LauncherSource {
+        val root = readRoot() ?: return LauncherSource.USER
+        val o = root.optJSONObject(slug) ?: return LauncherSource.USER
+        return try {
+            LauncherSource.valueOf(o.optString("source", LauncherSource.USER.name))
+        } catch (_: IllegalArgumentException) {
+            LauncherSource.USER
+        }
+    }
+
     /** The profile in force: explicit choice, else the curated default (possibly null). */
     fun effectiveProfile(slug: String): LauncherProfile? =
         get(slug) ?: LauncherPresets.defaultProfile(slug)
 
-    fun set(slug: String, profile: LauncherProfile) {
+    fun set(slug: String, profile: LauncherProfile) =
+        set(slug, profile, LauncherSource.USER)
+
+    /** Stores [profile] for [slug], recording how it came to be. */
+    fun set(slug: String, profile: LauncherProfile, source: LauncherSource) {
         val root = readRoot() ?: JSONObject()
-        root.put(slug, toJson(profile))
+        root.put(slug, toJson(profile, source))
         prefs.putString(KEY, root.toString())
     }
 
@@ -62,7 +91,7 @@ class LauncherProfileStore(private val prefs: KeyValueStore) {
         }
     }
 
-    private fun toJson(p: LauncherProfile): JSONObject = JSONObject()
+    private fun toJson(p: LauncherProfile, source: LauncherSource): JSONObject = JSONObject()
         .put("type", p.type.name)
         .put("package", p.packageName)
         .put("activity", p.activity)
@@ -72,6 +101,7 @@ class LauncherProfileStore(private val prefs: KeyValueStore) {
         .put("extraKey", p.extraKey)
         .put("dataPrefix", p.dataPrefix)
         .put("command", p.command)
+        .put("source", source.name)
 
     private fun fromJson(o: JSONObject): LauncherProfile {
         val type = try {

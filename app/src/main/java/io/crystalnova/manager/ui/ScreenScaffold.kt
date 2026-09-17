@@ -34,6 +34,9 @@ import androidx.annotation.VisibleForTesting
  *   everywhere ([controllerKeys]), A activates the focused control via
  *   the screen-owned [FocusDispatcher].
  *
+ * Density is the compact Nova default: 12dp horizontal / 8dp vertical
+ * screen padding, 8dp panel padding, 6–8dp gaps.
+ *
  * The scaffold owns the [FocusDispatcher], the [ControllerListState]
  * and the [ControllerGridState]; screens no longer create their own
  * dispatchers or wire focus hacks per screen.
@@ -156,7 +159,7 @@ fun ScreenScaffold(
             .fillMaxSize()
             .background(Crystal.Background)
             .controllerKeys(dispatcher, onBack, passThroughAWhen)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (showMasthead) {

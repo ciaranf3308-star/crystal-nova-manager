@@ -113,6 +113,24 @@ fun DiagnosticsScreen(
             section {
                 CrystalPanel {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DiagSection("EMULATOR PACKAGES")
+                        if (info.emulatorPackages.isEmpty()) {
+                            DiagRow("CANDIDATES", "NOT CHECKED", Crystal.InkDim)
+                        } else {
+                            for (pkg in info.emulatorPackages) {
+                                DiagRow(
+                                    pkg.packageName,
+                                    if (pkg.installed) "INSTALLED" else "MISSING",
+                                    if (pkg.installed) Crystal.Good else Crystal.Bad,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+            section {
+                CrystalPanel {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         DiagSection("SCRAPER INDEX")
                         val d = info.scraper
                         val (indexHealth, indexText) =

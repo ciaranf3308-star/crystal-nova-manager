@@ -9,6 +9,7 @@ import io.crystalnova.manager.scraper.provider.PegasusFileMetadataProvider
 import io.crystalnova.manager.scraper.scan.DiscoveredSystem
 import io.crystalnova.manager.scraper.scan.LibraryScanner
 import io.crystalnova.manager.scraper.scan.RomEntry
+import io.crystalnova.manager.scraper.scan.ScanProgress
 import io.crystalnova.manager.scraper.scan.SystemSnapshot
 import io.crystalnova.manager.scraper.scan.restoredSystems
 import io.crystalnova.manager.scraper.store.MediaCache
@@ -42,6 +43,8 @@ data class ScraperUiState(
     val romLocation: LocationState = LocationState.NotConfigured,
     val mediaLocation: LocationState = LocationState.NotConfigured,
     val scanning: Boolean = false,
+    /** Live scan counters while [scanning]; null when idle. Never a percentage. */
+    val scanProgress: ScanProgress? = null,
     val systems: List<DiscoveredSystem> = emptyList(),
     /** Per-platform stats, keyed by platform slug. */
     val systemStats: Map<String, SystemStats> = emptyMap(),
@@ -248,6 +251,7 @@ class ScraperManager(
         }
         return _state.value.copy(
             scanning = false,
+            scanProgress = null,
             scraping = false,
             needsGamesFolder = romLost,
             needsMediaFolder = mediaLost,
@@ -303,11 +307,13 @@ class ScraperManager(
             )
             return
         }
-        _state.value = _state.value.copy(scanning = true, notice = null)
+        _state.value = _state.value.copy(scanning = true, notice = null, scanProgress = null)
         scope.launch(ioDispatcher) {
             try {
                 val scanner = LibraryScanner(context, treeUri)
-                val result = scanner.scan()
+                val result = scanner.scan { p ->
+                    _state.value = _state.value.copy(scanProgress = p)
+                }
                 // A revoked grant can surface as an empty listing rather
                 // than an exception; that must not read as "no games" —
                 // it would prune the entire index below. Fail into the
@@ -332,6 +338,7 @@ class ScraperManager(
                 }
                 _state.value = _state.value.copy(
                     scanning = false,
+                    scanProgress = null,
                     needsGamesFolder = false,
                     needsMediaFolder = false,
                     systems = result.systems,
@@ -355,6 +362,7 @@ class ScraperManager(
                     recordError(msg)
                     _state.value = _state.value.copy(
                         scanning = false,
+                        scanProgress = null,
                         notice = msg,
                     )
                 }

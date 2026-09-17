@@ -21,6 +21,14 @@ data class DiagnosticsInfo(
     val scraper: ScraperDiagnostics,
     /** Most recent uncaught-crash trace, null when there hasn't been one. */
     val lastCrashTrace: String? = null,
+    /** Every known emulator candidate package with its install state. */
+    val emulatorPackages: List<EmulatorPackageStatus> = emptyList(),
+)
+
+/** One known emulator candidate and whether PackageManager sees it. */
+data class EmulatorPackageStatus(
+    val packageName: String,
+    val installed: Boolean,
 )
 
 /** One-line summary of the manager self-update state. */
