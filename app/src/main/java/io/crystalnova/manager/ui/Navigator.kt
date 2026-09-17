@@ -34,6 +34,8 @@ sealed interface Dest {
     data object PegasusSetup : Dest
     data object PegasusLaunchers : Dest
     data class PegasusLauncher(val slug: String, val label: String) : Dest
+    /** v24: BIOS / firmware setup. */
+    data object Bios : Dest
 }
 
 /**

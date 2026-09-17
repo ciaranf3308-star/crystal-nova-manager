@@ -55,6 +55,13 @@ import io.crystalnova.manager.ui.StandaloneOption
 import io.crystalnova.manager.ui.SystemScreen
 import io.crystalnova.manager.ui.ThemeScreen
 import io.crystalnova.manager.ui.buildHomeReadiness
+import io.crystalnova.manager.ui.BiosScreen
+import io.crystalnova.manager.ui.BiosScreenState
+import io.crystalnova.manager.ui.BiosStatusRow
+import io.crystalnova.manager.bios.BiosFirmwareTable
+import io.crystalnova.manager.bios.BiosInventory
+import io.crystalnova.manager.bios.BiosRootState
+import io.crystalnova.manager.bios.BiosStatus
 import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.diag.EmulatorPackageStatus
@@ -108,6 +115,16 @@ class MainActivity : ComponentActivity() {
     private lateinit var locations: StorageLocations
     private lateinit var scraper: ScraperManager
     private lateinit var pegasus: PegasusLibrary
+    /** v24: BIOS inventory (firmware discovery + PS2 import flow). */
+    private lateinit var biosInventory: BiosInventory
+    /**
+     * Bumped when BIOS state changes (folder adopted, import attested)
+     * so HOME and the BIOS screen recompute (state lives in prefs, not
+     * in a flow).
+     */
+    private var biosRev: Int by mutableStateOf(0)
+    /** Last BIOS folder adopt failure, surfaced on the BIOS screen. */
+    private var biosNotice: String? by mutableStateOf(null)
     private val scope = MainScope()
 
     /** Human-readable build tag, e.g. "1.2.3-u2 (14)". The versionName
@@ -179,6 +196,26 @@ class MainActivity : ComponentActivity() {
                 }
             }
             manager.refresh(folderNotice)
+        }
+
+    /**
+     * BIOS folder picker (v24). Adopts the persistable SAF grant for
+     * the `bios/` folder; [BiosInventory] re-verifies PS2 state from
+     * scratch on a fresh adopt. The picker opens at the preferred
+     * sibling of the ROM root when one can be derived, so the folder
+     * is one tap away instead of a manual browse.
+     */
+    private val biosPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                val ok = biosInventory.adoptBiosTreeUri(contentResolver, uri)
+                if (ok) {
+                    biosNotice = null
+                    biosRev++
+                } else {
+                    biosNotice = "COULD NOT KEEP BIOS FOLDER ACCESS — PLEASE TRY AGAIN"
+                }
+            }
         }
 
     /**
@@ -301,6 +338,11 @@ class MainActivity : ComponentActivity() {
         val fs = SafThemeFs(this) { prefs.getString(SafThemeStorage.KEY_TREE_URI) }
         storage = SafThemeStorage(fs, prefs)
         locations = StorageLocations(this, prefs)
+        biosInventory = BiosInventory(
+            context = this,
+            prefs = prefs,
+            romTreeUriProvider = { locations.romTreeUri() },
+        )
         // Self-healing: make sure the theme bridge reflects the
         // persisted media location even if a previous run died mid-adopt.
         locations.writeBridge(storage.treeUri)
@@ -362,15 +404,27 @@ class MainActivity : ComponentActivity() {
                     // Pegasus setup screen uses — never invented.
                     @Suppress("UNUSED_VARIABLE")
                     val homeProfilesRev = pegasusProfilesRev
-                    val homeReadiness = remember(homeProfilesRev, scraperState.systems) {
+                    // v24: firmware issues ride the same readiness model.
+                    // Recomputed when profiles, the scan, or BIOS state
+                    // change; the SAF scan is IO, hence inside remember
+                    // next to pegasusRows().
+                    @Suppress("UNUSED_VARIABLE")
+                    val homeBiosRev = biosRev
+                    val homeReadiness = remember(homeProfilesRev, homeBiosRev, scraperState.systems) {
+                        val rows = pegasusRows()
+                        val ps2Games = rows.firstOrNull { it.slug == "ps2" }?.gameCount ?: 0
+                        val biosIssues = listOfNotNull(
+                            biosInventory.ps2Issue(ps2Games, biosInventory.scan()),
+                        )
                         // v23: HOME's game count comes from the authoritative
                         // discovered ROM library (PegasusSystemRow.gameCount
                         // sums), never from the scraper/artwork index — an
                         // unscraped 147-ROM library must read "147 GAMES".
                         buildHomeReadiness(
-                            rows = pegasusRows(),
+                            rows = rows,
                             pegasusInstalled = isPegasusInstalled(),
                             romReady = scraperState.romLocation is LocationState.Ready,
+                            biosIssues = biosIssues,
                         )
                     }
                     val themeSubtitle = when (val s = themeState) {
@@ -387,14 +441,24 @@ class MainActivity : ComponentActivity() {
                         onUpdateApp = { onUpdateApp() },
                         onOpenPegasus = { openPegasus() },
                         onMakeReady = {
-                            if (scraperState.romLocation is LocationState.Ready) {
-                                nav.navigate(Dest.PegasusSetup)
-                            } else {
-                                scraper.refresh()
-                                nav.navigate(Dest.Library)
+                            when {
+                                // v24: firmware problems go to the BIOS
+                                // screen first; it links onward to the
+                                // launcher setup when those exist too.
+                                homeReadiness.biosIssues.isNotEmpty() ->
+                                    nav.navigate(Dest.Bios)
+                                scraperState.romLocation is LocationState.Ready ->
+                                    nav.navigate(Dest.PegasusSetup)
+                                else -> {
+                                    scraper.refresh()
+                                    nav.navigate(Dest.Library)
+                                }
                             }
                         },
-                        onReviewIssues = { nav.navigate(Dest.PegasusSetup) },
+                        onReviewIssues = {
+                            if (homeReadiness.biosIssues.isNotEmpty()) nav.navigate(Dest.Bios)
+                            else nav.navigate(Dest.PegasusSetup)
+                        },
                     onLibrary = {
                         scraper.refresh()
                         nav.navigate(Dest.Library)
@@ -506,6 +570,66 @@ class MainActivity : ComponentActivity() {
                     },
                     onBack = pop,
                 )
+                is Dest.Bios -> {
+                    // v24: BIOS state recomputes when the folder is
+                    // adopted, the import is attested, or the library
+                    // changes (PS2 game presence gates everything).
+                    @Suppress("UNUSED_VARIABLE")
+                    val biosScreenRev = biosRev
+                    @Suppress("UNUSED_VARIABLE")
+                    val biosScreenProfilesRev = pegasusProfilesRev
+                    val rows = pegasusRows()
+                    val ps2Games = rows.firstOrNull { it.slug == "ps2" }?.gameCount ?: 0
+                    val files = biosInventory.scan()
+                    val ps2Status = biosInventory.ps2Status(ps2Games, files)
+                    val detected = biosInventory.detectPs2Bios(files ?: emptyList())
+                        ?: biosInventory.detectPs2Unverified(files ?: emptyList())
+                    val rootState = biosInventory.probeRoot()
+                    val rootDisplay = (rootState as? BiosRootState.Granted)?.displayPath
+                    val statusRows = BiosFirmwareTable.statusScreenPlatforms().map { fw ->
+                        val st = if (fw.platformSlug == "ps2") ps2Status
+                        else biosInventory.statusForPlatform(fw.platformSlug)
+                        BiosStatusRow(fw.label, st)
+                    } + BiosStatusRow("GBA", BiosStatus.NOT_REQUIRED)
+                    val launcherIssues = rows.filter { it.gameCount > 0 }.any {
+                        it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
+                    }
+                    BiosScreen(
+                        state = BiosScreenState(
+                            rootState = rootState,
+                            rows = statusRows,
+                            ps2Status = ps2Status,
+                            ps2BiosDisplayPath =
+                                if (rootDisplay != null && detected != null)
+                                    "$rootDisplay/${detected.relativePath}"
+                                else null,
+                            ps2GameCount = ps2Games,
+                            hasLauncherIssues = launcherIssues,
+                            netherSX2Installed = emulatorDetector.isInstalled(
+                                BiosFirmwareTable.PS2.emulatorPackage.orEmpty(),
+                            ),
+                            notice = biosNotice,
+                        ),
+                        onSelectBiosFolder = {
+                            // Open the picker at the preferred `bios/`
+                            // sibling of the ROM root when derivable, so
+                            // the folder is one tap away.
+                            val initial = (rootState as? BiosRootState.NotGranted)
+                                ?.candidateTreeUri?.let { Uri.parse(it) }
+                            biosNotice = null
+                            biosPicker.launch(initial)
+                        },
+                        onOpenNetherSX2 = { openNetherSX2() },
+                        onMarkImported = {
+                            biosInventory.setPs2ImportConfirmed(true)
+                            biosNotice = null
+                            biosRev++
+                        },
+                        onReviewLaunchers = { nav.navigate(Dest.PegasusSetup) },
+                        onDismissNotice = { biosNotice = null },
+                        onBack = pop,
+                    )
+                }
                 is Dest.PegasusSetup -> {
                     // Read the profiles revision so this screen recomposes
                     // after launcher choices change, and the config revision
@@ -767,6 +891,25 @@ class MainActivity : ComponentActivity() {
         } catch (_: Exception) {
             // Pegasus not installed (or launch refused): the setup
             // screen already shows the PEGASUS NOT INSTALLED line.
+        }
+    }
+
+    /**
+     * v24: opens NetherSX2's own UI for its in-app BIOS import
+     * (App Settings → BIOS → Import BIOS). There is no supported
+     * intent into the BIOS picker and no way for Crystal to write
+     * NetherSX2's app-private `files/bios/` on Android 11+, so the
+     * single user tap inside NetherSX2 is the whole integration —
+     * this just gets them there. Failures surface on the BIOS screen.
+     */
+    private fun openNetherSX2() {
+        val pkg = BiosFirmwareTable.PS2.emulatorPackage ?: return
+        try {
+            val intent = packageManager.getLaunchIntentForPackage(pkg)
+            if (intent != null) startActivity(intent)
+            else biosNotice = "NETHERSX2 NOT INSTALLED"
+        } catch (_: Exception) {
+            biosNotice = "COULD NOT OPEN NETHERSX2"
         }
     }
 

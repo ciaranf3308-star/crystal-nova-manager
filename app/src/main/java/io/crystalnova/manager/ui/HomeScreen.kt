@@ -24,17 +24,22 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import io.crystalnova.manager.bios.BiosIssue
 import io.crystalnova.manager.updater.AppUpdateState
 
 /**
  * Appliance-ready HOME state (v23), derived from real persisted
  * production state only: the scanned library, the stored per-system
- * launcher profiles, and the Pegasus install check.
+ * launcher profiles, the Pegasus install check, and (v24) the BIOS
+ * inventory.
  *
  * READY is never invented: it requires a ROM folder that reads, games
- * scanned, Pegasus installed, and every launcher configured with its
- * emulator present. Artwork completeness never blocks READY — a game
- * launches with or without its box art.
+ * scanned, Pegasus installed, every launcher configured with its
+ * emulator present, and no blocking firmware issues. Artwork
+ * completeness never blocks READY — a game launches with or without
+ * its box art. Optional/HLE firmware never blocks READY either; only
+ * genuinely required firmware for systems with games present (PS2)
+ * can add an issue.
  */
 data class HomeReadiness(
     val systemCount: Int,
@@ -43,6 +48,8 @@ data class HomeReadiness(
     val issueCount: Int,
     val pegasusInstalled: Boolean,
     val romReady: Boolean,
+    /** v24: firmware problems (PS2 only) feeding the same issue model. */
+    val biosIssues: List<BiosIssue> = emptyList(),
 ) {
     val ready: Boolean
         get() = romReady && pegasusInstalled && systemCount > 0 && issueCount == 0
@@ -50,8 +57,8 @@ data class HomeReadiness(
 
 /**
  * Builds HOME's readiness from the authoritative discovered ROM library
- * ([PegasusSystemRow.gameCount] sums), the Pegasus install check, and the
- * ROM-location state.
+ * ([PegasusSystemRow.gameCount] sums), the Pegasus install check, the
+ * ROM-location state, and the BIOS inventory issues.
  *
  * The scraper/artwork index is deliberately NOT an input: artwork
  * statistics must never gate or distort HOME's library count (e.g. an
@@ -62,18 +69,20 @@ fun buildHomeReadiness(
     rows: List<PegasusSystemRow>,
     pegasusInstalled: Boolean,
     romReady: Boolean,
+    biosIssues: List<BiosIssue> = emptyList(),
 ): HomeReadiness {
     val withGames = rows.filter { it.gameCount > 0 }
-    val issues = withGames.count {
+    val launcherIssues = withGames.count {
         it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
     }
     return HomeReadiness(
         systemCount = withGames.size,
         totalGames = withGames.sumOf { it.gameCount },
-        configuredCount = withGames.size - issues,
-        issueCount = issues,
+        configuredCount = withGames.size - launcherIssues,
+        issueCount = launcherIssues + biosIssues.size,
         pegasusInstalled = pegasusInstalled,
         romReady = romReady,
+        biosIssues = biosIssues,
     )
 }
 
@@ -97,6 +106,13 @@ fun homeLibraryLine(r: HomeReadiness): String = when {
     r.systemCount > 0 -> "LIBRARY BUILT"
     else -> "LIBRARY EMPTY — SCAN YOUR ROMS"
 }
+
+/**
+ * v24: the firmware issue line, e.g. `PS2 · BIOS REQUIRED`. Empty when
+ * no firmware problem blocks READY.
+ */
+fun homeBiosLine(r: HomeReadiness): String =
+    r.biosIssues.joinToString(" / ") { "${it.platformLabel} · ${it.headline}" }
 
 /**
  * HOME: a fixed single-screen appliance dashboard — NO scrolling.
@@ -326,6 +342,17 @@ private fun Hero(
                     fontFamily = Crystal.Mono,
                     fontSize = Crystal.SectionSize,
                     color = if (readiness.issueCount == 0) Crystal.Ink else Crystal.Joystick,
+                ),
+            )
+        }
+        // v24: firmware issues ride the same needs-attention color.
+        if (readiness.biosIssues.isNotEmpty()) {
+            BasicText(
+                text = homeBiosLine(readiness),
+                style = TextStyle(
+                    fontFamily = Crystal.Mono,
+                    fontSize = Crystal.SectionSize,
+                    color = Crystal.Joystick,
                 ),
             )
         }
