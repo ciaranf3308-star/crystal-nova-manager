@@ -49,6 +49,56 @@ data class HomeReadiness(
 }
 
 /**
+ * Builds HOME's readiness from the authoritative discovered ROM library
+ * ([PegasusSystemRow.gameCount] sums), the Pegasus install check, and the
+ * ROM-location state.
+ *
+ * The scraper/artwork index is deliberately NOT an input: artwork
+ * statistics must never gate or distort HOME's library count (e.g. an
+ * unscraped library of 147 ROMs must read "147 GAMES", never "0 GAMES").
+ * Artwork statistics live on the LIBRARY / ARTWORK screens only.
+ */
+fun buildHomeReadiness(
+    rows: List<PegasusSystemRow>,
+    pegasusInstalled: Boolean,
+    romReady: Boolean,
+): HomeReadiness {
+    val withGames = rows.filter { it.gameCount > 0 }
+    val issues = withGames.count {
+        it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
+    }
+    return HomeReadiness(
+        systemCount = withGames.size,
+        totalGames = withGames.sumOf { it.gameCount },
+        configuredCount = withGames.size - issues,
+        issueCount = issues,
+        pegasusInstalled = pegasusInstalled,
+        romReady = romReady,
+    )
+}
+
+/**
+ * The exact HOME hero strings, as rendered by HomeScreen. Extracted so the
+ * wiring tests pin what the user actually reads — the composition below
+ * must call these rather than re-templating.
+ */
+fun homeStatsLine(r: HomeReadiness) = "${r.systemCount} SYSTEMS · ${r.totalGames} GAMES"
+
+fun homeLauncherLine(r: HomeReadiness): String = if (r.issueCount == 0) {
+    "${r.configuredCount} LAUNCHERS CONFIGURED"
+} else {
+    val needs = if (r.issueCount == 1) "NEEDS" else "NEED"
+    "${r.configuredCount} CONFIGURED · ${r.issueCount} $needs ATTENTION"
+}
+
+fun homeLibraryLine(r: HomeReadiness): String = when {
+    !r.romReady -> "NO LIBRARY — PICK YOUR ROMS FOLDER"
+    !r.pegasusInstalled -> "PEGASUS NOT INSTALLED"
+    r.systemCount > 0 -> "LIBRARY BUILT"
+    else -> "LIBRARY EMPTY — SCAN YOUR ROMS"
+}
+
+/**
  * HOME: a fixed single-screen appliance dashboard — NO scrolling.
  * Everything visible at once on the 1280×960 Nova viewport:
  *
@@ -177,7 +227,7 @@ fun HomeScreen(
                 key = "home-library",
                 testTag = "home-library",
                 label = "LIBRARY / ARTWORK",
-                subLabel = "${readiness.systemCount} SYSTEMS · ${readiness.totalGames} GAMES",
+                subLabel = homeStatsLine(readiness),
                 onClick = onLibrary,
                 dispatcher = dispatcher,
                 requestInitialFocus = isInitialFocus("home-library"),
@@ -261,7 +311,7 @@ private fun Hero(
             ),
         )
         BasicText(
-            text = "${readiness.systemCount} SYSTEMS · ${readiness.totalGames} GAMES",
+            text = homeStatsLine(readiness),
             style = TextStyle(
                 fontFamily = Crystal.Mono,
                 fontSize = Crystal.SectionSize,
@@ -269,12 +319,7 @@ private fun Hero(
             ),
         )
         if (readiness.systemCount > 0) {
-            val launcherLine = if (readiness.issueCount == 0) {
-                "${readiness.configuredCount} LAUNCHERS CONFIGURED"
-            } else {
-                val needs = if (readiness.issueCount == 1) "NEEDS" else "NEED"
-                "${readiness.configuredCount} CONFIGURED · ${readiness.issueCount} $needs ATTENTION"
-            }
+            val launcherLine = homeLauncherLine(readiness)
             BasicText(
                 text = launcherLine,
                 style = TextStyle(
@@ -284,12 +329,7 @@ private fun Hero(
                 ),
             )
         }
-        val libraryLine = when {
-            !readiness.romReady -> "NO LIBRARY — PICK YOUR ROMS FOLDER"
-            !readiness.pegasusInstalled -> "PEGASUS NOT INSTALLED"
-            readiness.systemCount > 0 -> "LIBRARY BUILT"
-            else -> "LIBRARY EMPTY — SCAN YOUR ROMS"
-        }
+        val libraryLine = homeLibraryLine(readiness)
         BasicText(
             text = libraryLine,
             style = TextStyle(

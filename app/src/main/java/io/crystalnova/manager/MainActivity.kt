@@ -54,6 +54,7 @@ import io.crystalnova.manager.ui.SettingsThemesScreen
 import io.crystalnova.manager.ui.StandaloneOption
 import io.crystalnova.manager.ui.SystemScreen
 import io.crystalnova.manager.ui.ThemeScreen
+import io.crystalnova.manager.ui.buildHomeReadiness
 import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.diag.EmulatorPackageStatus
@@ -362,16 +363,12 @@ class MainActivity : ComponentActivity() {
                     @Suppress("UNUSED_VARIABLE")
                     val homeProfilesRev = pegasusProfilesRev
                     val homeReadiness = remember(homeProfilesRev, scraperState.systems) {
-                        val rows = pegasusRows()
-                        val withGames = rows.filter { it.gameCount > 0 }
-                        val issues = withGames.count {
-                            it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
-                        }
-                        HomeReadiness(
-                            systemCount = withGames.size,
-                            totalGames = scraperState.stats.totalGames,
-                            configuredCount = withGames.size - issues,
-                            issueCount = issues,
+                        // v23: HOME's game count comes from the authoritative
+                        // discovered ROM library (PegasusSystemRow.gameCount
+                        // sums), never from the scraper/artwork index — an
+                        // unscraped 147-ROM library must read "147 GAMES".
+                        buildHomeReadiness(
+                            rows = pegasusRows(),
                             pegasusInstalled = isPegasusInstalled(),
                             romReady = scraperState.romLocation is LocationState.Ready,
                         )
