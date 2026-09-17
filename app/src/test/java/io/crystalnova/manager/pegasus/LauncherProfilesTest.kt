@@ -210,7 +210,6 @@ class LauncherProfilesTest {
             LauncherPresets.standaloneFor("n3ds"),
         )
         assertTrue(LauncherPresets.standaloneFor("gba").isEmpty())
-        assertTrue(LauncherPresets.standaloneFor("n3ds").isEmpty())
     }
 
     @Test

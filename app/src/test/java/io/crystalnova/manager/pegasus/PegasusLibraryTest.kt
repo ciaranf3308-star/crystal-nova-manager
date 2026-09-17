@@ -84,11 +84,11 @@ class PegasusLibraryTest {
         val lib = library()
         val built = lib.buildCollections(
             listOf(
-                game("n3ds", "Nintendo 3DS", "Some Game", "/storage/emulated/0/ROMs/n3ds/game.3ds"),
+                game("saturn", "Sega Saturn", "Some Game", "/storage/emulated/0/ROMs/saturn/game.iso"),
             ),
         )
         assertTrue(built.collections.isEmpty())
-        assertEquals(listOf("Nintendo 3DS"), built.unconfiguredSystems)
+        assertEquals(listOf("Sega Saturn"), built.unconfiguredSystems)
     }
 
     @Test
@@ -182,7 +182,7 @@ class PegasusLibraryTest {
         val lib = library(prefs)
         lib.config.adoptTreeUriString("content://com.example/tree/1")
         lib.gameSource = {
-            listOf(game("n3ds", "Nintendo 3DS", "Some Game", "/storage/emulated/0/ROMs/n3ds/game.3ds"))
+            listOf(game("saturn", "Sega Saturn", "Some Game", "/storage/emulated/0/ROMs/saturn/game.iso"))
         }
         var wrote = false
         lib.writer = { _, _ -> wrote = true; true }
@@ -190,7 +190,7 @@ class PegasusLibraryTest {
         // Zero injectable systems: fail rather than writing an empty library.
         assertEquals(
             PegasusLibrary.InjectOutcome.Failed(
-                "NO LAUNCHER: NINTENDO 3DS — CONFIGURE LAUNCHERS FIRST",
+                "NO LAUNCHER: SEGA SATURN — CONFIGURE LAUNCHERS FIRST",
             ),
             outcome,
         )
@@ -202,12 +202,12 @@ class PegasusLibraryTest {
         val prefs = FakePrefs()
         val lib = library(prefs)
         lib.config.adoptTreeUriString("content://com.example/tree/1")
-        // gba has a curated default launcher; n3ds is populated but
+        // gba has a curated default launcher; saturn is populated but
         // unconfigured — progressive setup must not block the GBA inject.
         lib.gameSource = {
             listOf(
                 game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"),
-                game("n3ds", "Nintendo 3DS", "Some Game", "/storage/emulated/0/ROMs/n3ds/game.3ds"),
+                game("saturn", "Sega Saturn", "Some Game", "/storage/emulated/0/ROMs/saturn/game.iso"),
             )
         }
         var writtenBytes: ByteArray? = null
@@ -218,12 +218,12 @@ class PegasusLibraryTest {
         val ok = outcome as PegasusLibrary.InjectOutcome.Ok
         assertEquals(1, ok.collections)
         assertEquals(1, ok.games)
-        assertEquals(listOf("Nintendo 3DS"), ok.skippedNoLauncher)
+        assertEquals(listOf("Sega Saturn"), ok.skippedNoLauncher)
         assertTrue(ok.unknownFolders.isEmpty())
 
         val text = writtenBytes!!.toString(Charsets.UTF_8)
         assertTrue("gba game must be in the metafile", text.contains("mario.gba"))
-        assertFalse("unconfigured n3ds game must not be in the metafile", text.contains("game.3ds"))
+        assertFalse("unconfigured saturn game must not be in the metafile", text.contains("game.iso"))
     }
 
     @Test
