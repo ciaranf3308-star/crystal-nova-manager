@@ -256,11 +256,11 @@ class PegasusLibrary(
             return InjectOutcome.Failed("METAFILE VERIFY FAILED — READBACK DID NOT MATCH")
         }
         val systems = collections.size
-        val games = collections.sumOf { it.games.size }
-        noteLastInject(systems, games)
+        val gameCount = collections.sumOf { it.games.size }
+        noteLastInject(systems, gameCount)
         return InjectOutcome.Ok(
             systems,
-            games,
+            gameCount,
             built.unknownFolders,
             built.unconfiguredSystems,
         )

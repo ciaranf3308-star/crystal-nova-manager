@@ -23,9 +23,9 @@ import android.content.Intent
  * activity is never retained) — and Android starts the new instance in
  * a FRESH process: `main()` → `Backend::start()` →
  * `onScanRequested(scan_on_launch)`. With the default
- * `scan_on_launch=true` that forces a full rescan, which reads
- * `<config dir>/metafiles/*.metadata.pegasus.txt` — exactly where the
- * Manager writes. A plain launcher intent on the singleTop activity
+ * `scan_on_launch=true` that forces a full rescan, which reads the
+ * Manager-written `<config dir>/metafiles/` metadata file — exactly
+ * where the Manager writes. A plain launcher intent on the singleTop activity
  * merely resumes the stale task, which is why the post-build notice
  * used to lie.
  *
