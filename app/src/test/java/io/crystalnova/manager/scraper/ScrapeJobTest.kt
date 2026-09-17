@@ -468,4 +468,32 @@ class ScrapeJobTest {
             dataDir.children.keys.any { it.startsWith("index.json.corrupt-") },
         )
     }
+
+    @Test fun `retry incomplete skips complete non-stale games`() = runBlocking {
+        val tmp = createTempDir("scrape-retry")
+        val storage = ScraperStorage(InMemoryThemeFs())
+        val http = fakeHttp(setOf("https://example.com/front.png"))
+        val games = listOf(entry())
+        val first = job(storage, http, tmp = tmp).run(games, onProgress = {})
+        assertEquals(1, first.succeeded)
+        val manifest = storage.loadManifest("gba", "mario-golf-e")!!
+        assertEquals(Completeness.COMPLETE_CASE_AND_MEDIA, manifest.completeness)
+
+        // Second run, incomplete-only, with a provider that counts calls:
+        // the complete, non-stale game must be skipped without any
+        // provider or network work.
+        var providerCalls = 0
+        val counting = object : ArtworkProvider by frontOnlyProvider() {
+            override suspend fun artworkFor(query: ScrapeQuery): Map<AssetSlot, List<ArtworkCandidate>> {
+                providerCalls++
+                return frontOnlyProvider().artworkFor(query)
+            }
+        }
+        val second = job(storage, http, providers = listOf(counting), tmp = tmp)
+            .run(games, onlyIncomplete = true, onProgress = {})
+        assertEquals("complete game must not hit the provider again", 0, providerCalls)
+        assertEquals(1, second.succeeded)
+        assertEquals(0, second.partial)
+        assertEquals(0, second.unmatched)
+    }
 }

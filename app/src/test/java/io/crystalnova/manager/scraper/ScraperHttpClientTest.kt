@@ -215,4 +215,20 @@ class ScraperHttpClientTest {
             tmp.delete()
         }
     }
+
+    @Test fun `artwork traffic uses a bounded miss budget`() {
+        // The provider candidate ladder is tried serially: one dead
+        // thumbnail URL must fail fast (~6s connect / ~12s read) instead
+        // of stalling a game for ~45s. Successful downloads are
+        // unaffected — the read timeout only fires on a stalled socket.
+        var seen: FakeConnection? = null
+        val url = "https://example.com/front.png"
+        val client = ScraperHttpClient { u ->
+            FakeConnection(URL(u), mapOf(url to FakeConnection.Scripted(200, body = png)))
+                .also { seen = it }
+        }
+        client.get(url)
+        assertEquals(6_000, seen!!.connectTimeout)
+        assertEquals(12_000, seen!!.readTimeout)
+    }
 }

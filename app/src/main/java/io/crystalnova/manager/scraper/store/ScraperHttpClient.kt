@@ -18,10 +18,16 @@ import java.net.URL
  * mirror — wiring the scraper through it silently downgrades every game
  * to generated art. This client has no endpoint boundary; it only
  * requires https and follows a bounded redirect chain.
+ *
+ * The timeout defaults are a bounded budget for artwork traffic: the
+ * provider candidate ladder is tried serially, so one dead thumbnail
+ * URL must fail fast (~6s connect / ~12s read) instead of stalling a
+ * game for ~45s. Successful downloads are unaffected — once bytes flow,
+ * the read timeout only fires on a stalled socket.
  */
 class ScraperHttpClient(
-    private val connectTimeoutMs: Int = 15_000,
-    private val readTimeoutMs: Int = 30_000,
+    private val connectTimeoutMs: Int = 6_000,
+    private val readTimeoutMs: Int = 12_000,
     /**
      * Opens the connection for [url]. Injectable so tests can script
      * redirects/statuses/bodies with a fake [HttpURLConnection] and stay

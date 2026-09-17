@@ -139,4 +139,45 @@ data class ScraperDiagnostics(
     val notice: String?,
     val lastError: String?,
     val lastProgress: ScrapeProgress?,
+    /** The media root is readable for scrape writes right now. */
+    val mediaAccess: Boolean = false,
+    /** Whether the Pegasus theme can find the media root. */
+    val bridgeStatus: BridgeStatus = BridgeStatus.NOT_REQUIRED,
+    /**
+     * One representative scraped game with per-slot file presence, so
+     * Diagnostics proves the theme-visible path end to end — not just
+     * that bytes were written. Null when the index has no games.
+     */
+    val representative: MediaGameReport? = null,
+)
+
+/**
+ * Theme bridge state for `crystal-media-bridge.json`:
+ * - PRESENT: the theme reads the media root through the bridge.
+ * - NOT_REQUIRED: no dedicated media folder — the theme falls back to
+ *   its legacy `../crystal-nova-data/` lookup beside the themes root.
+ * - FAILED: a media folder is configured but the bridge file is absent,
+ *   so the theme cannot find the media. Surfaced, never silent.
+ */
+enum class BridgeStatus { PRESENT, NOT_REQUIRED, FAILED }
+
+/** One asset slot's theme-visible path, presence, and provenance. */
+data class AssetPresence(
+    /** Theme-visible relative path, e.g. `games/gba/mario-golf/front.png`. */
+    val path: String,
+    val present: Boolean,
+    /** REAL / GENERATED / USER, or null when the slot was never stored. */
+    val provenance: String?,
+)
+
+/** End-to-end media visibility report for one scraped game. */
+data class MediaGameReport(
+    val platform: String,
+    val gameId: String,
+    val title: String,
+    val completeness: String,
+    val front: AssetPresence,
+    val spine: AssetPresence,
+    val back: AssetPresence,
+    val media: AssetPresence,
 )

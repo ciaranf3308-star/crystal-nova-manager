@@ -20,6 +20,8 @@ import io.crystalnova.manager.diag.themeBackupSummary
 import io.crystalnova.manager.diag.themeInstalledSummary
 import io.crystalnova.manager.diag.themeLatestSummary
 import io.crystalnova.manager.diag.updateNoticeOf
+import io.crystalnova.manager.scraper.work.AssetPresence
+import io.crystalnova.manager.scraper.work.BridgeStatus
 
 /**
  * Hidden diagnostics screen (open via 5 taps on the version label).
@@ -198,6 +200,42 @@ fun DiagnosticsScreen(
             section {
                 CrystalPanel {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DiagSection("MEDIA VISIBILITY")
+                        val d = info.scraper
+                        DiagRow(
+                            "MEDIA ROOT",
+                            d.mediaFolderUri ?: "THEMES TREE (LEGACY crystal-nova-data/)",
+                            null,
+                        )
+                        DiagRow(
+                            "MEDIA ACCESS",
+                            if (d.mediaAccess) "OK" else "LOST — RESELECT",
+                            if (d.mediaAccess) Crystal.Good else Crystal.Bad,
+                        )
+                        val (bridgeText, bridgeColor) = when (d.bridgeStatus) {
+                            BridgeStatus.PRESENT -> "PRESENT" to Crystal.Good
+                            BridgeStatus.NOT_REQUIRED -> "NOT REQUIRED (LEGACY LOOKUP)" to Crystal.InkDim
+                            BridgeStatus.FAILED -> "FAILED — THEME CANNOT FIND MEDIA" to Crystal.Bad
+                        }
+                        DiagRow("BRIDGE", bridgeText, bridgeColor)
+                        val rep = d.representative
+                        if (rep == null) {
+                            DiagRow("REPRESENTATIVE", "NO SCRAPED GAMES IN INDEX", Crystal.InkDim)
+                        } else {
+                            DiagSection("REPRESENTATIVE · ${rep.title.take(32).uppercase()}")
+                            DiagRow("PLATFORM / ID", "${rep.platform} / ${rep.gameId}", null)
+                            DiagRow("COMPLETENESS", rep.completeness, null)
+                            mediaAssetRow("FRONT", rep.front)
+                            mediaAssetRow("SPINE", rep.spine)
+                            mediaAssetRow("BACK", rep.back)
+                            mediaAssetRow("MEDIA", rep.media)
+                        }
+                    }
+                }
+            }
+            section {
+                CrystalPanel {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         DiagSection("LIBRARY")
                         val d = info.scraper
                         DiagRow(
@@ -271,6 +309,17 @@ private fun MetafileHint(text: String) {
             fontSize = Crystal.SmallSize,
             color = Crystal.Ink,
         ),
+    )
+}
+
+/** One representative-game asset slot: presence, theme-visible path, provenance. */
+@Composable
+private fun mediaAssetRow(label: String, asset: AssetPresence) {
+    DiagRow(
+        label,
+        "${if (asset.present) "PRESENT" else "MISSING"} · ${asset.path}" +
+            (asset.provenance?.let { " · $it" } ?: ""),
+        if (asset.present) Crystal.Good else Crystal.Bad,
     )
 }
 

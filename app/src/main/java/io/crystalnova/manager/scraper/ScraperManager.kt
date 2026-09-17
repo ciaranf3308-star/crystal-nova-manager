@@ -3,6 +3,7 @@ package io.crystalnova.manager.scraper
 import android.content.Context
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.scraper.match.TitleNormalizer
+import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.Completeness
 import io.crystalnova.manager.scraper.provider.LibretroProvider
 import io.crystalnova.manager.scraper.provider.PegasusFileMetadataProvider
@@ -16,6 +17,9 @@ import io.crystalnova.manager.scraper.store.MediaCache
 import io.crystalnova.manager.scraper.store.ScraperHttpClient
 import io.crystalnova.manager.scraper.store.ScraperStorage
 import io.crystalnova.manager.scraper.work.IndexEntry
+import io.crystalnova.manager.scraper.work.AssetPresence
+import io.crystalnova.manager.scraper.work.BridgeStatus
+import io.crystalnova.manager.scraper.work.MediaGameReport
 import io.crystalnova.manager.scraper.work.ScrapeJob
 import io.crystalnova.manager.scraper.work.ScrapeProgress
 import io.crystalnova.manager.scraper.work.ScraperDiagnostics
@@ -163,6 +167,9 @@ class ScraperManager(
             notice = s.notice,
             lastError = prefs.getString(KEY_LAST_ERROR),
             lastProgress = s.progress,
+            mediaAccess = mediaAccessNow(),
+            bridgeStatus = bridgeStatusNow(),
+            representative = representativeGame(),
         )
     }
 
@@ -175,6 +182,75 @@ class ScraperManager(
         } catch (_: Exception) {
             Triple(true, false, 0)
         }
+    }
+
+    /**
+     * True when the media root is readable for scrape writes right now.
+     * With a dedicated media folder that is the media grant; in legacy
+     * mode (no media folder) it is the themes tree that roots
+     * `crystal-nova-data/`. Never throws.
+     */
+    private fun mediaAccessNow(): Boolean {
+        return try {
+            if (locations.mediaTreeUri() != null) hasMediaFolderAccess()
+            else {
+                val uri = themesTreeUri() ?: return false
+                SafThemeFs(context) { uri }.root() != null
+            }
+        } catch (_: Exception) { false }
+    }
+
+    /**
+     * Whether the Pegasus theme can find the media root. No media folder
+     * means the theme's legacy `../crystal-nova-data/` lookup applies
+     * (NOT_REQUIRED); a configured folder needs the bridge file present
+     * (PRESENT), otherwise the theme cannot resolve artwork (FAILED —
+     * surfaced, never silent).
+     */
+    private fun bridgeStatusNow(): BridgeStatus {
+        val mediaUri = try { locations.mediaTreeUri() } catch (_: Exception) { null }
+        val bridgeFilePresent = try {
+            val uri = themesTreeUri() ?: return BridgeStatus.FAILED
+            val fs = SafThemeFs(context) { uri }
+            val root = fs.root() ?: return BridgeStatus.FAILED
+            fs.find(root, StorageLocations.BRIDGE_FILE_NAME) != null
+        } catch (_: Exception) { false }
+        return bridgeStatusFor(mediaUri, bridgeFilePresent)
+    }
+
+    /**
+     * End-to-end media visibility for one representative game: the
+     * theme-visible relative paths plus per-slot presence, so
+     * Diagnostics proves the theme can resolve the files — not just
+     * that bytes were written. Null when the index is empty or the
+     * manifest cannot be read. Never throws.
+     */
+    private fun representativeGame(): MediaGameReport? {
+        return try {
+            val entries = readIndexEntries()
+            val picked = pickRepresentative(entries) ?: return null
+            val gameId = picked.key.substringAfter('/')
+            val game = storage().loadManifest(picked.platform, gameId) ?: return null
+            val store = storage()
+            fun presence(slot: AssetSlot): AssetPresence {
+                val prov = game.assets[slot]
+                return AssetPresence(
+                    path = store.assetPath(picked.platform, gameId, slot),
+                    present = store.assetPresent(picked.platform, gameId, slot),
+                    provenance = prov?.sourceType?.name,
+                )
+            }
+            MediaGameReport(
+                platform = picked.platform,
+                gameId = gameId,
+                title = picked.title,
+                completeness = picked.completeness.name,
+                front = presence(AssetSlot.BOX_FRONT),
+                spine = presence(AssetSlot.BOX_SPINE),
+                back = presence(AssetSlot.BOX_BACK),
+                media = presence(AssetSlot.PHYSICAL_MEDIA),
+            )
+        } catch (_: Exception) { null }
     }
 
     /**
@@ -418,6 +494,7 @@ class ScraperManager(
         scrapeJob = scope.launch {
             // Staging dir for this run's downloads; wiped in the finally
             // below — staged files are disposable copies of the persistent
+            // below — staged files are disposable copies of the persistent
             // SAF cache, never the source of truth.
             val mediaCache = MediaCache(
                 // Persistent downloads live in SAF crystal-nova-data/cache/;
@@ -430,10 +507,13 @@ class ScraperManager(
                 File(context.cacheDir, "scraper-stage").apply { mkdirs() },
                 ScraperHttpClient(),
             )
+            // Set by the success branch; the finally composes the
+            // finished summary from reloaded persisted stats.
+            var finishedCleanly = false
+            var pendingNotices: List<String> = emptyList()
             try {
                 val scanner = LibraryScanner(context, treeUri)
-                val games = lastScan.ifEmpty {
-                    scanner.scan().also {
+                val games = lastScan.ifEmpty {                    scanner.scan().also {
                         // Same guard as the scan path: a revoked grant can
                         // surface as an empty listing, never as "no games".
                         if (!hasGamesFolderAccess()) throw SecurityException("games folder not accessible")
@@ -466,10 +546,12 @@ class ScraperManager(
                     _state.value = _state.value.copy(notice = notices.joinToString(" · "))
                 } else {
                     clearError()
-                    val notices = runNotices(result)
-                    if (notices.isNotEmpty()) {
-                        _state.value = _state.value.copy(notice = notices.joinToString(" · "))
-                    }
+                    // The finished summary is composed in the finally
+                    // below from the freshly reloaded persisted stats, so
+                    // it reflects what is actually in the index — not just
+                    // this run's counters.
+                    finishedCleanly = true
+                    pendingNotices = runNotices(result)
                     _state.value = _state.value.copy(needsMediaFolder = false)
                 }
             } catch (e: Exception) {
@@ -491,11 +573,21 @@ class ScraperManager(
                 mediaCache.clearStaging()
                 val entries = readIndexEntries()
                 val systems = _state.value.systems
-                _state.value = _state.value.copy(
+                val stats = ScraperStats.fromEntries(entries).copy(systems = systems)
+                val sysStats = SystemStats.perSystem(entries, systems)
+                val settled = _state.value.copy(
                     scraping = false,
-                    stats = ScraperStats.fromEntries(entries).copy(systems = systems),
-                    systemStats = SystemStats.perSystem(entries, systems),
+                    stats = stats,
+                    systemStats = sysStats,
                 )
+                _state.value = if (finishedCleanly) {
+                    val summary = scrapeFinishSummary(
+                        _state.value.selectedPlatform, systems, stats, sysStats,
+                    )
+                    settled.copy(notice = (pendingNotices + summary).joinToString(" · "))
+                } else {
+                    settled
+                }
             }
         }
     }
@@ -536,4 +628,68 @@ class ScraperManager(
     fun dismissNotice() {
         _state.value = _state.value.copy(notice = null)
     }
+}
+
+/**
+ * Pure core of [ScraperManager.bridgeStatusNow], unit-testable: no media
+ * folder means the theme's legacy lookup applies; a configured folder
+ * needs the bridge file present, otherwise the theme cannot resolve
+ * artwork.
+ */
+internal fun bridgeStatusFor(mediaUri: String?, bridgeFilePresent: Boolean): BridgeStatus =
+    when {
+        mediaUri == null -> BridgeStatus.NOT_REQUIRED
+        bridgeFilePresent -> BridgeStatus.PRESENT
+        else -> BridgeStatus.FAILED
+    }
+
+/**
+ * Picks the Diagnostics representative game: the preferred hardware
+ * check (Mario Golf on GBA) when indexed, else the first complete
+ * game, else the first indexed game. Pure and unit-testable.
+ */
+internal fun pickRepresentative(entries: List<IndexEntry>): IndexEntry? {
+    if (entries.isEmpty()) return null
+    entries.firstOrNull {
+        it.platform == "gba" && it.title.contains("mario golf", ignoreCase = true)
+    }?.let { return it }
+    entries.firstOrNull {
+        it.completeness == Completeness.COMPLETE_CASE ||
+            it.completeness == Completeness.COMPLETE_CASE_AND_MEDIA
+    }?.let { return it }
+    return entries.first()
+}
+
+/**
+ * The obvious finished-state line after a scrape run, built from
+ * persisted index stats: `GBA · 12 GAMES · 8 COMPLETE · 3 PARTIAL ·
+ * 1 UNMATCHED` (aggregate form for ALL SYSTEMS). When games remain
+ * incomplete, RETRY INCOMPLETE is named as the next action. Pure and
+ * unit-testable.
+ */
+internal fun scrapeFinishSummary(
+    selectedPlatform: String?,
+    systems: List<DiscoveredSystem>,
+    stats: ScraperStats,
+    systemStats: Map<String, SystemStats>,
+): String {
+    fun nudge(incomplete: Int) =
+        if (incomplete > 0) " — RETRY INCOMPLETE TO FILL THE GAPS" else ""
+    if (selectedPlatform == null) {
+        return "SCRAPE FINISHED · ALL SYSTEMS · ${stats.totalGames} GAMES · " +
+            "${stats.complete} COMPLETE · ${stats.partial} PARTIAL · " +
+            "${stats.unmatched} UNMATCHED" +
+            nudge(stats.partial + stats.unmatched)
+    }
+    val row = systemStats[selectedPlatform]
+    val label = systems.firstOrNull { it.platformSlug == selectedPlatform }?.label
+        ?: row?.label
+        ?: selectedPlatform
+    val games = row?.games ?: 0
+    val complete = row?.complete ?: 0
+    val partial = row?.partial ?: 0
+    val unmatched = row?.unmatched ?: 0
+    return "SCRAPE FINISHED · ${label.uppercase()} · $games GAMES · " +
+        "$complete COMPLETE · $partial PARTIAL · $unmatched UNMATCHED" +
+        nudge(partial + unmatched)
 }

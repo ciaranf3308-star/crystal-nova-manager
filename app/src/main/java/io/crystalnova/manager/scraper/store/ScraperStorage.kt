@@ -196,6 +196,21 @@ class ScraperStorage(
     fun loadIndexJson(): String? = readBytes(INDEX_NAME)?.toString(Charsets.UTF_8)
 
     /**
+     * Diagnostics-grade presence check for one asset slot file. Never
+     * throws — any failure (including a revoked grant) reads as absent;
+     * Diagnostics reports media access separately, so this stays a pure
+     * file-presence answer for the theme-visibility report.
+     */
+    fun assetPresent(platform: String, gameId: String, slot: AssetSlot): Boolean {
+        return try {
+            val dir = gameDir(platform, gameId) ?: return false
+            fs.find(dir, slot.fileName) != null
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /**
      * Raw bytes of index.json, or null when absent/unreadable. Prefer this
      * over [loadIndexJson] when the bytes themselves matter (quarantining a
      * malformed index): a String round-trip through UTF-8 would replace
