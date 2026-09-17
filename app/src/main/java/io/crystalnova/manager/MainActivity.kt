@@ -31,10 +31,12 @@ import io.crystalnova.manager.pegasus.PegasusRestartGate
 import io.crystalnova.manager.scraper.match.PlatformTable
 import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
+import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.storage.StorageLocations
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
+import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
 import io.crystalnova.manager.ui.Navigator
@@ -351,23 +353,28 @@ class MainActivity : ComponentActivity() {
 
             when (val dest = nav.current) {
                 is Dest.Home -> {
-                    // Recompute the Pegasus tile subtitle only when the
-                    // profiles or the scanned systems change: pegasusRows()
-                    // does PackageManager lookups, so it must not run on
-                    // every recomposition (e.g. scan progress ticks).
+                    // Recompute the HOME readiness only when the profiles
+                    // or the scanned systems change: pegasusRows() does
+                    // PackageManager lookups, so it must not run on every
+                    // recomposition (e.g. scan progress ticks). READY is
+                    // derived from the same real persisted state the
+                    // Pegasus setup screen uses — never invented.
                     @Suppress("UNUSED_VARIABLE")
                     val homeProfilesRev = pegasusProfilesRev
-                    val pegasusSubtitle = remember(homeProfilesRev, scraperState.systems) {
+                    val homeReadiness = remember(homeProfilesRev, scraperState.systems) {
                         val rows = pegasusRows()
                         val withGames = rows.filter { it.gameCount > 0 }
                         val issues = withGames.count {
                             it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
                         }
-                        when {
-                            withGames.isEmpty() -> "NO GAMES SCANNED"
-                            issues == 0 -> "READY"
-                            else -> "$issues NEED SETUP"
-                        }
+                        HomeReadiness(
+                            systemCount = withGames.size,
+                            totalGames = scraperState.stats.totalGames,
+                            configuredCount = withGames.size - issues,
+                            issueCount = issues,
+                            pegasusInstalled = isPegasusInstalled(),
+                            romReady = scraperState.romLocation is LocationState.Ready,
+                        )
                     }
                     val themeSubtitle = when (val s = themeState) {
                         is ManagerState.Ready ->
@@ -375,20 +382,27 @@ class MainActivity : ComponentActivity() {
                         else -> "—"
                     }
                     HomeScreen(
-                        scraperState = scraperState,
+                        readiness = homeReadiness,
                         appVersion = appVersionLabel,
                         appUpdate = appUpdate,
-                        pegasusReady = isPegasusInstalled(),
-                        pegasusSubtitle = pegasusSubtitle,
                         themeSubtitle = themeSubtitle,
                         settingsSubtitle = "${updateChannel.name} CHANNEL",
                         onUpdateApp = { onUpdateApp() },
+                        onOpenPegasus = { openPegasus() },
+                        onMakeReady = {
+                            if (scraperState.romLocation is LocationState.Ready) {
+                                nav.navigate(Dest.PegasusSetup)
+                            } else {
+                                scraper.refresh()
+                                nav.navigate(Dest.Library)
+                            }
+                        },
+                        onReviewIssues = { nav.navigate(Dest.PegasusSetup) },
                     onLibrary = {
                         scraper.refresh()
                         nav.navigate(Dest.Library)
                     },
                     onTheme = { nav.navigate(Dest.Theme) },
-                    onPegasusSetup = { nav.navigate(Dest.PegasusSetup) },
                     onSettings = { nav.navigate(Dest.Settings) },
                     onDiagnostics = { openDiagnostics(nav) },
                     onExit = { finish() },

@@ -10,12 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -23,49 +23,67 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import io.crystalnova.manager.scraper.ScraperUiState
-import io.crystalnova.manager.storage.LocationState
+import androidx.compose.ui.unit.sp
 import io.crystalnova.manager.updater.AppUpdateState
 
 /**
- * HOME: a fixed single-screen dashboard — NO scrolling. Everything
- * visible at once on the 1280×960 Nova viewport:
+ * Appliance-ready HOME state (v23), derived from real persisted
+ * production state only: the scanned library, the stored per-system
+ * launcher profiles, and the Pegasus install check.
+ *
+ * READY is never invented: it requires a ROM folder that reads, games
+ * scanned, Pegasus installed, and every launcher configured with its
+ * emulator present. Artwork completeness never blocks READY — a game
+ * launches with or without its box art.
+ */
+data class HomeReadiness(
+    val systemCount: Int,
+    val totalGames: Int,
+    val configuredCount: Int,
+    val issueCount: Int,
+    val pegasusInstalled: Boolean,
+    val romReady: Boolean,
+) {
+    val ready: Boolean
+        get() = romReady && pegasusInstalled && systemCount > 0 && issueCount == 0
+}
+
+/**
+ * HOME: a fixed single-screen appliance dashboard — NO scrolling.
+ * Everything visible at once on the 1280×960 Nova viewport:
  *
  * - header: CRYSTAL NOVA + version (5-tap opens DIAGNOSTICS)
- * - 2×2 grid: LIBRARY / PEGASUS / THEME / SETTINGS as compact
- *   handheld-firmware tiles (not giant accessibility buttons), each
- *   with a small live subtitle so the freed space stays informative
+ * - hero: PEGASUS / READY TO PLAY (or FINISH SETUP) with honest
+ *   system/launcher/library lines and the happy-path action:
+ *   OPEN PEGASUS when ready, MAKE READY (+ REVIEW ISSUES) otherwise
  * - manager-app update banner when an update is available (never buried)
- * - one-line status strip: ROM ✓ MEDIA ✓ PEGASUS ✓
- * - pinned footer: A SELECT · B EXIT
+ * - secondary: LIBRARY / ARTWORK
+ * - Advanced > : THEME and SETTINGS live one tap away; every manual
+ *   control is preserved, nothing removed
+ * - pinned footer: A SELECT · B EXIT (from the scaffold)
  *
- * The grid is this screen's single (non-scrolling) controller
- * container; the banner button is a plain focusable below it.
+ * Everyday use never needs Diagnostics (still 5-tap hidden) and never
+ * needs the setup screens when everything is READY.
  */
 @Composable
 fun HomeScreen(
-    scraperState: ScraperUiState,
+    readiness: HomeReadiness,
     appVersion: String,
     appUpdate: AppUpdateState,
-    pegasusReady: Boolean,
-    pegasusSubtitle: String,
     themeSubtitle: String,
     settingsSubtitle: String,
     onUpdateApp: () -> Unit,
+    onOpenPegasus: () -> Unit,
+    onMakeReady: () -> Unit,
+    onReviewIssues: () -> Unit,
     onLibrary: () -> Unit,
     onTheme: () -> Unit,
-    onPegasusSetup: () -> Unit,
     onSettings: () -> Unit,
     onDiagnostics: () -> Unit,
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val romReady = scraperState.romLocation is LocationState.Ready
-    val librarySubtitle = if (!romReady) {
-        "NO LIBRARY"
-    } else {
-        "${scraperState.systems.size} SYSTEMS · ${scraperState.stats.totalGames} GAMES"
-    }
+    var advancedExpanded by remember { mutableStateOf(false) }
     ScreenScaffold(
         routeKey = "home",
         title = "HOME",
@@ -73,7 +91,7 @@ fun HomeScreen(
         modifier = modifier,
         isHome = true,
         showMasthead = false,
-        fallbackFocusKey = if (appUpdate is AppUpdateState.Available) "home-update-app" else "home-library",
+        fallbackFocusKey = if (appUpdate is AppUpdateState.Available) "home-update-app" else "home-primary",
     ) {
         Column(
             modifier = Modifier.fillMaxSize(),
@@ -95,55 +113,21 @@ fun HomeScreen(
                 )
                 VersionTapLabel(appVersion = appVersion, onDiagnostics = onDiagnostics)
             }
-            // The 2×2 destination grid owns the middle of the screen.
-            // Tiles are compact firmware-style cards with a live
-            // subtitle each, so all four destinations plus their status
-            // are visible simultaneously; the grid never scrolls here.
+            // The hero owns the middle of the screen: the one state that
+            // matters (READY TO PLAY vs FINISH SETUP) and the happy-path
+            // action. It centers in the leftover space.
             Box(
                 modifier = Modifier.weight(1f).fillMaxWidth(),
+                contentAlignment = Alignment.Center,
             ) {
-                ControllerGrid(
-                    state = gridState,
+                Hero(
+                    readiness = readiness,
+                    onOpenPegasus = onOpenPegasus,
+                    onMakeReady = onMakeReady,
+                    onReviewIssues = onReviewIssues,
                     dispatcher = dispatcher,
-                    columns = GridCells.Fixed(2),
-                    initialFocus = ::isInitialFocus,
-                    // Rows center in the leftover space so the 2×2 block
-                    // sits mid-screen instead of clinging to the top.
-                    verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.CenterVertically),
-                ) {
-                    control(
-                        key = "home-library",
-                        testTag = "home-library",
-                        label = "LIBRARY",
-                        subLabel = librarySubtitle,
-                        onClick = onLibrary,
-                        modifier = Modifier.height(160.dp),
-                    )
-                    control(
-                        key = "home-pegasus",
-                        testTag = "home-pegasus",
-                        label = "PEGASUS",
-                        subLabel = pegasusSubtitle,
-                        onClick = onPegasusSetup,
-                        modifier = Modifier.height(160.dp),
-                    )
-                    control(
-                        key = "home-theme",
-                        testTag = "home-theme",
-                        label = "THEME",
-                        subLabel = themeSubtitle,
-                        onClick = onTheme,
-                        modifier = Modifier.height(160.dp),
-                    )
-                    control(
-                        key = "home-settings",
-                        testTag = "home-settings",
-                        label = "SETTINGS",
-                        subLabel = settingsSubtitle,
-                        onClick = onSettings,
-                        modifier = Modifier.height(160.dp),
-                    )
-                }
+                    isPrimaryInitialFocus = isInitialFocus("home-primary"),
+                )
             }
             // Manager-app self-update: surfaced HERE, never buried.
             // (The theme updater lives on the THEME screen only.)
@@ -188,11 +172,164 @@ fun HomeScreen(
                 is AppUpdateState.Installing ->
                     StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
             }
-            StatusStrip(
-                romReady = scraperState.romLocation is LocationState.Ready,
-                mediaReady = scraperState.mediaLocation is LocationState.Ready,
-                pegasusReady = pegasusReady,
+            // Secondary: the library (browse, rescan, scrape artwork).
+            CrystalButton(
+                key = "home-library",
+                testTag = "home-library",
+                label = "LIBRARY / ARTWORK",
+                subLabel = "${readiness.systemCount} SYSTEMS · ${readiness.totalGames} GAMES",
+                onClick = onLibrary,
+                dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("home-library"),
+                modifier = Modifier.fillMaxWidth(),
             )
+            // Advanced: every manual control, one tap away, none removed.
+            CrystalButton(
+                key = "home-advanced",
+                testTag = "home-advanced",
+                label = if (advancedExpanded) "ADVANCED  ∧" else "ADVANCED  ∨",
+                onClick = { advancedExpanded = !advancedExpanded },
+                dispatcher = dispatcher,
+                requestInitialFocus = isInitialFocus("home-advanced"),
+                modifier = Modifier.fillMaxWidth(),
+            )
+            if (advancedExpanded) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(modifier = Modifier.weight(1f)) {
+                        CrystalButton(
+                            key = "home-theme",
+                            testTag = "home-theme",
+                            label = "THEME",
+                            subLabel = themeSubtitle,
+                            onClick = onTheme,
+                            dispatcher = dispatcher,
+                            requestInitialFocus = isInitialFocus("home-theme"),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                    Box(modifier = Modifier.weight(1f)) {
+                        CrystalButton(
+                            key = "home-settings",
+                            testTag = "home-settings",
+                            label = "SETTINGS",
+                            subLabel = settingsSubtitle,
+                            onClick = onSettings,
+                            dispatcher = dispatcher,
+                            requestInitialFocus = isInitialFocus("home-settings"),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/** The hero: state headline, honest status lines, happy-path action. */
+@Composable
+private fun Hero(
+    readiness: HomeReadiness,
+    onOpenPegasus: () -> Unit,
+    onMakeReady: () -> Unit,
+    onReviewIssues: () -> Unit,
+    dispatcher: FocusDispatcher,
+    isPrimaryInitialFocus: Boolean,
+) {
+    val ready = readiness.ready
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        BasicText(
+            text = "PEGASUS",
+            style = TextStyle(
+                fontFamily = Crystal.Mono,
+                fontSize = Crystal.SectionSize,
+                color = Crystal.InkDim,
+            ),
+        )
+        BasicText(
+            text = if (ready) "READY TO PLAY" else "FINISH SETUP",
+            style = TextStyle(
+                fontFamily = Crystal.Mono,
+                fontWeight = FontWeight.Bold,
+                fontSize = 44.sp,
+                color = if (ready) Crystal.Good else Crystal.Joystick,
+            ),
+        )
+        BasicText(
+            text = "${readiness.systemCount} SYSTEMS · ${readiness.totalGames} GAMES",
+            style = TextStyle(
+                fontFamily = Crystal.Mono,
+                fontSize = Crystal.SectionSize,
+                color = Crystal.Ink,
+            ),
+        )
+        if (readiness.systemCount > 0) {
+            val launcherLine = if (readiness.issueCount == 0) {
+                "${readiness.configuredCount} LAUNCHERS CONFIGURED"
+            } else {
+                val needs = if (readiness.issueCount == 1) "NEEDS" else "NEED"
+                "${readiness.configuredCount} CONFIGURED · ${readiness.issueCount} $needs ATTENTION"
+            }
+            BasicText(
+                text = launcherLine,
+                style = TextStyle(
+                    fontFamily = Crystal.Mono,
+                    fontSize = Crystal.SectionSize,
+                    color = if (readiness.issueCount == 0) Crystal.Ink else Crystal.Joystick,
+                ),
+            )
+        }
+        val libraryLine = when {
+            !readiness.romReady -> "NO LIBRARY — PICK YOUR ROMS FOLDER"
+            !readiness.pegasusInstalled -> "PEGASUS NOT INSTALLED"
+            readiness.systemCount > 0 -> "LIBRARY BUILT"
+            else -> "LIBRARY EMPTY — SCAN YOUR ROMS"
+        }
+        BasicText(
+            text = libraryLine,
+            style = TextStyle(
+                fontFamily = Crystal.Mono,
+                fontSize = Crystal.BodySize,
+                color = Crystal.InkDim,
+            ),
+        )
+        if (ready) {
+            CrystalButton(
+                key = "home-primary",
+                testTag = "home-primary",
+                label = "OPEN PEGASUS",
+                onClick = onOpenPegasus,
+                dispatcher = dispatcher,
+                enabled = readiness.pegasusInstalled,
+                requestInitialFocus = isPrimaryInitialFocus,
+                modifier = Modifier.height(64.dp),
+            )
+        } else {
+            CrystalButton(
+                key = "home-primary",
+                testTag = "home-primary",
+                label = "MAKE READY",
+                onClick = onMakeReady,
+                dispatcher = dispatcher,
+                requestInitialFocus = isPrimaryInitialFocus,
+                modifier = Modifier.height(64.dp),
+            )
+            if (readiness.issueCount > 0) {
+                val s = if (readiness.issueCount == 1) "" else "S"
+                CrystalButton(
+                    key = "home-review",
+                    testTag = "home-review",
+                    label = "REVIEW ${readiness.issueCount} ISSUE$s",
+                    onClick = onReviewIssues,
+                    dispatcher = dispatcher,
+                    modifier = Modifier.height(56.dp),
+                )
+            }
         }
     }
 }
@@ -225,17 +362,6 @@ private fun UpdateBanner(
             )
         }
     }
-}
-
-/** One-line readiness strip: ROM ✓ MEDIA ✓ PEGASUS ✓. */
-@Composable
-private fun StatusStrip(romReady: Boolean, mediaReady: Boolean, pegasusReady: Boolean) {
-    fun tick(ok: Boolean) = if (ok) "✓" else "—"
-    val allOk = romReady && mediaReady && pegasusReady
-    StatusLine(
-        "ROM ${tick(romReady)}   MEDIA ${tick(mediaReady)}   PEGASUS ${tick(pegasusReady)}",
-        if (allOk) Crystal.Good else Crystal.Ink,
-    )
 }
 
 /**

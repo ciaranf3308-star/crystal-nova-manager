@@ -1,0 +1,61 @@
+{
+  "version": 1,
+  "platform": "gba",
+  "gameId": "mario-golf-advance-tour",
+  "romRelativePath": "gba/Mario Golf - Advance Tour (E).gba",
+  "fileSize": 8388608,
+  "lastModified": 1726500000000,
+  "title": "Mario Golf: Advance Tour",
+  "description": "Mario Golf: Advance Tour for Game Boy Advance.",
+  "developer": "Camelot Software Planning",
+  "publisher": "Nintendo",
+  "releaseYear": 2004,
+  "genre": "Sports",
+  "players": "1-4",
+  "region": "EUROPE",
+  "provider": "screenscraper",
+  "providerGameId": "12345",
+  "confidence": "HIGH",
+  "assets": {
+    "BOX_FRONT": {
+      "sourceType": "REAL",
+      "provider": "screenscraper",
+      "providerGameId": "12345",
+      "region": "EUROPE",
+      "sourceUrl": "https://example.invalid/fixture/BOX_FRONT.png",
+      "localPath": "games/gba/mario-golf-advance-tour/BOX_FRONT.png",
+      "sha256": "fixture",
+      "generatedBy": null
+    },
+    "BOX_SPINE": {
+      "sourceType": "REAL",
+      "provider": "screenscraper",
+      "providerGameId": "12345",
+      "region": "EUROPE",
+      "sourceUrl": "https://example.invalid/fixture/BOX_SPINE.png",
+      "localPath": "games/gba/mario-golf-advance-tour/BOX_SPINE.png",
+      "sha256": "fixture",
+      "generatedBy": null
+    },
+    "BOX_BACK": {
+      "sourceType": "REAL",
+      "provider": "screenscraper",
+      "providerGameId": "12345",
+      "region": "EUROPE",
+      "sourceUrl": "https://example.invalid/fixture/BOX_BACK.png",
+      "localPath": "games/gba/mario-golf-advance-tour/BOX_BACK.png",
+      "sha256": "fixture",
+      "generatedBy": null
+    },
+    "PHYSICAL_MEDIA": {
+      "sourceType": "REAL",
+      "provider": "screenscraper",
+      "providerGameId": "12345",
+      "region": "EUROPE",
+      "sourceUrl": "https://example.invalid/fixture/PHYSICAL_MEDIA.png",
+      "localPath": "games/gba/mario-golf-advance-tour/PHYSICAL_MEDIA.png",
+      "sha256": "fixture",
+      "generatedBy": null
+    }
+  }
+}

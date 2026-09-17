@@ -3,8 +3,9 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.assertTextEquals
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.updater.AppUpdateState
 import org.junit.Test
@@ -14,30 +15,46 @@ import org.junit.Test
  * scrolling.
  *
  * Renders the real [HomeScreen] in the 1280x960 viewport and asserts
- * the four destination tiles, the status strip, and the footer are all
- * inside the viewport with NO scroll interaction anywhere in the test.
+ * the hero (READY TO PLAY / OPEN PEGASUS), the LIBRARY / ARTWORK
+ * button, the Advanced toggle, and the footer are all inside the
+ * viewport with NO scroll interaction anywhere in the test.
  *
- * Two variants: the idle state, and the update-available state where
- * the manager-app banner (which must never be buried) is also shown —
- * the banner shrinks the grid's share of the column, so this is the
- * worst case for the "everything visible at once" contract.
+ * Two variants: the idle ready state, and the update-available state
+ * where the manager-app banner (which must never be buried) is also
+ * shown — the banner shrinks the hero's share of the column, so this
+ * is the worst case for the "everything visible at once" contract.
+ *
+ * A third variant covers the needs-attention hero (FINISH SETUP /
+ * MAKE READY / REVIEW ISSUE) to prove it fits the same contract.
  */
 class NovaHomeFitsViewportTest : NovaUiTest() {
 
-    private fun setHome(appUpdate: AppUpdateState) {
+    private val readyReadiness = HomeReadiness(
+        systemCount = 13,
+        totalGames = 147,
+        configuredCount = 13,
+        issueCount = 0,
+        pegasusInstalled = true,
+        romReady = true,
+    )
+
+    private fun setHome(
+        appUpdate: AppUpdateState,
+        readiness: HomeReadiness = readyReadiness,
+    ) {
         setNovaContent {
             HomeScreen(
-                scraperState = fakeReadyScraperState(),
-                appVersion = "1.0.2",
+                readiness = readiness,
+                appVersion = "1.2.3-u7",
                 appUpdate = appUpdate,
-                pegasusReady = true,
-                pegasusSubtitle = "READY",
                 themeSubtitle = "v1.2.3",
                 settingsSubtitle = "DEV CHANNEL",
                 onUpdateApp = {},
+                onOpenPegasus = {},
+                onMakeReady = {},
+                onReviewIssues = {},
                 onLibrary = {},
                 onTheme = {},
-                onPegasusSetup = {},
                 onSettings = {},
                 onDiagnostics = {},
                 onExit = {},
@@ -68,18 +85,40 @@ class NovaHomeFitsViewportTest : NovaUiTest() {
         assertNodeInViewport("home-update-app")
     }
 
-    private fun assertHomeFits() {
+    @Test
+    fun homeControlsVisibleWithoutScrolling_whenNeedsAttention() {
+        setHome(
+            AppUpdateState.Idle(),
+            readiness = readyReadiness.copy(issueCount = 1, configuredCount = 12),
+        )
+        composeTestRule.onNodeWithText("FINISH SETUP").assertExists()
+        assertNodeInViewport("home-primary")
+        assertNodeInViewport("home-review")
         assertNodeInViewport("home-library")
-        assertNodeInViewport("home-pegasus")
+        assertNodeInViewport("home-advanced")
+        // Pinned footer survives the taller hero too.
+        assertInteractionInViewport(
+            composeTestRule.onNodeWithText("A"),
+            "footer keycap A",
+        )
+        assertInteractionInViewport(
+            composeTestRule.onNodeWithText("B"),
+            "footer keycap B",
+        )
+    }
+
+    private fun assertHomeFits() {
+        // Hero: READY TO PLAY headline and the happy-path action.
+        composeTestRule.onNodeWithText("READY TO PLAY").assertExists()
+        assertNodeInViewport("home-primary")
+        assertNodeInViewport("home-library")
+        assertNodeInViewport("home-advanced")
+
+        // Advanced hides the manual controls behind one tap: they must
+        // all become visible once expanded, with no scrolling.
+        composeTestRule.onNodeWithTag("home-advanced").performClick()
         assertNodeInViewport("home-theme")
         assertNodeInViewport("home-settings")
-
-        // Status strip: the one-line readiness summary (exact text proves
-        // it is the strip, not just any text node).
-        val stripText = "ROM ✓   MEDIA ✓   PEGASUS ✓"
-        val strip = composeTestRule.onNodeWithText(stripText)
-        strip.assertTextEquals(stripText)
-        assertInteractionInViewport(strip, "status strip")
 
         // Pinned footer: A SELECT · B EXIT (keycap letters are their own
         // text nodes; exact match keeps this precise).
