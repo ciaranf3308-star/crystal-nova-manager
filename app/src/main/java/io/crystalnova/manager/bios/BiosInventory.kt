@@ -297,36 +297,33 @@ class BiosInventory(
     // ---------- PS2 status ----------
 
     /**
-     * The valid-looking PS2 BIOS in [files]: name matches the SCPH
-     * pattern AND the size is exactly a retail PS2 BIOS image.
+     * Classifies [files] for PS2 firmware. Pure delegation to
+     * [Ps2BiosClassifier] — the scan itself stays on Dispatchers.IO;
+     * this reads the cached list only, so it is safe to call from
+     * the UI thread / Compose remember blocks.
      */
-    fun detectPs2Bios(files: List<BiosFile>): BiosFile? =
-        files.firstOrNull {
-            BiosFirmwareTable.PS2.candidateNameRegex.matches(it.name) &&
-                it.sizeBytes == BiosFirmwareTable.PS2.expectedSizeBytes
-        }
-
-    /**
-     * A name-matching file with the wrong size — present but not a file
-     * we would trust NetherSX2 to accept.
-     */
-    fun detectPs2Unverified(files: List<BiosFile>): BiosFile? =
-        files.firstOrNull {
-            BiosFirmwareTable.PS2.candidateNameRegex.matches(it.name) &&
-                it.sizeBytes != BiosFirmwareTable.PS2.expectedSizeBytes
-        }
+    fun detectPs2(files: List<BiosFile>): Ps2Detection =
+        Ps2BiosClassifier.classify(files)
 
     /**
      * PS2 firmware status. [ps2GameCount] gates everything: with no PS2
      * games, firmware is NOT_REQUIRED and creates no issue.
+     *
+     * A main candidate (strong SCPH shape or plausible dump) is
+     * IMPORT_REQUIRED until the NetherSX2 import is attested — the
+     * candidate is never silently auto-trusted. Ancillary artifacts
+     * or insanely-sized BIOS-named files are FOUND_UNVERIFIED, never
+     * MISSING and never READY.
      */
     fun ps2Status(ps2GameCount: Int, files: List<BiosFile>?): BiosStatus {
         if (ps2GameCount <= 0) return BiosStatus.NOT_REQUIRED
         if (files == null) return BiosStatus.REQUIRED_MISSING
-        if (detectPs2Bios(files) != null) {
+        val detection = detectPs2(files)
+        if (detection.candidates.isNotEmpty()) {
             return if (isPs2ImportConfirmed()) BiosStatus.READY else BiosStatus.IMPORT_REQUIRED
         }
-        return if (detectPs2Unverified(files) != null) BiosStatus.FOUND_UNVERIFIED
+        return if (detection.misSized.isNotEmpty() || detection.ancillary.isNotEmpty())
+            BiosStatus.FOUND_UNVERIFIED
         else BiosStatus.REQUIRED_MISSING
     }
 

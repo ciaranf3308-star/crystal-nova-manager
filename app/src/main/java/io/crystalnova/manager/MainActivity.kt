@@ -603,8 +603,14 @@ class MainActivity : ComponentActivity() {
                     val files = (biosScan as? BiosScanState.Ready)?.files
                     val biosScanning = biosScan is BiosScanState.Scanning
                     val ps2Status = biosInventory.ps2Status(ps2Games, files)
-                    val detected = biosInventory.detectPs2Bios(files ?: emptyList())
-                        ?: biosInventory.detectPs2Unverified(files ?: emptyList())
+                    // Pure classification of the cached scan — strongest
+                    // candidate first. The recursive SAF walk stays on
+                    // Dispatchers.IO; this block reads the cache only,
+                    // never the SAF tree.
+                    val detection = biosInventory.detectPs2(files ?: emptyList())
+                    val detected = detection.candidates.firstOrNull()?.file
+                        ?: detection.misSized.firstOrNull()
+                        ?: detection.ancillary.firstOrNull()
                     val rootState = biosInventory.probeRoot()
                     val rootDisplay = (rootState as? BiosRootState.Granted)?.displayPath
                     // v24 is PS2-first: the only firmware row with a
@@ -625,6 +631,10 @@ class MainActivity : ComponentActivity() {
                                 if (rootDisplay != null && detected != null)
                                     "$rootDisplay/${detected.relativePath}"
                                 else null,
+                            ps2Candidates = detection.candidates,
+                            ps2AncillaryOnly = detection.candidates.isEmpty() &&
+                                detection.misSized.isEmpty() &&
+                                detection.ancillary.isNotEmpty(),
                             ps2GameCount = ps2Games,
                             hasLauncherIssues = launcherIssues,
                             netherSX2Installed = emulatorDetector.isInstalled(

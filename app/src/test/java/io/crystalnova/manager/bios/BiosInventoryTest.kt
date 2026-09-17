@@ -88,18 +88,105 @@ class BiosInventoryTest {
     }
 
     @Test
-    fun ps2_requiredMissing_whenRandomBin() {
-        // A random .bin must never read as a BIOS.
+    fun ps2_nonScphBin_atBiosSize_isNowACandidate() {
+        // Hardware truth (2026-09-17): a working EmuDeck tree names
+        // dumps all kinds of things. A BIOS-sized .bin is honestly a
+        // candidate — NetherSX2 validates the pick, and attestation
+        // still gates READY. This supersedes the old SCPH-only rule.
         val random = BiosFile("random.bin", 4_194_304L, "random.bin")
         val inv = inventory(files = listOf(random))
+        assertEquals(BiosStatus.IMPORT_REQUIRED, inv.ps2Status(5, listOf(random)))
+        assertEquals(BiosIssue("PS2", "BIOS REQUIRED"), inv.ps2Issue(5, listOf(random)))
+        val detection = inv.detectPs2(listOf(random))
+        assertEquals(1, detection.candidates.size)
+        assertEquals(
+            Ps2CandidateConfidence.CANDIDATE,
+            detection.candidates[0].confidence,
+        )
+    }
+
+    @Test
+    fun ps2_requiredMissing_whenTinyRandomBin() {
+        // Not BIOS-shaped by name and not sane by size: still missing.
+        val random = BiosFile("random.bin", 12345L, "random.bin")
+        val inv = inventory(files = listOf(random))
         assertEquals(BiosStatus.REQUIRED_MISSING, inv.ps2Status(5, listOf(random)))
+    }
+
+    @Test
+    fun ps2_importRequired_whenRom0DumpFound() {
+        val rom0 = BiosFile("rom0", 4_194_304L, "bios/dump/rom0")
+        val inv = inventory(files = listOf(rom0))
+        assertEquals(BiosStatus.IMPORT_REQUIRED, inv.ps2Status(5, listOf(rom0)))
+        assertEquals(BiosIssue("PS2", "BIOS REQUIRED"), inv.ps2Issue(5, listOf(rom0)))
+    }
+
+    @Test
+    fun ps2_importRequired_whenBiosBetween4And8MiB() {
+        // Sane PCSX2 range, not exactly 4 MiB.
+        val big = BiosFile("scph70012.bin", 6_291_456L, "scph70012.bin")
+        val inv = inventory(files = listOf(big))
+        assertEquals(BiosStatus.IMPORT_REQUIRED, inv.ps2Status(5, listOf(big)))
+    }
+
+    @Test
+    fun ps2_unverified_whenAncillaryOnly() {
+        // Dump artifacts prove PS2 firmware files exist, but none is
+        // the importable BIOS — FOUND_UNVERIFIED, never MISSING and
+        // never a verified main BIOS.
+        val files = listOf(
+            BiosFile("nvm.bin", 1024L, "ps2/nvm.bin"),
+            BiosFile("rom1.bin", 2048L, "ps2/rom1.bin"),
+        )
+        val inv = inventory(files = files)
+        assertEquals(BiosStatus.FOUND_UNVERIFIED, inv.ps2Status(5, files))
+        assertEquals(BiosIssue("PS2", "BIOS UNVERIFIED"), inv.ps2Issue(5, files))
+        assertTrue(inv.detectPs2(files).candidates.isEmpty())
+    }
+
+    @Test
+    fun ps2_requiredMissing_whenUnrelatedFolder() {
+        val files = listOf(
+            BiosFile("notes.txt", 100L, "notes.txt"),
+            BiosFile("cover.png", 50_000L, "art/cover.png"),
+        )
+        val inv = inventory(files = files)
+        assertEquals(BiosStatus.REQUIRED_MISSING, inv.ps2Status(5, files))
+        assertEquals(BiosIssue("PS2", "BIOS MISSING"), inv.ps2Issue(5, files))
+    }
+
+    @Test
+    fun ps2_multipleCandidates_strongestFirst() {
+        val generic = BiosFile("dump.bin", 4_194_304L, "dump.bin")
+        val strong = BiosFile("scph39001.bin", 4_194_304L, "ps2/scph39001.bin")
+        val inv = inventory(files = listOf(generic, strong))
+        assertEquals(BiosStatus.IMPORT_REQUIRED, inv.ps2Status(5, listOf(generic, strong)))
+        val candidates = inv.detectPs2(listOf(generic, strong)).candidates
+        assertEquals(listOf(strong, generic), candidates.map { it.file })
+    }
+
+    @Test
+    fun ps2_ready_whenCandidateImportConfirmed() {
+        // Attestation still gates READY for plausible candidates too.
+        val prefs = FakeBiosPrefs()
+        val dump = BiosFile("mydump.bin", 5_000_000L, "mydump.bin")
+        val inv = inventory(prefs = prefs, files = listOf(dump))
+        assertEquals(BiosStatus.IMPORT_REQUIRED, inv.ps2Status(5, listOf(dump)))
+        inv.setPs2ImportConfirmed(true)
+        assertEquals(BiosStatus.READY, inv.ps2Status(5, listOf(dump)))
+        assertNull(inv.ps2Issue(5, listOf(dump)))
     }
 
     @Test
     fun ps2_detection_isCaseInsensitive_andNested() {
         val upper = BiosFile("SCPH70012.BIN", 4_194_304L, "EmuDeck/bios/SCPH70012.BIN")
         val inv = inventory(files = listOf(upper))
-        assertEquals(upper, inv.detectPs2Bios(listOf(upper)))
+        val detection = inv.detectPs2(listOf(upper))
+        assertEquals(upper, detection.candidates.firstOrNull()?.file)
+        assertEquals(
+            Ps2CandidateConfidence.STRONG,
+            detection.candidates.firstOrNull()?.confidence,
+        )
         assertEquals(BiosStatus.IMPORT_REQUIRED, inv.ps2Status(5, listOf(upper)))
     }
 

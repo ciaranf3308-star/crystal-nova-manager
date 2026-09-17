@@ -14,6 +14,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.bios.BiosRootState
 import io.crystalnova.manager.bios.BiosStatus
+import io.crystalnova.manager.bios.Ps2BiosCandidate
+import io.crystalnova.manager.bios.Ps2CandidateConfidence
 
 /** One row of the BIOS STATUS list. */
 data class BiosStatusRow(
@@ -28,6 +30,10 @@ data class BiosScreenState(
     val ps2Status: BiosStatus,
     /** Display path of the detected PS2 BIOS, e.g. `SD CARD /bios/ps2/scph39001.bin`. */
     val ps2BiosDisplayPath: String?,
+    /** All main PS2 BIOS candidates, strongest first — listed when >1. */
+    val ps2Candidates: List<Ps2BiosCandidate> = emptyList(),
+    /** True when FOUND_UNVERIFIED comes from ancillary files only. */
+    val ps2AncillaryOnly: Boolean = false,
     val ps2GameCount: Int,
     val hasLauncherIssues: Boolean,
     val netherSX2Installed: Boolean,
@@ -180,9 +186,33 @@ fun BiosScreen(
                         )
                     }
                     BiosStatus.IMPORT_REQUIRED -> {
-                        StatusLine("PS2 · BIOS FOUND", Crystal.Good)
+                        // Honest headline: the classic SCPH shape is a
+                        // BIOS found; anything else plausible is a
+                        // candidate NetherSX2 validates at import.
+                        val primary = state.ps2Candidates.firstOrNull()
+                        if (primary?.confidence == Ps2CandidateConfidence.STRONG) {
+                            StatusLine("PS2 · BIOS FOUND", Crystal.Good)
+                        } else {
+                            StatusLine("PS2 · BIOS CANDIDATE FOUND", Crystal.Good)
+                        }
                         state.ps2BiosDisplayPath?.let {
                             StatusLine(it, Crystal.Ink)
+                        }
+                        if (state.ps2Candidates.size > 1) {
+                            StatusLine(
+                                "${state.ps2Candidates.size} FILES LOOK LIKE A PS2 BIOS",
+                                Crystal.InkDim,
+                            )
+                            val others = state.ps2Candidates.drop(1).take(4)
+                            for (c in others) {
+                                StatusLine("· ${c.file.relativePath}", Crystal.InkDim)
+                            }
+                            val rest = state.ps2Candidates.size - 1 - others.size
+                            if (rest > 0) StatusLine("· +$rest MORE", Crystal.InkDim)
+                            StatusLine(
+                                "NETHERSX2 WILL VALIDATE YOUR PICK",
+                                Crystal.InkDim,
+                            )
                         }
                         StatusLine("NETHERSX2 IMPORT REQUIRED", Crystal.Joystick)
                         StatusLine(
@@ -212,14 +242,29 @@ fun BiosScreen(
                         )
                     }
                     BiosStatus.FOUND_UNVERIFIED -> {
-                        StatusLine("PS2 BIOS FILE LOOKS WRONG", Crystal.Joystick)
-                        state.ps2BiosDisplayPath?.let {
-                            StatusLine(it, Crystal.Ink)
+                        if (state.ps2AncillaryOnly) {
+                            // Dump artifacts prove PS2 firmware files
+                            // exist, but none is the importable BIOS —
+                            // honest, neither MISSING nor READY.
+                            StatusLine("PS2 FIRMWARE FILES FOUND", Crystal.Joystick)
+                            state.ps2BiosDisplayPath?.let {
+                                StatusLine(it, Crystal.Ink)
+                            }
+                            StatusLine("NO MAIN BIOS IDENTIFIED", Crystal.InkDim)
+                            StatusLine(
+                                "NETHERSX2 NEEDS A BIOS IMAGE (4–8 MIB)",
+                                Crystal.InkDim,
+                            )
+                        } else {
+                            StatusLine("PS2 BIOS FILE LOOKS WRONG", Crystal.Joystick)
+                            state.ps2BiosDisplayPath?.let {
+                                StatusLine(it, Crystal.Ink)
+                            }
+                            StatusLine(
+                                "SIZE OUTSIDE THE SANE PS2 BIOS RANGE (4–8 MIB)",
+                                Crystal.InkDim,
+                            )
                         }
-                        StatusLine(
-                            "SIZE DOES NOT MATCH A RETAIL PS2 BIOS (4 MIB)",
-                            Crystal.InkDim,
-                        )
                     }
                     BiosStatus.READY ->
                         StatusLine("PS2 BIOS READY", Crystal.Good)

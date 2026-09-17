@@ -15,16 +15,19 @@ enum class BiosRequirement { REQUIRED, OPTIONAL, NOT_REQUIRED }
 /**
  * Firmware state of one platform, from the on-SD inventory.
  *
- * - READY: firmware present and usable (PS2: a valid-looking BIOS
+ * - READY: firmware present and usable (PS2: a main BIOS candidate
  *   is on the SD card and the emulator-side import is attested), or
  *   firmware is not needed (no games present for the platform).
- * - FOUND_UNVERIFIED: a candidate file exists but does not look like a
- *   real BIOS (name/size mismatch) — never presented as READY.
- * - REQUIRED_MISSING: games are present, firmware is required, and no
- *   candidate was found on the SD card.
- * - IMPORT_REQUIRED: a valid-looking BIOS is on the SD card, but the
- *   emulator still needs the user to import it in-app (NetherSX2 keeps
- *   its BIOS in app-private storage, which Crystal cannot write).
+ * - FOUND_UNVERIFIED: PS2 dump files exist but no main BIOS
+ *   candidate was identified (ancillary artifacts only, or
+ *   BIOS-named files with insane sizes) — never presented as READY.
+ * - REQUIRED_MISSING: games are present, firmware is required, and
+ *   nothing PS2-shaped was found on the SD card.
+ * - IMPORT_REQUIRED: at least one main BIOS candidate is on the SD
+ *   card (strong SCPH shape or plausible candidate — NetherSX2
+ *   validates the user's pick), but the emulator still needs the
+ *   user to import it in-app (NetherSX2 keeps its BIOS in
+ *   app-private storage, which Crystal cannot write).
  * - NOT_REQUIRED: firmware is irrelevant for this platform.
  */
 enum class BiosStatus {
@@ -37,19 +40,14 @@ enum class BiosStatus {
 
 /**
  * One firmware entry for a platform Crystal exposes. Deliberately
- * SMALL: only systems where firmware actually matters. Candidate
- * filenames are patterns, not a hash database — a name+size match is
- * "valid-looking" (IMPORT_REQUIRED), never silently auto-trusted
- * beyond that.
+ * SMALL: only systems where firmware actually matters. PS2 candidate
+ * detection lives in [Ps2BiosClassifier] — the single authority for
+ * what counts as a plausible BIOS — not in filename patterns here.
  */
 data class BiosFirmware(
     val platformSlug: String,
     val label: String,
     val requirement: BiosRequirement,
-    /** Case-insensitive regex over the bare file name. */
-    val candidateNameRegex: Regex,
-    /** Expected byte size of a real BIOS image, 0 when unknown. */
-    val expectedSizeBytes: Long,
     /** Package of the configured emulator that consumes the firmware. */
     val emulatorPackage: String?,
 )
@@ -64,14 +62,10 @@ data class BiosFirmware(
  * claim is made), and nothing optional ever gates.
  */
 object BiosFirmwareTable {
-    const val PS2_BIOS_SIZE = 4_194_304L // 4 MiB — every retail PS2 BIOS
-
     val PS2 = BiosFirmware(
         platformSlug = "ps2",
         label = "PS2",
         requirement = BiosRequirement.REQUIRED,
-        candidateNameRegex = Regex("(?i)^scph[^/]*\\.bin$"),
-        expectedSizeBytes = PS2_BIOS_SIZE,
         emulatorPackage = "xyz.aethersx2.android",
     )
 
