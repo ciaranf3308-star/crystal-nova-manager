@@ -14,8 +14,10 @@ class PegasusLibraryTest {
      * In-memory fixture for the v20 per-system seams: each system folder
      * is a key in [disk]; the ROM-root and legacy trees are separate
      * maps so tests can assert exactly where every byte landed.
+     *
+     * Inner (not nested): the seams need the outer test's [romRoot].
      */
-    private class Fixture(val prefs: FakePrefs = FakePrefs()) {
+    private inner class Fixture(val prefs: FakePrefs = FakePrefs()) {
         val lib: PegasusLibrary = PegasusLibrary(
             context = null,
             prefs = prefs,
@@ -591,6 +593,14 @@ class PegasusLibraryTest {
     // ------------------------------------------------------------------
     // game_dirs.txt merge
     // ------------------------------------------------------------------
+
+    @Test
+    fun gameDirsOutcome_displayDistinguishesWrittenFromSkipped() {
+        assertTrue(GameDirsOutcome.Updated(2).display().startsWith("WRITTEN"))
+        assertTrue(GameDirsOutcome.Unchanged.display().contains("NOTHING TO ADD"))
+        assertTrue(GameDirsOutcome.SkippedNoGrant.display().startsWith("SKIPPED"))
+        assertTrue(GameDirsOutcome.Failed("WRITE FAILED").display().startsWith("SKIPPED"))
+    }
 
     @Test
     fun mergeGameDirs_createsFileWithHeaderWhenAbsent() {

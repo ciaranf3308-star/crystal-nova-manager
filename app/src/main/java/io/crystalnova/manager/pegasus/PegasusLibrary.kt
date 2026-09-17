@@ -793,10 +793,10 @@ sealed interface GameDirsOutcome {
     data class Failed(val reason: String) : GameDirsOutcome
 
     fun display(): String = when (this) {
-        is Updated -> "UPDATED · $added ADDED"
-        Unchanged -> "UNCHANGED"
-        SkippedNoGrant -> "NOT WRITTEN — NO LEGACY CONFIG GRANT"
-        is Failed -> "FAILED — $reason"
+        is Updated -> "WRITTEN · $added ADDED"
+        Unchanged -> "UP TO DATE · NOTHING TO ADD"
+        SkippedNoGrant -> "SKIPPED — NO LEGACY CONFIG GRANT"
+        is Failed -> "SKIPPED — $reason"
     }
 }
 
@@ -816,11 +816,24 @@ internal sealed interface GameDirsMerge {
 }
 
 /**
- * Pure merge for Pegasus's legacy `game_dirs.txt` (one absolute
- * directory path per line; `#` starts a comment). Appends the missing
- * Crystal system-folder paths while preserving foreign entries,
- * comments, blank lines, and original order. Never deletes, reorders,
- * or duplicates. Pure Kotlin, JVM-testable.
+ * Pure merge for Pegasus's legacy `game_dirs.txt`.
+ *
+ * Verified against current Pegasus source
+ * (src/backend/AppSettings.cpp::parse_gamedirs): the file is read from
+ * every dir in configDirs() — on Android that includes the legacy
+ * `<storage>/pegasus-frontend` tree when it exists. Each line is
+ * passed to the callback as-is: lines starting with `#` are skipped,
+ * everything else is kept VERBATIM — no whitespace trimming, and blank
+ * lines are NOT skipped (they reach the callback as empty strings).
+ * Settings::gameDirs() then applies pretty_path() (QDir::cleanPath:
+ * duplicate separators collapsed, trailing slash stripped — still no
+ * whitespace trim).
+ *
+ * So: appends the missing Crystal system-folder paths while preserving
+ * foreign entries, comments, blank lines, and original order; never
+ * deletes, reorders, or duplicates; and never emits blank lines of its
+ * own (a blank line would surface as a junk entry in the UI list).
+ * Pure Kotlin, JVM-testable.
  */
 internal fun mergeGameDirs(
     existing: String?,

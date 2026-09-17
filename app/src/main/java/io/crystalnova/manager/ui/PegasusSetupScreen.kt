@@ -124,13 +124,13 @@ fun PegasusSetupScreen(
                     }
                 }
             }
-            // The one-time Pegasus-side step: Pegasus must know each
-            // system folder as a game directory before it will see the
-            // per-system metadata files (Crystal writes these paths to
-            // game_dirs.txt when it can — that file registers paths
-            // only, never permission).
+            // v20: BUILD registers the 13 system folders in Pegasus's
+            // legacy game_dirs.txt automatically (path registration only —
+            // never permission). The Set-game-directories list reads that
+            // file live, so the folders should already be listed; manual
+            // add is only the fallback if the list is still empty.
             section {
-                DimLine("In Pegasus → Settings → \"Set game directories...\" → add the system folders under your ROM root (gba, psp, …).")
+                DimLine("BUILD registers the 13 system folders in Pegasus's game_dirs.txt automatically — check Pegasus → Settings → \"Set game directories...\" (reads that file live). Add folders manually only if the list is still empty.")
             }
             if (!romWritable) {
                 // BUILD needs WRITE on the ROM root. A read-only or
