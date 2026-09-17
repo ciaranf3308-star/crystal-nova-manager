@@ -93,6 +93,23 @@ fun DiagnosticsScreen(
                     }
                 }
             }
+            info.lastCrashTrace?.let { trace ->
+                section {
+                    CrystalPanel {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DiagSection("LAST CRASH")
+                            BasicText(
+                                text = trace.lines().take(60).joinToString("\n"),
+                                style = TextStyle(
+                                    fontFamily = Crystal.Mono,
+                                    fontSize = Crystal.SmallSize,
+                                    color = Crystal.Bad,
+                                ),
+                            )
+                        }
+                    }
+                }
+            }
             section {
                 CrystalPanel {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {

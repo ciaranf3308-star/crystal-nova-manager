@@ -151,6 +151,24 @@ class DevUpdateManagerTest {
     }
 
     @Test
+    fun `dev download ignores a stale cached APK from the same versionName`() = runTest {
+        val (manager, workDir) = newManager(devUpdate(manifestCode = 8))
+        // Leftover from an older build sharing this manifest's
+        // versionName ("1.2.1-u2") — the old name-only cache key would
+        // have reused it forever, reinstalling the stale build.
+        val stale = File(workDir, "manager-update-1.2.1-u2.apk")
+            .apply { writeBytes(byteArrayOf(0x09, 0x09, 0x09)) }
+        advanceUntilIdle()
+        assertTrue(manager.appUpdate.value is AppUpdateState.Available)
+        manager.downloadAppUpdate()
+        advanceUntilIdle()
+        val state = manager.appUpdate.value as AppUpdateState.Downloaded
+        assertEquals("manager-update-dev-8.apk", state.file.name)
+        assertArrayEquals(apkBytes, state.file.readBytes())
+        assertFalse("stale cache entry was not pruned", stale.exists())
+    }
+
+    @Test
     fun `dev download fails when the checksum mismatches`() = runTest {
         val (manager, _) = newManager(
             devUpdate(manifestCode = 8, servedBytes = byteArrayOf(0x50, 0x4B)),

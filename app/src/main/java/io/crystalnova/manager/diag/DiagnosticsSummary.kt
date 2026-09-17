@@ -19,6 +19,8 @@ data class DiagnosticsInfo(
     val appUpdate: AppUpdateState,
     val themesRoot: String?,
     val scraper: ScraperDiagnostics,
+    /** Most recent uncaught-crash trace, null when there hasn't been one. */
+    val lastCrashTrace: String? = null,
 )
 
 /** One-line summary of the manager self-update state. */

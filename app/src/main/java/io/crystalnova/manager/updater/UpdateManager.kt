@@ -374,7 +374,18 @@ class UpdateManager(
             val info: SelfUpdateInfo = available.info
             pendingSelfUpdate = info
             val devManifest = pendingDevManifest
-            val dest = File(workDir, "manager-update-${info.version}.apk")
+            // The cache key MUST include the DEV versionCode, not just
+            // the versionName: several DEV builds share one versionName
+            // ("1.2.3-u2") while the versionCode moves. Keying by name
+            // alone reuses a stale APK forever — the device "installs"
+            // the update but stays on the old build, and the same
+            // update is offered again. Stable releases bump the
+            // versionName per release, so the name stays a valid key.
+            val destName = if (devManifest != null)
+                "manager-update-dev-${devManifest.versionCode}.apk"
+            else
+                "manager-update-${info.version}.apk"
+            val dest = File(workDir, destName)
             withContext(ioDispatcher) {
                 workDir.listFiles()
                     ?.filter { it.name.startsWith("manager-update-") && it != dest }

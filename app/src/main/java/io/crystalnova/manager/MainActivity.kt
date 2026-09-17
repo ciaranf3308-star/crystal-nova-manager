@@ -48,6 +48,7 @@ import io.crystalnova.manager.ui.SettingsThemesScreen
 import io.crystalnova.manager.ui.StandaloneOption
 import io.crystalnova.manager.ui.SystemScreen
 import io.crystalnova.manager.ui.ThemeScreen
+import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
@@ -268,6 +269,8 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Capture uncaught-crash traces for the Diagnostics screen.
+        CrashReporter.install(this)
 
         val prefs = SharedPrefsStore(getSharedPreferences("crystal-nova-manager", MODE_PRIVATE))
         val fs = SafThemeFs(this) { prefs.getString(SafThemeStorage.KEY_TREE_URI) }
@@ -613,6 +616,7 @@ class MainActivity : ComponentActivity() {
         appUpdate = manager.appUpdate.value,
         themesRoot = storage.treeUri,
         scraper = scraper.diagnosticsSnapshot(),
+        lastCrashTrace = CrashReporter.readTrace(this),
     )
 
     /**
