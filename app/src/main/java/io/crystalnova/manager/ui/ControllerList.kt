@@ -156,7 +156,11 @@ class ControllerScrollEngine internal constructor(
         scrollJob?.cancel()
         scrollJob = scope.launch {
             val vp = viewportHeightPx
-            val inset = (vp / 6).coerceAtLeast(0)
+            // Small edge margin (not vp/6): only scroll when the item is
+            // actually near/outside the viewport edge. The aggressive vp/6
+            // inset was triggering scrolls for clearly-visible items,
+            // disrupting the layout under Robolectric.
+            val inset = 16
             if (vp > 0 && isComfortablyVisible(index, inset)) return@launch
             scrollToComfortable(index)
         }
