@@ -207,8 +207,12 @@ fun CrystalButton(
                 focused = it.isFocused
                 if (it.isFocused) dispatcher.onFocused(key)
             }
-            .bringIntoViewRequester(noopBringIntoView)
             .focusable(enabled = enabled)
+            // Inside the focusable: this noop requester is what the focus
+            // system finds when it auto-brings the focused node into view.
+            // Placed outside focusable it would be invisible to the focus
+            // node and the default animated scroll would still run.
+            .bringIntoViewRequester(noopBringIntoView)
             .clip(RoundedCornerShape(2.dp))
             .background(bg)
             .border(
