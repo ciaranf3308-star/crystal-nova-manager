@@ -75,6 +75,7 @@ class ScraperV22HotfixTest {
     private fun noMetaProvider() = object : MetadataProvider {
         override val id = "none"
         override val displayName = "None"
+        override val requiresApiKey = false
         override suspend fun lookup(query: ScrapeQuery): GameMetadata? = null
     }
 
@@ -111,9 +112,9 @@ class ScraperV22HotfixTest {
         }
     }
 
-    private fun <T : Throwable> assertThrows(
+    private suspend fun <T : Throwable> assertThrows(
         expected: Class<T>,
-        block: () -> Unit,
+        block: suspend () -> Unit,
     ): T {
         try {
             block()
