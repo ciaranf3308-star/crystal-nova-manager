@@ -97,7 +97,7 @@ fun DiagnosticsScreen(
                 section {
                     CrystalPanel {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            DiagSection("PEGASUS METAFILE")
+                            DiagSection("PEGASUS METAFILES")
                             DiagRow("ROM ROOT", p.romRootPath, null)
                             DiagRow(
                                 "ROM WRITABLE",
@@ -105,27 +105,25 @@ fun DiagnosticsScreen(
                                 if (p.romWritable) Crystal.Good else Crystal.Bad,
                             )
                             DiagRow("FILE", p.fileName, null)
-                            DiagRow(
-                                "MANAGER METAFILE",
-                                if (p.metafilePresent) "PRESENT" else "NOT FOUND",
-                                if (p.metafilePresent) Crystal.Good else Crystal.Bad,
-                            )
-                            p.metafileBytes?.let {
-                                DiagRow("METAFILE SIZE", "$it BYTES", null)
-                            }
-                            p.collectionCount?.let {
-                                DiagRow("COLLECTIONS", "$it", null)
-                            }
-                            p.gameCount?.let {
-                                DiagRow("GAMES", "$it", null)
-                            }
-                            p.firstCollection?.let {
-                                DiagRow("FIRST COLLECTION", it, null)
-                            }
-                            p.firstRomPath?.let {
-                                DiagRow("FIRST ROM PATH", it, null)
-                            }
+                            DiagRow("AGGREGATE", p.aggregate, Crystal.Good)
                             DiagRow("LAST BUILD", p.lastInjected, null)
+                            if (p.systems.isNotEmpty()) {
+                                DiagSection("SYSTEM FILES")
+                                p.systems.forEach { s ->
+                                    DiagRow(
+                                        s.folder.uppercase(),
+                                        if (s.present) {
+                                            "PRESENT · ${s.bytes ?: 0} BYTES · ${s.games} GAMES"
+                                        } else {
+                                            "NOT FOUND"
+                                        },
+                                        if (s.present) Crystal.Good else Crystal.Bad,
+                                    )
+                                }
+                            }
+                            DiagSection("GAME DIRS REGISTRATION")
+                            DiagRow("GAME_DIRS.TXT", p.gameDirsStatus, null)
+                            MetafileHint("game_dirs.txt only registers paths — it does NOT grant Pegasus storage permission.")
                         }
                     }
                 }
@@ -133,9 +131,9 @@ fun DiagnosticsScreen(
                     CrystalPanel {
                         Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                             DiagSection("COLLECTIONS NOT APPEARING?")
-                            MetafileHint("1. ADD THE ROM ROOT IN PEGASUS → SETTINGS → \"SET GAME DIRECTORIES\"")
+                            MetafileHint("1. ADD THE SYSTEM FOLDERS (gba, psp, …) IN PEGASUS → SETTINGS → \"SET GAME DIRECTORIES\"")
                             MetafileHint("2. PEGASUS SCANS GAMES ON LAUNCH — LEAVE THAT DEFAULT ON")
-                            MetafileHint("3. PEGASUS NEEDS ITS OWN STORAGE ACCESS — IT ASKS ON FIRST RUN")
+                            MetafileHint("3. PEGASUS NEEDS ITS OWN STORAGE ACCESS — IT ASKS ON FIRST RUN; WITHOUT IT, GAMES ARE SILENTLY SKIPPED")
                         }
                     }
                 }

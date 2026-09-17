@@ -36,9 +36,21 @@ data class EmulatorPackageStatus(
 /**
  * v19: the Manager-owned game-dir metafile at the TOP LEVEL of the ROM
  * root (`crystal-nova.metadata.pegasus.txt` — the name matches the
- * `*.metadata.pegasus.txt` game-dir scanner pattern). Plain data; the
- * Diagnostics screen only renders it.
+ * `*.metadata.pegasus.txt` game-dir scanner pattern). v20: one file per
+ * populated system folder, each holding only that system's collection.
+ * Plain data; the Diagnostics screen only renders it.
  */
+data class SystemMetafileDiagRow(
+    /** System folder relative to the ROM root, e.g. "gba". */
+    val folder: String,
+    /** Whether the Manager-owned metafile could be read back. */
+    val present: Boolean,
+    /** Its byte size, null when unreadable. */
+    val bytes: Long?,
+    /** Games emitted into this file at the last verified BUILD. */
+    val games: Int,
+)
+
 data class PegasusMetafileDiag(
     /** Friendly display path of the ROM root, or NOT SELECTED. */
     val romRootPath: String,
@@ -46,19 +58,17 @@ data class PegasusMetafileDiag(
     val romWritable: Boolean,
     /** The Manager-owned metafile name, e.g. `crystal-nova.metadata.pegasus.txt`. */
     val fileName: String,
-    /** Whether the Manager-owned metafile could be read back. */
-    val metafilePresent: Boolean,
-    /** Its byte size, null when unreadable. */
-    val metafileBytes: Long?,
-    /** Crystal-parsed `collection:` line count, null when unparseable. */
-    val collectionCount: Int?,
-    /** Crystal-parsed `game:` line count, null when unparseable. */
-    val gameCount: Int?,
-    /** First `collection:` name, null when unparseable. */
-    val firstCollection: String?,
-    /** First emitted ROM path, null when unparseable. */
-    val firstRomPath: String?,
-    /** "n SYSTEMS · m GAMES" from the last verified inject, or "NONE". */
+    /** One row per system folder written by the last verified BUILD. */
+    val systems: List<SystemMetafileDiagRow>,
+    /** Aggregate from live presence, e.g. "13 SYSTEM METAFILES · 147 GAMES". */
+    val aggregate: String,
+    /**
+     * Last game_dirs.txt merge outcome. Writing that file only
+     * registers paths — it does NOT grant Pegasus filesystem
+     * permission; Pegasus still needs its own storage access.
+     */
+    val gameDirsStatus: String,
+    /** "n SYSTEM METAFILES · m GAMES" from the last verified inject, or "NONE". */
     val lastInjected: String,
 )
 

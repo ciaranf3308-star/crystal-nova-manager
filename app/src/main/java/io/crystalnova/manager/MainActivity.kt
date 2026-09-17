@@ -56,6 +56,7 @@ import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.diag.EmulatorPackageStatus
 import io.crystalnova.manager.diag.PegasusMetafileDiag
+import io.crystalnova.manager.diag.SystemMetafileDiagRow
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
@@ -674,25 +675,28 @@ class MainActivity : ComponentActivity() {
         emulatorPackages = emulatorDetector.detectionReport().map { (pkg, installed) ->
             EmulatorPackageStatus(pkg, installed)
         },
-        // v19: the Pegasus panel is retargeted to the game-dir metafile —
-        // ROM-root path, writability, the Manager-owned metafile's
-        // presence/size, the Crystal-parsed collection/game counts, the
-        // first collection name and first emitted ROM path, and the last
-        // verified build's counts.
+        // v20: the Pegasus panel reports the canonical per-system layout —
+        // for every system folder written by the last verified BUILD:
+        // ROM folder, metadata present yes/no, byte count, generated
+        // game count — plus the aggregate and the last game_dirs.txt
+        // merge outcome.
         pegasusMetafile = runCatching {
-            val status = pegasus.metafileStatus()
-            val summary = pegasus.metafileSummary()
+            val report = pegasus.systemMetafileReport()
             val romUri = locations.romTreeUri()
             PegasusMetafileDiag(
                 romRootPath = romUri?.let { locations.displayPath(it) } ?: "NOT SELECTED",
                 romWritable = locations.hasWriteAccess(LocationKind.ROM),
                 fileName = MetafileGenerator.FILE_NAME,
-                metafilePresent = status.present,
-                metafileBytes = status.bytes,
-                collectionCount = summary?.collections,
-                gameCount = summary?.games,
-                firstCollection = summary?.firstCollection,
-                firstRomPath = summary?.firstRomPath,
+                systems = report.systems.map { row ->
+                    SystemMetafileDiagRow(
+                        folder = row.folder,
+                        present = row.present,
+                        bytes = row.bytes,
+                        games = row.games,
+                    )
+                },
+                aggregate = report.aggregate,
+                gameDirsStatus = report.gameDirs.display(),
                 lastInjected = pegasus.lastInjectSummary(),
             )
         }.getOrNull(),
@@ -843,7 +847,7 @@ class MainActivity : ComponentActivity() {
                     is PegasusLibrary.InjectOutcome.Ok -> {
                         pegasusRestartGate.pendingBuild = true
                         buildString {
-                            append("LIBRARY BUILT · ${outcome.collections} SYSTEMS · ${outcome.games} GAMES")
+                            append("LIBRARY BUILT · ${outcome.metafiles} SYSTEM METAFILES · ${outcome.games} GAMES")
                             if (outcome.skippedNoLauncher.isNotEmpty()) {
                                 append(" — SKIPPED — NO LAUNCHER: ")
                                 append(outcome.skippedNoLauncher.joinToString(", ").uppercase())
@@ -879,8 +883,8 @@ class MainActivity : ComponentActivity() {
 
 /**
  * INJECT availability for Pegasus Setup. Enabled when the ROM root is
- * writable (v19: the metafile is written to the top level of the ROM
- * root), nothing is already running, and at least one populated system
+ * writable (v20: one metadata file is written per populated system
+ * folder), nothing is already running, and at least one populated system
  * has a configured launcher. Populated-but-unconfigured systems are
  * skipped and reported by the injection itself (see
  * InjectOutcome.Ok.skippedNoLauncher) — they never block it.

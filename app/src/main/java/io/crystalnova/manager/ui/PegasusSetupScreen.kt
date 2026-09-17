@@ -124,13 +124,16 @@ fun PegasusSetupScreen(
                     }
                 }
             }
-            // The one-time Pegasus-side step: Pegasus must know the ROM
-            // root as a game directory before it will see the metafile.
+            // The one-time Pegasus-side step: Pegasus must know each
+            // system folder as a game directory before it will see the
+            // per-system metadata files (Crystal writes these paths to
+            // game_dirs.txt when it can — that file registers paths
+            // only, never permission).
             section {
-                DimLine("In Pegasus → Settings → \"Set game directories...\" → add the ROM root folder.")
+                DimLine("In Pegasus → Settings → \"Set game directories...\" → add the system folders under your ROM root (gba, psp, …).")
             }
             if (!romWritable) {
-                // v19: BUILD needs WRITE on the ROM root. A read-only or
+                // BUILD needs WRITE on the ROM root. A read-only or
                 // lost grant gets the one obvious repair action — a
                 // standard re-pick of the ROM folder, which takes a fresh
                 // persistable read+write grant.
