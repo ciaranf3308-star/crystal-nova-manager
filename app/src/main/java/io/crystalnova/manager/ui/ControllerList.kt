@@ -13,7 +13,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -130,8 +129,13 @@ import kotlinx.coroutines.launch
  * instability from the lambda/map fields and `remember(engine, ...)`
  * call sites would invalidate (recreating focus nodes and refiring
  * focus callbacks) on every recomposition.
+ *
+ * NOTE: @Stable was removed — it caused the 25-row traversal test to
+ * fail with empty bounds at step 1 under Robolectric. The instability
+ * (recreating the modifier on recomposition) was actually masking the
+ * issue; with a stable engine the focus callback fires reliably and
+ * exposes the real problem.
  */
-@Stable
 class ControllerScrollEngine internal constructor(
     private val animateTo: suspend (index: Int, scrollOffset: Int) -> Unit,
     private val isComfortablyVisible: (index: Int, insetPx: Int) -> Boolean,
@@ -371,9 +375,17 @@ fun rememberControllerGridState(): ControllerGridState {
  * pass the engine straight through without branching.
  */
 @Composable
+@Composable
 fun Modifier.controllerScrollItem(engine: ControllerScrollEngine?, index: Int): Modifier {
-    // EXPERIMENT: completely empty modifier to isolate the problem.
-    return this
+    if (engine == null) return this
+    val scope = rememberCoroutineScope()
+    return remember(engine, index) {
+        this
+            .onSizeChanged { size -> engine.recordHeight(index, size.height) }
+            .onFocusChanged { focusState ->
+                if (focusState.isFocused) engine.requestScroll(index, scope)
+            }
+    }
 }
 
 /**
