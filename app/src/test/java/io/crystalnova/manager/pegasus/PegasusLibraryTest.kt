@@ -187,7 +187,7 @@ class PegasusLibraryTest {
         var wrote = false
         lib.writer = { _, _ -> wrote = true; true }
         val outcome = runBlocking { lib.inject() }
-        // Missing launcher fails rather than emitting a partial library.
+        // Zero injectable systems: fail rather than writing an empty library.
         assertEquals(
             PegasusLibrary.InjectOutcome.Failed(
                 "NO LAUNCHER: NINTENDO 3DS — CONFIGURE LAUNCHERS FIRST",
@@ -195,6 +195,35 @@ class PegasusLibraryTest {
             outcome,
         )
         assertFalse("nothing may be written when a launcher is missing", wrote)
+    }
+
+    @Test
+    fun inject_skipsUnconfiguredSystemsAndInjectsConfigured() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        // gba has a curated default launcher; n3ds is populated but
+        // unconfigured — progressive setup must not block the GBA inject.
+        lib.gameSource = {
+            listOf(
+                game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"),
+                game("n3ds", "Nintendo 3DS", "Some Game", "/storage/emulated/0/ROMs/n3ds/game.3ds"),
+            )
+        }
+        var writtenBytes: ByteArray? = null
+        lib.writer = { _, bytes -> writtenBytes = bytes; true }
+
+        val outcome = runBlocking { lib.inject() }
+
+        val ok = outcome as PegasusLibrary.InjectOutcome.Ok
+        assertEquals(1, ok.collections)
+        assertEquals(1, ok.games)
+        assertEquals(listOf("Nintendo 3DS"), ok.skippedNoLauncher)
+        assertTrue(ok.unknownFolders.isEmpty())
+
+        val text = writtenBytes!!.toString(Charsets.UTF_8)
+        assertTrue("gba game must be in the metafile", text.contains("mario.gba"))
+        assertFalse("unconfigured n3ds game must not be in the metafile", text.contains("game.3ds"))
     }
 
     @Test

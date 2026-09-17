@@ -80,6 +80,15 @@ class PegasusLibrary(
             val games: Int,
             /** ROM folders the Manager doesn't recognize — excluded, surfaced. */
             val unknownFolders: List<String>,
+            /**
+             * Populated systems skipped because no launcher is
+             * configured for them. Injection is partial by design:
+             * every configured system is injected and these are
+             * reported, so the user can configure launchers
+             * progressively and re-inject. The operation fails only
+             * when zero collections can be built.
+             */
+            val skippedNoLauncher: List<String> = emptyList(),
         ) : InjectOutcome
         data class Failed(val message: String) : InjectOutcome
     }
@@ -112,9 +121,9 @@ class PegasusLibrary(
      * Result of [buildCollections]: one collection per recognized
      * platform that has games AND a configured launcher profile, plus
      * the labels of recognized systems that are populated but have no
-     * launcher (injection refuses to emit a partial library for these)
-     * and of ROM folders the Manager doesn't recognize (excluded from
-     * the metafile, surfaced to the user).
+     * launcher (injection skips these and reports them — progressive
+     * system setup) and of ROM folders the Manager doesn't recognize
+     * (excluded from the metafile, surfaced to the user).
      */
     data class BuiltLibrary(
         val collections: List<MetafileGenerator.Collection>,
@@ -186,18 +195,24 @@ class PegasusLibrary(
             return InjectOutcome.Failed("LIBRARY SCAN FAILED")
         }
         val built = buildCollections(games)
-        if (built.unconfiguredSystems.isNotEmpty()) {
-            // Never emit a partial library silently: the user configures
-            // a launcher for every populated system, then injects again.
-            return InjectOutcome.Failed(
-                "NO LAUNCHER: ${built.unconfiguredSystems.joinToString(", ").uppercase()} — " +
-                    "CONFIGURE LAUNCHERS FIRST",
-            )
-        }
         val collections = built.collections
         if (collections.isEmpty()) {
-            return InjectOutcome.Failed("NOTHING TO INJECT — NO GAMES WITH A CONFIGURED LAUNCHER")
+            // Fail only when ZERO populated systems can be injected:
+            // either nothing is populated at all, or everything
+            // populated lacks a configured launcher.
+            return InjectOutcome.Failed(
+                if (built.unconfiguredSystems.isNotEmpty()) {
+                    "NO LAUNCHER: ${built.unconfiguredSystems.joinToString(", ").uppercase()} — " +
+                        "CONFIGURE LAUNCHERS FIRST"
+                } else {
+                    "NOTHING TO INJECT — NO GAMES WITH A CONFIGURED LAUNCHER"
+                },
+            )
         }
+        // Partial injection: every populated system with a configured
+        // launcher is emitted; populated systems without one are
+        // skipped and reported (progressive setup — configure more
+        // launchers and re-inject).
         val text = try {
             MetafileGenerator.generate(collections)
         } catch (e: IllegalArgumentException) {
@@ -210,6 +225,7 @@ class PegasusLibrary(
                 collections.size,
                 collections.sumOf { it.games.size },
                 built.unknownFolders,
+                built.unconfiguredSystems,
             )
         } else {
             InjectOutcome.Failed("WRITE FAILED — CHECK THE PEGASUS FOLDER GRANT")

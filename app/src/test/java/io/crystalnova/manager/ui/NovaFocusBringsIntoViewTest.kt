@@ -7,6 +7,17 @@ import androidx.compose.ui.test.onNodeWithTag
 import org.junit.Test
 
 /**
+ * KNOWN-FAILING HARDWARE-BEHAVIOR TEST — do not delete, weaken, or
+ * "fix" for the JVM environment.
+ *
+ * Physical Nova D-pad focus scrolling cannot be proven under
+ * Robolectric: after DPAD_DOWN the newly focused row reports empty
+ * bounds in the JVM test environment even with all focus-scroll code
+ * disabled, so this failure is environmental, not behavioral. This test
+ * is the executable specification of the hardware behavior: it runs in
+ * CI as a separate non-gating job and is verified on the physical
+ * Retroid Pocket Nova instead.
+ *
  * Requirement 4 — scrolling screens bring focused rows into view.
  *
  * The LAUNCHERS screen with 25 systems is far taller than the 960dp

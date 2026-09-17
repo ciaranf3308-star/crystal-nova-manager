@@ -714,6 +714,10 @@ class MainActivity : ComponentActivity() {
                 pegasusNotice = when (outcome) {
                     is PegasusLibrary.InjectOutcome.Ok -> buildString {
                         append("INJECTED ${outcome.games} GAMES · ${outcome.collections} SYSTEMS")
+                        if (outcome.skippedNoLauncher.isNotEmpty()) {
+                            append(" — SKIPPED — NO LAUNCHER: ")
+                            append(outcome.skippedNoLauncher.joinToString(", ").uppercase())
+                        }
                         if (outcome.unknownFolders.isNotEmpty()) {
                             append(" — IGNORED FOLDERS (NOT RECOGNIZED): ")
                             append(outcome.unknownFolders.joinToString(", ").uppercase())

@@ -86,6 +86,16 @@ android {
     }
 }
 
+// Hardware-behavior tests (physical Nova D-pad focus scrolling) cannot be
+// proven under Robolectric. They run in CI as a separate, non-gating job.
+// Pass -Pcnm.excludeHardwareTests to keep them out of the release gate;
+// every ordinary unit test still gates every build, dev and stable.
+tasks.withType<org.gradle.api.tasks.testing.Test>().configureEach {
+    if (providers.gradleProperty("cnm.excludeHardwareTests").isPresent) {
+        filter { excludeTestsMatching("io.crystalnova.manager.ui.NovaFocusBringsIntoViewTest") }
+    }
+}
+
 dependencies {
     val composeBom = platform("androidx.compose:compose-bom:2024.09.00")
     implementation(composeBom)
