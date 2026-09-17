@@ -51,6 +51,12 @@ data class HomeReadiness(
     val romReady: Boolean,
     /** v24: firmware problems (PS2 only) feeding the same issue model. */
     val biosIssues: List<BiosIssue> = emptyList(),
+    /**
+     * v24: launcher issues only (excludes BIOS issues). The launcher
+     * hero line describes launcher state; BIOS problems get their own
+     * line via [homeBiosLine] — the two must never be conflated.
+     */
+    val launcherIssueCount: Int = 0,
 ) {
     val ready: Boolean
         get() = romReady && pegasusInstalled && systemCount > 0 && issueCount == 0
@@ -81,6 +87,7 @@ fun buildHomeReadiness(
         totalGames = withGames.sumOf { it.gameCount },
         configuredCount = withGames.size - launcherIssues,
         issueCount = launcherIssues + biosIssues.size,
+        launcherIssueCount = launcherIssues,
         pegasusInstalled = pegasusInstalled,
         romReady = romReady,
         biosIssues = biosIssues,
@@ -94,11 +101,11 @@ fun buildHomeReadiness(
  */
 fun homeStatsLine(r: HomeReadiness) = "${r.systemCount} SYSTEMS · ${r.totalGames} GAMES"
 
-fun homeLauncherLine(r: HomeReadiness): String = if (r.issueCount == 0) {
+fun homeLauncherLine(r: HomeReadiness): String = if (r.launcherIssueCount == 0) {
     "${r.configuredCount} LAUNCHERS CONFIGURED"
 } else {
-    val needs = if (r.issueCount == 1) "NEEDS" else "NEED"
-    "${r.configuredCount} CONFIGURED · ${r.issueCount} $needs ATTENTION"
+    val needs = if (r.launcherIssueCount == 1) "NEEDS" else "NEED"
+    "${r.configuredCount} CONFIGURED · ${r.launcherIssueCount} $needs ATTENTION"
 }
 
 fun homeLibraryLine(r: HomeReadiness): String = when {

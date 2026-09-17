@@ -79,9 +79,12 @@ class BiosInventoryAsyncTest {
         job.join()
 
         // The blocking walk ran on the injected IO dispatcher thread —
-        // never on the calling (test/Main) thread.
-        assertEquals(listOf(ioThreadName), seenThreads)
-        assertEquals(1, invocations)
+        // never on the calling (test/Main) thread. kotlinx.coroutines
+        // augments the thread name while a coroutine runs on it
+        // ("bios-test-io @coroutine#N"), so match on the prefix.
+        assertEquals(1, seenThreads.size)
+        assertTrue(seenThreads[0].startsWith(ioThreadName))
+        assertEquals(1, invocations.get())
         val state = inv.scanState.value
         assertTrue(state is BiosScanState.Ready)
         assertEquals(listOf(goodBios), (state as BiosScanState.Ready).files)
@@ -104,15 +107,19 @@ class BiosInventoryAsyncTest {
 
     @Test
     fun concurrentRequestScan_coalescesIntoOneScan() = runBlocking {
+        // Gate the first scan so it is guaranteed in-flight when the
+        // second request arrives — otherwise the test is a race.
+        val gate = CountDownLatch(1)
         val invocations = AtomicInteger(0)
-        val inv = inventory(invocations)
+        val inv = inventory(invocations, gate = gate)
 
         val job1 = inv.requestScan(this)
         val job2 = inv.requestScan(this)
         assertSame(job1, job2)
+        gate.countDown()
         job1.join()
 
-        assertEquals(1, invocations)
+        assertEquals(1, invocations.get())
     }
 
     @Test
@@ -131,7 +138,7 @@ class BiosInventoryAsyncTest {
         }
 
         // No further SAF walk happened.
-        assertEquals(1, invocations)
+        assertEquals(1, invocations.get())
         assertTrue(inv.scanState.value is BiosScanState.Ready)
     }
 
