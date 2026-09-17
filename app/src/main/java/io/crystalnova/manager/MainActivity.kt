@@ -461,10 +461,9 @@ class MainActivity : ComponentActivity() {
                         configStatus = pegasus.configDisplayPath(),
                         configReady = configReady,
                         systems = rows,
-                        injectEnabled = configReady && !pegasusBusy && unconfigured.isEmpty() &&
-                            rows.any { it.gameCount > 0 },
+                        injectEnabled = isInjectEnabled(configReady, pegasusBusy, rows),
                         injectWarning = unconfigured.takeIf { it.isNotEmpty() }
-                            ?.let { "NO LAUNCHER: ${it.joinToString(", ")} — CONFIGURE LAUNCHERS BEFORE INJECTING" },
+                            ?.let { "NO LAUNCHER: ${it.joinToString(", ")} — WILL BE SKIPPED" },
                         injecting = pegasusBusy,
                         notice = pegasusNotice,
                         pegasusInstalled = isPegasusInstalled(),
@@ -735,3 +734,17 @@ class MainActivity : ComponentActivity() {
         super.onDestroy()
     }
 }
+
+/**
+ * INJECT availability for Pegasus Setup. Enabled when the config is
+ * ready, nothing is already running, and at least one populated system
+ * has a configured launcher. Populated-but-unconfigured systems are
+ * skipped and reported by the injection itself (see
+ * InjectOutcome.Ok.skippedNoLauncher) — they never block it.
+ */
+internal fun isInjectEnabled(
+    configReady: Boolean,
+    busy: Boolean,
+    rows: List<PegasusSystemRow>,
+): Boolean = configReady && !busy &&
+    rows.any { it.gameCount > 0 && it.launcherStatus != "NOT CONFIGURED" }

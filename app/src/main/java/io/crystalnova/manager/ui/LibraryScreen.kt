@@ -10,6 +10,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.scraper.ScraperUiState
+import io.crystalnova.manager.scraper.scan.libraryCardKey
 import io.crystalnova.manager.storage.LocationState
 
 /**
@@ -86,8 +87,8 @@ fun LibraryScreen(
                         )
                         state.systems.forEach { sys ->
                             control(
-                                key = "library-card-${sys.platformSlug}",
-                                testTag = "library-card-${sys.platformSlug}",
+                                key = libraryCardKey(sys),
+                                testTag = libraryCardKey(sys),
                                 label = "${sys.label.uppercase()}\n${sys.gameCount} GAMES",
                                 onClick = { onSelectSystem(sys.platformSlug, sys.label) },
                             )

@@ -24,7 +24,26 @@ data class DiscoveredSystem(
     val platformSlug: String,
     val label: String,
     val gameCount: Int,
+    /**
+     * The raw top-level ROM folder this system was discovered from
+     * ("gba", "PS1", "Wii", …). Unique per scan and stable across
+     * rescans — this is the system's UI identity. The platform slug
+     * is NOT unique: several folders can share one slug (unknown
+     * folders, folder aliases), so Compose keys must never be built
+     * from the slug alone (duplicate keys crash LazyGrid composition
+     * on a real device).
+     */
+    val sourceFolderName: String,
 )
+
+/**
+ * Compose grid key / testTag for a discovered system. Built from the
+ * stable source-folder identity, never the platform slug. The `sys`
+ * infix keeps even a folder literally named "all" from colliding with
+ * the `library-card-all` card.
+ */
+fun libraryCardKey(system: DiscoveredSystem): String =
+    "library-card-sys-${system.sourceFolderName}"
 
 /**
  * Walks the user-picked games/ROMs folder (separate SAF grant from the
@@ -111,6 +130,7 @@ class LibraryScanner(
                 platformSlug = platform?.slug ?: "unknown",
                 label = platform?.displayName ?: dirName,
                 gameCount = count,
+                sourceFolderName = dirName,
             )
         }
         return ScanResult(systems.sortedBy { it.label }, games, pegasus)

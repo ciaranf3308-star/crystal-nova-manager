@@ -9,6 +9,8 @@ import io.crystalnova.manager.scraper.provider.PegasusFileMetadataProvider
 import io.crystalnova.manager.scraper.scan.DiscoveredSystem
 import io.crystalnova.manager.scraper.scan.LibraryScanner
 import io.crystalnova.manager.scraper.scan.RomEntry
+import io.crystalnova.manager.scraper.scan.SystemSnapshot
+import io.crystalnova.manager.scraper.scan.restoredSystems
 import io.crystalnova.manager.scraper.store.MediaCache
 import io.crystalnova.manager.scraper.store.ScraperHttpClient
 import io.crystalnova.manager.scraper.store.ScraperStorage
@@ -66,6 +68,11 @@ class ScraperManager(
          */
         const val KEY_GAMES_TREE_URI = StorageLocations.KEY_ROM_TREE_URI
         const val KEY_LAST_ERROR = "scraper_last_error"
+        /**
+         * Last successful scan's system summary (see [SystemSnapshot]):
+         * folder/slug/label/game-count per system, never the catalogue.
+         */
+        const val KEY_SYSTEM_SNAPSHOT = "scraper_system_snapshot"
         /** Media revocation notice — mirrors the ROM wording. */
         const val MEDIA_ACCESS_LOST_NOTICE = "MEDIA FOLDER ACCESS LOST — PLEASE RESELECT"
         const val GAMES_ACCESS_LOST_NOTICE = "FOLDER ACCESS LOST — PLEASE RESELECT"
@@ -194,7 +201,25 @@ class ScraperManager(
             romLocation = summary.rom,
             mediaLocation = summary.media,
         )
-        if (!needs) loadStats()
+        if (!needs) {
+            restoreSystemSnapshot()
+            loadStats()
+        }
+    }
+
+    /**
+     * Refills the library grid from the persisted system summary when
+     * the in-memory scan is gone (app restart, APK update). Runs on
+     * startup/refresh; a fresh scan overwrites it.
+     */
+    private fun restoreSystemSnapshot() {
+        _state.value = _state.value.copy(
+            systems = restoredSystems(
+                live = _state.value.systems,
+                gamesFolderPicked = true,
+                snapshotJson = prefs.getString(KEY_SYSTEM_SNAPSHOT),
+            ),
+        )
     }
 
     /**
@@ -305,6 +330,9 @@ class ScraperManager(
                     systemStats = SystemStats.perSystem(entries, result.systems),
                     notice = notices.takeIf { it.isNotEmpty() }?.joinToString(" · "),
                 )
+                // Persist the lightweight system summary so a restart or
+                // APK update doesn't drop the grid back to 0 SYSTEMS.
+                prefs.putString(KEY_SYSTEM_SNAPSHOT, SystemSnapshot.encode(result.systems))
                 clearError()
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
