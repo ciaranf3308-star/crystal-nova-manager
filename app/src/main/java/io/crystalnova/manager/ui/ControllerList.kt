@@ -372,15 +372,8 @@ fun rememberControllerGridState(): ControllerGridState {
  */
 @Composable
 fun Modifier.controllerScrollItem(engine: ControllerScrollEngine?, index: Int): Modifier {
-    if (engine == null) return this
-    val scope = rememberCoroutineScope()
-    return remember(engine, index) {
-        this
-            .onSizeChanged { size -> engine.recordHeight(index, size.height) }
-            .onFocusChanged { focusState ->
-                if (focusState.isFocused) engine.requestScroll(index, scope)
-            }
-    }
+    // EXPERIMENT: completely empty modifier to isolate the problem.
+    return this
 }
 
 /**
