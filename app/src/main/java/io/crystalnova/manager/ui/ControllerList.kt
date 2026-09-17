@@ -152,7 +152,14 @@ class ControllerScrollEngine internal constructor(
      * scroll from a previous focus event first.
      */
     fun requestScroll(index: Int, scope: CoroutineScope) {
-        // EXPERIMENT: completely empty — no launch, no cancel.
+        if (index < 0) return
+        scrollJob?.cancel()
+        scrollJob = scope.launch {
+            val vp = viewportHeightPx
+            val inset = (vp / 6).coerceAtLeast(0)
+            if (vp > 0 && isComfortablyVisible(index, inset)) return@launch
+            scrollToComfortable(index)
+        }
     }
 
     /**
