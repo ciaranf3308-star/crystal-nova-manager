@@ -10,12 +10,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -127,13 +127,16 @@ fun homeBiosLine(r: HomeReadiness): String =
  * Everything visible at once on the 1280×960 Nova viewport:
  *
  * - header: CRYSTAL NOVA + version (5-tap opens DIAGNOSTICS)
- * - hero: PEGASUS / READY TO PLAY (or FINISH SETUP) with honest
- *   system/launcher/library lines and the happy-path action:
- *   OPEN PEGASUS when ready, MAKE READY (+ REVIEW ISSUES) otherwise
+ * - status band: a compact panel with the one state that matters
+ *   (READY TO PLAY vs FINISH SETUP), the honest system/launcher/
+ *   library lines, and the happy-path action docked beside them
+ *   (OPEN PEGASUS when ready, MAKE READY (+ REVIEW ISSUES) otherwise).
+ *   The old centered hero owned ~70% of the screen and pushed the
+ *   action buttons off the bottom — the band is content-sized and
+ *   top-anchored instead.
  * - manager-app update banner when an update is available (never buried)
- * - secondary: LIBRARY / ARTWORK
- * - Advanced > : THEME and SETTINGS live one tap away; every manual
- *   control is preserved, nothing removed
+ * - consolidated actions: LIBRARY / ARTWORK, THEME, SETTINGS — every
+ *   destination visible at once in one row, no expander, no hidden taps
  * - pinned footer: A SELECT · B EXIT (from the scaffold)
  *
  * Everyday use never needs Diagnostics (still 5-tap hidden) and never
@@ -157,7 +160,6 @@ fun HomeScreen(
     onExit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    var advancedExpanded by remember { mutableStateOf(false) }
     ScreenScaffold(
         routeKey = "home",
         title = "HOME",
@@ -187,22 +189,17 @@ fun HomeScreen(
                 )
                 VersionTapLabel(appVersion = appVersion, onDiagnostics = onDiagnostics)
             }
-            // The hero owns the middle of the screen: the one state that
-            // matters (READY TO PLAY vs FINISH SETUP) and the happy-path
-            // action. It centers in the leftover space.
-            Box(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Hero(
-                    readiness = readiness,
-                    onOpenPegasus = onOpenPegasus,
-                    onMakeReady = onMakeReady,
-                    onReviewIssues = onReviewIssues,
-                    dispatcher = dispatcher,
-                    isPrimaryInitialFocus = isInitialFocus("home-primary"),
-                )
-            }
+            // The status band: state + honest lines on the left, the
+            // happy-path action docked on the right. Content-sized and
+            // top-anchored — it never steals the screen from the actions.
+            StatusBand(
+                readiness = readiness,
+                onOpenPegasus = onOpenPegasus,
+                onMakeReady = onMakeReady,
+                onReviewIssues = onReviewIssues,
+                dispatcher = dispatcher,
+                isPrimaryInitialFocus = isInitialFocus("home-primary"),
+            )
             // Manager-app self-update: surfaced HERE, never buried.
             // (The theme updater lives on the THEME screen only.)
             when (val u = appUpdate) {
@@ -246,65 +243,56 @@ fun HomeScreen(
                 is AppUpdateState.Installing ->
                     StatusLine("INSTALLING — FOLLOW THE SYSTEM PROMPT", Crystal.Divider)
             }
-            // Secondary: the library (browse, rescan, scrape artwork).
-            CrystalButton(
-                key = "home-library",
-                testTag = "home-library",
-                label = "LIBRARY / ARTWORK",
-                subLabel = homeStatsLine(readiness),
-                onClick = onLibrary,
-                dispatcher = dispatcher,
-                requestInitialFocus = isInitialFocus("home-library"),
+            // Consolidated actions: every destination visible at once in
+            // one row of chunky tiles — no expander, no hidden taps.
+            // Nothing removed: LIBRARY / ARTWORK, THEME, SETTINGS.
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-            )
-            // Advanced: every manual control, one tap away, none removed.
-            CrystalButton(
-                key = "home-advanced",
-                testTag = "home-advanced",
-                label = if (advancedExpanded) "ADVANCED  ∧" else "ADVANCED  ∨",
-                onClick = { advancedExpanded = !advancedExpanded },
-                dispatcher = dispatcher,
-                requestInitialFocus = isInitialFocus("home-advanced"),
-                modifier = Modifier.fillMaxWidth(),
-            )
-            if (advancedExpanded) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        CrystalButton(
-                            key = "home-theme",
-                            testTag = "home-theme",
-                            label = "THEME",
-                            subLabel = themeSubtitle,
-                            onClick = onTheme,
-                            dispatcher = dispatcher,
-                            requestInitialFocus = isInitialFocus("home-theme"),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                    Box(modifier = Modifier.weight(1f)) {
-                        CrystalButton(
-                            key = "home-settings",
-                            testTag = "home-settings",
-                            label = "SETTINGS",
-                            subLabel = settingsSubtitle,
-                            onClick = onSettings,
-                            dispatcher = dispatcher,
-                            requestInitialFocus = isInitialFocus("home-settings"),
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                    }
-                }
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                CrystalButton(
+                    key = "home-library",
+                    testTag = "home-library",
+                    label = "LIBRARY / ARTWORK",
+                    subLabel = homeStatsLine(readiness),
+                    onClick = onLibrary,
+                    dispatcher = dispatcher,
+                    requestInitialFocus = isInitialFocus("home-library"),
+                    modifier = Modifier.weight(1f).height(128.dp),
+                )
+                CrystalButton(
+                    key = "home-theme",
+                    testTag = "home-theme",
+                    label = "THEME",
+                    subLabel = themeSubtitle,
+                    onClick = onTheme,
+                    dispatcher = dispatcher,
+                    requestInitialFocus = isInitialFocus("home-theme"),
+                    modifier = Modifier.weight(1f).height(128.dp),
+                )
+                CrystalButton(
+                    key = "home-settings",
+                    testTag = "home-settings",
+                    label = "SETTINGS",
+                    subLabel = settingsSubtitle,
+                    onClick = onSettings,
+                    dispatcher = dispatcher,
+                    requestInitialFocus = isInitialFocus("home-settings"),
+                    modifier = Modifier.weight(1f).height(128.dp),
+                )
             }
         }
     }
 }
 
-/** The hero: state headline, honest status lines, happy-path action. */
+/**
+ * The status band: a compact panel with the state headline and honest
+ * status lines on the left, the happy-path action docked on the right.
+ * Same strings, same actions, same tags as the old hero — roughly a
+ * third of the height, content-sized, top-anchored.
+ */
 @Composable
-private fun Hero(
+private fun StatusBand(
     readiness: HomeReadiness,
     onOpenPegasus: () -> Unit,
     onMakeReady: () -> Unit,
@@ -313,97 +301,100 @@ private fun Hero(
     isPrimaryInitialFocus: Boolean,
 ) {
     val ready = readiness.ready
-    Column(
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(6.dp),
-    ) {
-        BasicText(
-            text = "PEGASUS",
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontSize = Crystal.SectionSize,
-                color = Crystal.InkDim,
-            ),
-        )
-        BasicText(
-            text = if (ready) "READY TO PLAY" else "FINISH SETUP",
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontWeight = FontWeight.Bold,
-                fontSize = 44.sp,
-                color = if (ready) Crystal.Good else Crystal.Joystick,
-            ),
-        )
-        BasicText(
-            text = homeStatsLine(readiness),
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontSize = Crystal.SectionSize,
-                color = Crystal.Ink,
-            ),
-        )
-        if (readiness.systemCount > 0) {
-            val launcherLine = homeLauncherLine(readiness)
-            BasicText(
-                text = launcherLine,
-                style = TextStyle(
-                    fontFamily = Crystal.Mono,
-                    fontSize = Crystal.SectionSize,
-                    color = if (readiness.issueCount == 0) Crystal.Ink else Crystal.Joystick,
-                ),
-            )
-        }
-        // v24: firmware issues ride the same needs-attention color.
-        if (readiness.biosIssues.isNotEmpty()) {
-            BasicText(
-                text = homeBiosLine(readiness),
-                style = TextStyle(
-                    fontFamily = Crystal.Mono,
-                    fontSize = Crystal.SectionSize,
-                    color = Crystal.Joystick,
-                ),
-            )
-        }
-        val libraryLine = homeLibraryLine(readiness)
-        BasicText(
-            text = libraryLine,
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontSize = Crystal.BodySize,
-                color = Crystal.InkDim,
-            ),
-        )
-        if (ready) {
-            CrystalButton(
-                key = "home-primary",
-                testTag = "home-primary",
-                label = "OPEN PEGASUS",
-                onClick = onOpenPegasus,
-                dispatcher = dispatcher,
-                enabled = readiness.pegasusInstalled,
-                requestInitialFocus = isPrimaryInitialFocus,
-                modifier = Modifier.height(64.dp),
-            )
-        } else {
-            CrystalButton(
-                key = "home-primary",
-                testTag = "home-primary",
-                label = "MAKE READY",
-                onClick = onMakeReady,
-                dispatcher = dispatcher,
-                requestInitialFocus = isPrimaryInitialFocus,
-                modifier = Modifier.height(64.dp),
-            )
-            if (readiness.issueCount > 0) {
-                val s = if (readiness.issueCount == 1) "" else "S"
-                CrystalButton(
-                    key = "home-review",
-                    testTag = "home-review",
-                    label = "REVIEW ${readiness.issueCount} ISSUE$s",
-                    onClick = onReviewIssues,
-                    dispatcher = dispatcher,
-                    modifier = Modifier.height(56.dp),
+    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                BasicText(
+                    text = if (ready) "READY TO PLAY" else "FINISH SETUP",
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 32.sp,
+                        color = if (ready) Crystal.Good else Crystal.Joystick,
+                    ),
                 )
+                BasicText(
+                    text = homeStatsLine(readiness),
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontSize = Crystal.SectionSize,
+                        color = Crystal.Ink,
+                    ),
+                )
+                if (readiness.systemCount > 0) {
+                    BasicText(
+                        text = homeLauncherLine(readiness),
+                        style = TextStyle(
+                            fontFamily = Crystal.Mono,
+                            fontSize = Crystal.SectionSize,
+                            color = if (readiness.launcherIssueCount == 0) Crystal.Ink else Crystal.Joystick,
+                        ),
+                    )
+                }
+                // v24: firmware issues ride the same needs-attention color.
+                if (readiness.biosIssues.isNotEmpty()) {
+                    BasicText(
+                        text = homeBiosLine(readiness),
+                        style = TextStyle(
+                            fontFamily = Crystal.Mono,
+                            fontSize = Crystal.SectionSize,
+                            color = Crystal.Joystick,
+                        ),
+                    )
+                }
+                BasicText(
+                    text = homeLibraryLine(readiness),
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontSize = Crystal.BodySize,
+                        color = Crystal.InkDim,
+                    ),
+                )
+            }
+            Column(
+                modifier = Modifier.width(340.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                if (ready) {
+                    CrystalButton(
+                        key = "home-primary",
+                        testTag = "home-primary",
+                        label = "OPEN PEGASUS",
+                        onClick = onOpenPegasus,
+                        dispatcher = dispatcher,
+                        enabled = readiness.pegasusInstalled,
+                        requestInitialFocus = isPrimaryInitialFocus,
+                        modifier = Modifier.height(84.dp),
+                    )
+                } else {
+                    CrystalButton(
+                        key = "home-primary",
+                        testTag = "home-primary",
+                        label = "MAKE READY",
+                        onClick = onMakeReady,
+                        dispatcher = dispatcher,
+                        requestInitialFocus = isPrimaryInitialFocus,
+                        modifier = Modifier.height(76.dp),
+                    )
+                    if (readiness.issueCount > 0) {
+                        val s = if (readiness.issueCount == 1) "" else "S"
+                        CrystalButton(
+                            key = "home-review",
+                            testTag = "home-review",
+                            label = "REVIEW ${readiness.issueCount} ISSUE$s",
+                            onClick = onReviewIssues,
+                            dispatcher = dispatcher,
+                            modifier = Modifier.height(60.dp),
+                        )
+                    }
+                }
             }
         }
     }

@@ -3,9 +3,7 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
-import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
 import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.updater.AppUpdateState
 import org.junit.Test
@@ -15,16 +13,17 @@ import org.junit.Test
  * scrolling.
  *
  * Renders the real [HomeScreen] in the 1280x960 viewport and asserts
- * the hero (READY TO PLAY / OPEN PEGASUS), the LIBRARY / ARTWORK
- * button, the Advanced toggle, and the footer are all inside the
- * viewport with NO scroll interaction anywhere in the test.
+ * the status band (READY TO PLAY / OPEN PEGASUS), the consolidated
+ * action row (LIBRARY / ARTWORK, THEME, SETTINGS — no expander), and
+ * the footer are all inside the viewport with NO scroll interaction
+ * anywhere in the test.
  *
  * Two variants: the idle ready state, and the update-available state
  * where the manager-app banner (which must never be buried) is also
- * shown — the banner shrinks the hero's share of the column, so this
+ * shown — the banner shrinks the actions' share of the column, so this
  * is the worst case for the "everything visible at once" contract.
  *
- * A third variant covers the needs-attention hero (FINISH SETUP /
+ * A third variant covers the needs-attention band (FINISH SETUP /
  * MAKE READY / REVIEW ISSUE) to prove it fits the same contract.
  */
 class NovaHomeFitsViewportTest : NovaUiTest() {
@@ -95,7 +94,8 @@ class NovaHomeFitsViewportTest : NovaUiTest() {
         assertNodeInViewport("home-primary")
         assertNodeInViewport("home-review")
         assertNodeInViewport("home-library")
-        assertNodeInViewport("home-advanced")
+        assertNodeInViewport("home-theme")
+        assertNodeInViewport("home-settings")
         // Pinned footer survives the taller hero too.
         assertInteractionInViewport(
             composeTestRule.onNodeWithText("A"),
@@ -108,15 +108,12 @@ class NovaHomeFitsViewportTest : NovaUiTest() {
     }
 
     private fun assertHomeFits() {
-        // Hero: READY TO PLAY headline and the happy-path action.
+        // Status band: READY TO PLAY headline and the happy-path action.
         composeTestRule.onNodeWithText("READY TO PLAY").assertExists()
         assertNodeInViewport("home-primary")
+        // Consolidated action row: every destination visible at once,
+        // no expander to open.
         assertNodeInViewport("home-library")
-        assertNodeInViewport("home-advanced")
-
-        // Advanced hides the manual controls behind one tap: they must
-        // all become visible once expanded, with no scrolling.
-        composeTestRule.onNodeWithTag("home-advanced").performClick()
         assertNodeInViewport("home-theme")
         assertNodeInViewport("home-settings")
 
