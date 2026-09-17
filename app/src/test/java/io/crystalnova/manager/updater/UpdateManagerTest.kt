@@ -308,7 +308,12 @@ class UpdateManagerTest {
     @Test
     fun `aborted install is a no-op when not installing`() = runTest {
         val manager = newManager(github())
+        // init kicks off a check, so the state is Checking — the point
+        // is that noteAppInstallAborted leaves any non-Installing state
+        // untouched.
+        val before = manager.appUpdate.value
+        assertFalse(before is AppUpdateState.Installing)
         manager.noteAppInstallAborted()
-        assertTrue(manager.appUpdate.value is AppUpdateState.Idle)
+        assertEquals(before, manager.appUpdate.value)
     }
 }
