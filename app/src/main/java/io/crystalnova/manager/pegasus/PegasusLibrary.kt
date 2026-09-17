@@ -776,8 +776,10 @@ internal fun systemFolder(romRoot: String, gamePath: String): String? {
  * never picked (or the grant is gone), so Crystal never claimed to have
  * registered anything. [Failed] likewise never fails the BUILD — the
  * metadata files are the deliverable; `game_dirs.txt` is a convenience.
+ * Public because it is part of [PegasusLibrary.InjectOutcome.Ok] and
+ * [PegasusLibrary.SystemMetafileReport], which the UI layer consumes.
  */
-internal sealed interface GameDirsOutcome {
+sealed interface GameDirsOutcome {
     /** The merge added [added] missing system-folder paths. */
     data class Updated(val added: Int) : GameDirsOutcome
 
