@@ -98,11 +98,11 @@ class Ps2BiosClassifierTest {
     @Test
     fun ancillaryAlone_isNeverAMainCandidate() {
         val files = listOf(
-            f("nvm.bin", 1_024L),
-            f("rom1.bin", 4_194_304L), // even at a BIOS-like size…
-            f("rom2.bin", 2_048L),
-            f("erom.bin", 1_024L),
-            f("EROM.BIN", 512L),
+            f("dump.nvm", 1_024L),
+            f("dump.rom1", 4_194_304L), // even at a BIOS-like size…
+            f("dump.rom2", 2_048L),
+            f("erom", 1_024L),
+            f("erom.bin", 512L),
         )
         val d = Ps2BiosClassifier.classify(files)
         assertTrue("ancillary must never be a main candidate", d.candidates.isEmpty())

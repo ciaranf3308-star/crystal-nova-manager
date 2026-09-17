@@ -135,8 +135,8 @@ class BiosInventoryTest {
         // the importable BIOS — FOUND_UNVERIFIED, never MISSING and
         // never a verified main BIOS.
         val files = listOf(
-            BiosFile("nvm.bin", 1024L, "ps2/nvm.bin"),
-            BiosFile("rom1.bin", 2048L, "ps2/rom1.bin"),
+            BiosFile("dump.nvm", 1024L, "ps2/dump.nvm"),
+            BiosFile("dump.rom1", 2048L, "ps2/dump.rom1"),
         )
         val inv = inventory(files = files)
         assertEquals(BiosStatus.FOUND_UNVERIFIED, inv.ps2Status(5, files))

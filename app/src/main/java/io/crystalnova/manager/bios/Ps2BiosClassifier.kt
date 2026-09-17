@@ -64,9 +64,14 @@ object Ps2BiosClassifier {
     const val MAX_BIOS_SIZE_BYTES = 8_388_608L
 
     private val SCPH_BIN = Regex("(?i)^scph[^/]*\\.bin$")
-    private val ROM0 = Regex("(?i)^[^/]*\\.rom0$")
+    // `.rom0` as an extension (`dump.rom0`) or a bare dump name (`rom0`).
+    private val ROM0 = Regex("(?i)^([^/]*\\.rom0|rom0)$")
     private val ANY_BIN = Regex("(?i)^[^/]*\\.bin$")
-    private val ANCILLARY = Regex("(?i)^([^/]*\\.(nvm|rom1|rom2)|erom[^/]*)$")
+    // Ancillary dump artifacts: `.nvm` / `.rom1` / `.rom2` extensions
+    // (or the bare artifact names), and `erom…`. A `rom1.bin`-style
+    // name is a `.bin` dump — the main-candidate rule covers those;
+    // the dotted forms here name specific artifacts.
+    private val ANCILLARY = Regex("(?i)^([^/]*\\.(nvm|rom1|rom2)|erom[^/]*|nvm|rom1|rom2)$")
 
     private fun saneSize(sizeBytes: Long): Boolean =
         sizeBytes in MIN_BIOS_SIZE_BYTES..MAX_BIOS_SIZE_BYTES
