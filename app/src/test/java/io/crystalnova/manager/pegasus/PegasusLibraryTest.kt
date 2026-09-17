@@ -39,14 +39,13 @@ class PegasusLibraryTest {
 
     @Test
     fun metafileFileName_matchesPegasusGameDirScannerPattern() {
-        // Pegasus's is_metadata_file() accepts `*.metadata.pegasus.txt`
-        // at the top level of a registered game dir.
+        // Pegasus's is_metadata_file() accepts `metadata.pegasus.txt` /
+        // `*.metadata.pegasus.txt` at the top level of a registered game
+        // dir — our name is in that family, and the swap scratch names
+        // are in none of them.
         assertEquals("crystal-nova.metadata.pegasus.txt", MetafileGenerator.FILE_NAME)
         assertTrue(
             "crystal-nova.metadata.pegasus.txt".matches(Regex(""".*\.metadata\.pegasus\.txt""")),
-        )
-        assertTrue(
-            "crystal-nova.metadata.pegasus.txt".matches(Regex(""".*\.metadata\.txt""")),
         )
         assertFalse("swap scratch must never look like a metadata file",
             PegasusLibrary.TMP_NAME.matches(Regex(""".*\.metadata\.pegasus\.txt""")),
@@ -81,7 +80,7 @@ class PegasusLibraryTest {
         )
         assertEquals(
             "/storage/1A2B-3C4D/ROMs/psx/game.cue",
-            lib.gamePath("/storage/1A2B-3C4D/ROMs", "gba/game.gba"),
+            lib.gamePath("/storage/1A2B-3C4D/ROMs", "psx/game.cue"),
         )
     }
 
