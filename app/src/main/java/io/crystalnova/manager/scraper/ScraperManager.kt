@@ -24,7 +24,9 @@ import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.StorageLocations
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -60,6 +62,13 @@ class ScraperManager(
     private val themesTreeUri: () -> String?,
     private val scope: CoroutineScope,
     storageLocations: StorageLocations? = null,
+    /**
+     * The SAF walk, index pruning, and stats all do blocking I/O.
+     * They must never run on the caller's dispatcher (MainScope on
+     * device): a large library blocks the UI thread and the system
+     * kills the app for ANR mid-scan.
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     companion object {
         /**
@@ -295,7 +304,7 @@ class ScraperManager(
             return
         }
         _state.value = _state.value.copy(scanning = true, notice = null)
-        scope.launch {
+        scope.launch(ioDispatcher) {
             try {
                 val scanner = LibraryScanner(context, treeUri)
                 val result = scanner.scan()
