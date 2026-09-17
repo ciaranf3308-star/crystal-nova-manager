@@ -209,7 +209,7 @@ fun DiagnosticsScreen(
                         )
                         DiagRow(
                             "MEDIA ACCESS",
-                            if (d.mediaAccess) "OK" else "LOST — RESELECT",
+                            if (d.mediaAccess) "WRITABLE" else "NOT WRITABLE — RESELECT",
                             if (d.mediaAccess) Crystal.Good else Crystal.Bad,
                         )
                         val (bridgeText, bridgeColor) = when (d.bridgeStatus) {

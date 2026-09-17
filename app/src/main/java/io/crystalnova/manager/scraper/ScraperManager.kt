@@ -22,6 +22,7 @@ import io.crystalnova.manager.scraper.work.BridgeStatus
 import io.crystalnova.manager.scraper.work.MediaGameReport
 import io.crystalnova.manager.scraper.work.ScrapeJob
 import io.crystalnova.manager.scraper.work.ScrapeProgress
+import io.crystalnova.manager.scraper.work.ScrapeStorageWriteException
 import io.crystalnova.manager.scraper.work.ScraperDiagnostics
 import io.crystalnova.manager.scraper.work.ScraperStats
 import io.crystalnova.manager.scraper.work.SystemStats
@@ -185,20 +186,32 @@ class ScraperManager(
     }
 
     /**
-     * True when the media root is readable for scrape writes right now.
-     * With a dedicated media folder that is the media grant; in legacy
-     * mode (no media folder) it is the themes tree that roots
-     * `crystal-nova-data/`. Never throws.
+     * WRITABLE truth for the media root right now (v22): with a
+     * dedicated media folder the persisted grant must carry WRITE (not
+     * only READ), and in both modes a real create/write/read/delete
+     * probe against the ACTUAL ScraperStorage data root must succeed.
+     * Readable-but-unwritable is NOT access. Never throws.
      */
     private fun mediaAccessNow(): Boolean {
         return try {
-            if (locations.mediaTreeUri() != null) hasMediaFolderAccess()
-            else {
-                val uri = themesTreeUri() ?: return false
-                SafThemeFs(context) { uri }.root() != null
+            if (locations.mediaTreeUri() != null && !locations.hasWriteAccess(LocationKind.MEDIA)) {
+                return false
             }
+            storage().probeWritable() is ScraperStorage.ProbeResult.Writable
         } catch (_: Exception) { false }
     }
+
+    /**
+     * Pre-scrape writability gate, run on the IO dispatcher before any
+     * network or provider work. Refuses the scrape when the media
+     * target cannot actually be written.
+     */
+    private fun writePreflight(): ScraperStorage.ProbeResult =
+        scrapeWritePreflight(
+            storage = storage(),
+            hasDedicatedMediaTree = locations.mediaTreeUri() != null,
+            hasWriteGrant = locations.hasWriteAccess(LocationKind.MEDIA),
+        )
 
     /**
      * Whether the Pegasus theme can find the media root. No media folder
@@ -491,7 +504,28 @@ class ScraperManager(
             return
         }
         _state.value = _state.value.copy(scraping = true, notice = null)
-        scrapeJob = scope.launch {
+        // v22: the whole scrape pipeline does blocking I/O (scanner,
+        // downloads, SAF writes, image processing) — it must run on the
+        // IO dispatcher, never on the caller's Main scope. This is the
+        // crash/ANR from hardware attempt 1.
+        scrapeJob = scope.launch(ioDispatcher) {
+            // v22: writability preflight BEFORE any network or provider
+            // work — a read-only/unwritable media root refuses the scrape
+            // with a repair action instead of burning downloads into a
+            // void (hardware attempt 2 finished "successfully" with 0
+            // persisted).
+            when (val preflight = writePreflight()) {
+                is ScraperStorage.ProbeResult.Writable -> Unit
+                is ScraperStorage.ProbeResult.Failed -> {
+                    val repair = if (locations.mediaTreeUri() != null)
+                        "MEDIA FOLDER NOT WRITABLE — RESELECT IT UNDER SETTINGS → MEDIA LIBRARY"
+                    else
+                        "THEMES FOLDER NOT WRITABLE — RESELECT IT UNDER SETTINGS → THEMES"
+                    recordError("SCRAPE PREFLIGHT FAILED: ${preflight.reason}")
+                    _state.value = _state.value.copy(scraping = false, notice = repair)
+                    return@launch
+                }
+            }
             // Staging dir for this run's downloads; wiped in the finally
             // below — staged files are disposable copies of the persistent
             // below — staged files are disposable copies of the persistent
@@ -527,6 +561,7 @@ class ScraperManager(
                     artworkProviders = listOf(LibretroProvider()),
                     metadataProvider = PegasusFileMetadataProvider(pegasusEntries),
                     openRomInput = { entry -> scanner.openInput(entry) },
+                    ioDispatcher = ioDispatcher,
                 )
                 val result = job.run(
                     games = games,
@@ -557,6 +592,22 @@ class ScraperManager(
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) {
                     _state.value = _state.value.copy(notice = "SCRAPE CANCELLED")
+                } else if (e is ScrapeStorageWriteException) {
+                    // v22: a manifest or index write failed — the run is
+                    // NOT finished and nothing was counted as processed.
+                    // The on-disk index is untouched (atomic writes), so
+                    // the previous good index stays safe. Surface the
+                    // failure with its context (platform / game / stage)
+                    // so the Diagnostics report can be correlated.
+                    val context = listOfNotNull(
+                        e.platform?.let { "PLATFORM ${it.uppercase()}" },
+                        e.gameId?.let { "GAME $it" },
+                        e.stage?.let { "STAGE $it" },
+                    ).joinToString(" · ")
+                    val msg = if (context.isEmpty()) e.message!!
+                    else "${e.message} ($context)"
+                    recordError(msg)
+                    _state.value = _state.value.copy(notice = msg)
                 } else if (isRevocation(e) || !hasGamesFolderAccess() ||
                     (locations.mediaTreeUri() != null && !hasMediaFolderAccess())
                 ) {
@@ -628,6 +679,26 @@ class ScraperManager(
     fun dismissNotice() {
         _state.value = _state.value.copy(notice = null)
     }
+}
+
+/**
+ * Pure writability gate for starting a scrape, unit-testable: with a
+ * dedicated media tree the persisted grant must include WRITE (a
+ * read-only grant is refused even if the probe would pass); in all
+ * modes the ACTUAL ScraperStorage data root must pass the real
+ * create/write/read/delete probe. Fails closed — any failure refuses
+ * the scrape before a single network request.
+ */
+internal fun scrapeWritePreflight(
+    storage: ScraperStorage,
+    hasDedicatedMediaTree: Boolean,
+    hasWriteGrant: Boolean,
+): ScraperStorage.ProbeResult {
+    if (hasDedicatedMediaTree && !hasWriteGrant) {
+        return ScraperStorage.ProbeResult.Failed("persisted media grant is read-only")
+    }
+    return runCatching { storage.probeWritable() }
+        .getOrElse { ScraperStorage.ProbeResult.Failed(it.message ?: "probe threw") }
 }
 
 /**

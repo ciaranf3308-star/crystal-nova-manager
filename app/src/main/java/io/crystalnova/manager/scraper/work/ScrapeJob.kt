@@ -28,6 +28,9 @@ import io.crystalnova.manager.scraper.store.MediaCache
 import io.crystalnova.manager.scraper.store.ScraperJson
 import io.crystalnova.manager.scraper.store.ScraperStorage
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.InputStream
 import kotlin.coroutines.coroutineContext
@@ -46,6 +49,14 @@ class ScrapeJob(
     private val openRomInput: (RomEntry) -> InputStream?,
     private val regionDetector: RegionDetector = RegionDetector(),
     private val artRenderer: ArtRenderer = AndroidArtRenderer,
+    /**
+     * The whole pipeline does blocking I/O (LibraryScanner access,
+     * HttpURLConnection downloads, SAF reads/writes, image processing,
+     * manifest/index writes). It must never run on the caller's
+     * dispatcher (MainScope on device): injectable seam, Dispatchers.IO
+     * in production.
+     */
+    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO,
 ) {
     data class JobResult(
         val succeeded: Int,
@@ -70,7 +81,7 @@ class ScrapeJob(
         onlyPlatform: String? = null,
         onlyIncomplete: Boolean = false,
         onProgress: (ScrapeProgress) -> Unit,
-    ): JobResult {
+    ): JobResult = withContext(ioDispatcher) {
         val (deduped, skippedDuplicates) = dedupeEntries(
             games.filter { onlyPlatform == null || it.platformSlug == onlyPlatform },
         )
@@ -103,6 +114,13 @@ class ScrapeJob(
         var done = 0
         var cancelled = false
         var folderAccessLost = false
+        /**
+         * Non-cancellation failure already in flight when the finally
+         * runs (a manifest [ScrapeStorageWriteException]): an index-save
+         * failure on top of it must not replace it — the first failure
+         * names the game and stage.
+         */
+        var runFailure: Throwable? = null
 
         fun emit(current: GameScrapeStatus?) = onProgress(
             ScrapeProgress(targets.size, done, succeeded, partial, failed, unmatched, current, cancelled),
@@ -135,6 +153,12 @@ class ScrapeJob(
                         // observes the cancellation.
                         throw e
                     }
+                    if (e is ScrapeStorageWriteException) {
+                        // v22: a manifest write failed — storage is broken.
+                        // Never a per-game "failed" count, never FINISHED:
+                        // abort the run and let the caller surface it.
+                        throw e
+                    }
                     if (isRevocation(e)) {
                         folderAccessLost = true
                         break
@@ -149,7 +173,14 @@ class ScrapeJob(
             // load/save): emit the honest final state before rethrowing so
             // structured concurrency still observes the cancellation.
             cancelled = true
+            runFailure = e
             emit(null)
+            throw e
+        } catch (e: ScrapeStorageWriteException) {
+            // Manifest write failure from the per-game guard: abort the
+            // run. Recorded so the finally cannot replace it with an
+            // index-save failure.
+            runFailure = e
             throw e
         } finally {
             // One index write per run — including on cancellation.
@@ -158,10 +189,33 @@ class ScrapeJob(
             // next pass.
             // (Previously this rewrote the whole file over SAF after every
             // game: O(N^2) bytes for large libraries.)
-            saveIndex(index)
+            //
+            // v22: a failed index write is never silent and never becomes
+            // "0 games". The on-disk index is untouched (atomic
+            // backup/restore in the write path), so the previous good
+            // index stays safe; the run aborts instead of reporting
+            // FINISHED. On cancellation the write is best-effort and must
+            // never mask the cancellation.
+            if (cancelled) {
+                try {
+                    saveIndex(index)
+                } catch (_: Exception) {
+                    // The run is cancelled, not finished: manifests already
+                    // persisted per game are usable, and the index rebuilds
+                    // from them next pass.
+                }
+            } else {
+                try {
+                    saveIndex(index)
+                } catch (e: ScrapeStorageWriteException) {
+                    if (runFailure == null) throw e
+                    // A manifest failure is already in flight with the
+                    // game and stage attached — keep it.
+                }
+            }
         }
         emit(null)
-        return JobResult(
+        JobResult(
             succeeded, partial, failed, unmatched, cancelled,
             indexRebuilt, skippedDuplicates, folderAccessLost,
         )
@@ -457,7 +511,18 @@ class ScrapeJob(
             confidence = confidence,
             assets = assets,
         )
-        storage.saveManifest(game)
+        // v22: a failed manifest write is NOT success. If SAF cannot
+        // write, the game must not count as processed and the run must
+        // not finish "successfully" with 0 persisted — abort loudly so
+        // the caller surfaces SCRAPE STORAGE WRITE FAILED.
+        if (!storage.saveManifest(game)) {
+            throw ScrapeStorageWriteException(
+                ScrapeStorageWriteException.MANIFEST_WRITE_FAILED,
+                platform = entry.platformSlug,
+                gameId = gameId,
+                stage = "MANIFEST",
+            )
+        }
         return game.completeness
     }
 
@@ -568,12 +633,24 @@ class ScrapeJob(
         return out
     }
 
+    /**
+     * Serializes and persists the run's index. v22: a failed write
+     * throws [ScrapeStorageWriteException] — the run must NOT report
+     * FINISHED and must NOT present "0 games". The previous good
+     * index.json is untouched: [ScraperStorage.writeAtomically] restores
+     * the original on any failure, so this throw can never blank it.
+     */
     private fun saveIndex(index: Map<String, JSONObject>) {
         val root = JSONObject()
         root.put("version", 1)
         val games = JSONObject()
         for ((k, v) in index) games.put(k, v)
         root.put("games", games)
-        storage.saveIndexJson(root.toString())
+        if (!storage.saveIndexJson(root.toString())) {
+            throw ScrapeStorageWriteException(
+                ScrapeStorageWriteException.INDEX_WRITE_FAILED,
+                stage = "INDEX",
+            )
+        }
     }
 }

@@ -139,7 +139,7 @@ data class ScraperDiagnostics(
     val notice: String?,
     val lastError: String?,
     val lastProgress: ScrapeProgress?,
-    /** The media root is readable for scrape writes right now. */
+    /** The media root proved WRITABLE (real create/write/read/delete probe) right now. */
     val mediaAccess: Boolean = false,
     /** Whether the Pegasus theme can find the media root. */
     val bridgeStatus: BridgeStatus = BridgeStatus.NOT_REQUIRED,

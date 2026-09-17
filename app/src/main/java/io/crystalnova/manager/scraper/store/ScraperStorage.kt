@@ -35,6 +35,13 @@ class ScraperStorage(
         const val CACHE_DIR = "cache"
         const val INDEX_NAME = "index.json"
         const val MANIFEST_NAME = "manifest.json"
+        /**
+         * Crystal-owned writability probe file. Created, written, read
+         * back and deleted against the data root before every scrape —
+         * never a user asset, never left behind.
+         */
+        const val PROBE_FILE_NAME = ".crystal-write-probe"
+        private val PROBE_BYTES = "crystal-nova-write-probe-v1".toByteArray()
 
         /**
          * Pure helper: removes index.json entries whose (platform, gameId)
@@ -253,6 +260,49 @@ class ScraperStorage(
         } catch (e: Exception) {
             rethrowIfRevoked(e)
             false
+        }
+    }
+
+    /** Result of the pre-scrape writability probe against the data root. */
+    sealed interface ProbeResult {
+        data object Writable : ProbeResult
+        data class Failed(val reason: String) : ProbeResult
+    }
+
+    /**
+     * Real writability proof against the ACTUAL data root (dedicated
+     * media tree root, or legacy themes-root `crystal-nova-data/`):
+     * create a small Crystal-owned probe file, write known bytes,
+     * read them back, delete the probe. Readable-but-unwritable is
+     * NOT writable. Never touches user assets. Never throws — a
+     * revoked grant reads as Failed, and callers translate that into
+     * their reselection handling.
+     */
+    fun probeWritable(): ProbeResult {
+        val root = try {
+            dataRoot()
+        } catch (e: Exception) {
+            return ProbeResult.Failed("data root unreachable: ${e.message ?: e.javaClass.simpleName}")
+        } ?: return ProbeResult.Failed("media data root is not configured")
+        return try {
+            // A crashed earlier probe must not block this one.
+            fs.find(root, PROBE_FILE_NAME)?.let { fs.deleteRecursively(it) }
+            val node = fs.createFile(root, PROBE_FILE_NAME)
+            try {
+                fs.openOutput(node).use { it.write(PROBE_BYTES) }
+                val read = fs.openInput(node).use { it.readBytes() }
+                if (!read.contentEquals(PROBE_BYTES)) {
+                    return ProbeResult.Failed("probe readback mismatch")
+                }
+            } finally {
+                fs.deleteRecursively(node)
+            }
+            if (fs.find(root, PROBE_FILE_NAME) != null) {
+                return ProbeResult.Failed("probe file could not be deleted")
+            }
+            ProbeResult.Writable
+        } catch (e: Exception) {
+            ProbeResult.Failed(e.message ?: "probe write failed")
         }
     }
 
