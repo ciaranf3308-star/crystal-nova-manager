@@ -729,6 +729,16 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        // The system package installer gives no callback: if we are
+        // still in Installing when the activity comes back, the user
+        // backed out of the system prompt and the install never
+        // happened (a completed install kills this process). Recover
+        // to a retryable state instead of stranding the UI.
+        manager.noteAppInstallAborted()
+    }
+
     override fun onDestroy() {
         scope.cancel()
         super.onDestroy()

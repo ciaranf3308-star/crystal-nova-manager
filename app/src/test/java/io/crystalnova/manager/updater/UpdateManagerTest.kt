@@ -30,6 +30,7 @@ class UpdateManagerTest {
     private lateinit var fs: InMemoryThemeFs
     private lateinit var prefs: MutableMap<String, String>
     private lateinit var storage: SafThemeStorage
+    private lateinit var work: java.io.File
 
     private val remoteSha = "abc1234def5678abc1234def5678abc1234def56"
     private val remoteVersionJson =
@@ -104,7 +105,7 @@ class UpdateManagerTest {
         return UpdateManager(
             storage = storage,
             github = gh,
-            workDir = tmp.newFolder("work").apply { mkdirs() },
+            workDir = tmp.newFolder("work").apply { mkdirs() }.also { work = it },
             scope = this,
             ioDispatcher = StandardTestDispatcher(testScheduler),
             prefs = store,
@@ -281,5 +282,33 @@ class UpdateManagerTest {
         val manager = newManager(github())
         advanceUntilIdle()
         assertTrue(manager.state.value is ManagerState.NeedsFolder)
+    }
+
+    @Test
+    fun `aborted install with a cached APK returns to Downloaded`() = runTest {
+        val manager = newManager(github())
+        val apk = java.io.File(work, "manager-update-1.2.3-u2.apk")
+            .apply { writeBytes(byteArrayOf(1, 2, 3)) }
+        manager.noteAppInstallStarted()
+        assertTrue(manager.appUpdate.value is AppUpdateState.Installing)
+        manager.noteAppInstallAborted()
+        val state = manager.appUpdate.value
+        assertTrue(state is AppUpdateState.Downloaded)
+        assertEquals(apk, (state as AppUpdateState.Downloaded).file)
+    }
+
+    @Test
+    fun `aborted install without a cached APK returns to Idle`() = runTest {
+        val manager = newManager(github())
+        manager.noteAppInstallStarted()
+        manager.noteAppInstallAborted()
+        assertTrue(manager.appUpdate.value is AppUpdateState.Idle)
+    }
+
+    @Test
+    fun `aborted install is a no-op when not installing`() = runTest {
+        val manager = newManager(github())
+        manager.noteAppInstallAborted()
+        assertTrue(manager.appUpdate.value is AppUpdateState.Idle)
     }
 }

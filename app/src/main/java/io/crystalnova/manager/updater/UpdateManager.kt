@@ -415,6 +415,25 @@ class UpdateManager(
     }
 
     /**
+     * The system installer gives no callback, and a completed install
+     * kills this process — so if the activity resumes while still in
+     * [AppUpdateState.Installing], the user backed out of the system
+     * prompt and the install never happened. Drop back to
+     * [AppUpdateState.Downloaded] when the APK is still cached (one tap
+     * retries) or [AppUpdateState.Idle] otherwise, instead of stranding
+     * the UI on "INSTALLING — FOLLOW THE SYSTEM PROMPT" forever.
+     */
+    fun noteAppInstallAborted() {
+        if (_appUpdate.value !is AppUpdateState.Installing) return
+        val cached = workDir.listFiles()
+            ?.filter { it.name.startsWith("manager-update-") && it.isFile && it.length() > 0 }
+            ?.maxByOrNull { it.lastModified() }
+        _appUpdate.value =
+            if (cached != null) AppUpdateState.Downloaded(cached)
+            else AppUpdateState.Idle()
+    }
+
+    /**
      * The system needs the one-time "install unknown apps" grant first.
      * Returns to [AppUpdateState.Available] with guidance; the downloaded
      * APK (if any) is kept, so the next tap skips straight to install.
