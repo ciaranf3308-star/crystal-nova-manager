@@ -331,8 +331,12 @@ class UpdateManager(
                                 // Surfaced through the exact same
                                 // AppUpdateState flow as stable updates —
                                 // the UPDATE APP button needs no changes.
+                                // The build code is part of the display
+                                // version: every DEV u-build shares the
+                                // versionName, so the code is the only
+                                // thing that tells them apart.
                                 SelfUpdateInfo(
-                                    version = manifest.versionName,
+                                    version = "${manifest.versionName} (${manifest.versionCode})",
                                     tag = "dev-latest",
                                     apkUrl = manifest.apkUrl,
                                 )

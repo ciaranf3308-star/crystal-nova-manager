@@ -99,6 +99,12 @@ class MainActivity : ComponentActivity() {
     private lateinit var pegasus: PegasusLibrary
     private val scope = MainScope()
 
+    /** Human-readable build tag, e.g. "1.2.3-u2 (14)". The versionName
+     *  alone never changes across DEV builds, so the code is the only
+     *  thing that tells them apart. */
+    private val appVersionLabel: String =
+        "${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})"
+
     /** The remembered [Navigator], mirrored here for the back callback. */
     private var navigator: Navigator? = null
 
@@ -287,7 +293,7 @@ class MainActivity : ComponentActivity() {
             github = GitHubRepository(),
             workDir = File(cacheDir, "updater").apply { mkdirs() },
             scope = scope,
-            appVersion = BuildConfig.VERSION_NAME,
+            appVersion = appVersionLabel,
             // BuildConfig.VERSION_CODE defaults in; the manager reads the
             // persisted update channel (default DEV) from prefs itself.
             prefs = prefs,
@@ -330,7 +336,7 @@ class MainActivity : ComponentActivity() {
             when (val dest = nav.current) {
                 is Dest.Home -> HomeScreen(
                     scraperState = scraperState,
-                    appVersion = BuildConfig.VERSION_NAME,
+                    appVersion = appVersionLabel,
                     appUpdate = appUpdate,
                     pegasusReady = isPegasusInstalled(),
                     onUpdateApp = { onUpdateApp() },
@@ -393,7 +399,7 @@ class MainActivity : ComponentActivity() {
                     mediaLocation = scraperState.mediaLocation,
                     themesRootLabel = themesRootLabel(),
                     updateChannel = updateChannel,
-                    appVersion = BuildConfig.VERSION_NAME,
+                    appVersion = appVersionLabel,
                     appUpdate = appUpdate,
                     locationError = locError,
                     onDismissLocationError = { locationError = null },

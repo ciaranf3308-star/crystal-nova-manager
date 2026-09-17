@@ -127,7 +127,7 @@ class DevUpdateManagerTest {
         val (manager, _) = newManager(devUpdate(manifestCode = 8))
         advanceUntilIdle()
         val state = manager.appUpdate.value as AppUpdateState.Available
-        assertEquals("1.2.1-u2", state.info.version)
+        assertEquals("1.2.1-u2 (8)", state.info.version)
         assertEquals("dev-latest", state.info.tag)
         assertTrue(state.info.apkUrl.endsWith("crystal-nova-manager-dev.apk"))
     }
