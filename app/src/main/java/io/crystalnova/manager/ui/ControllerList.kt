@@ -155,10 +155,8 @@ class ControllerScrollEngine internal constructor(
         if (index < 0) return
         scrollJob?.cancel()
         scrollJob = scope.launch {
-            val vp = viewportHeightPx
-            val inset = (vp / 6).coerceAtLeast(0)
-            if (vp > 0 && isComfortablyVisible(index, inset)) return@launch
-            scrollToComfortable(index)
+            // EXPERIMENT: no-op body to isolate whether the launch itself
+            // breaks the layout vs the scrollToItem inside it.
         }
     }
 
