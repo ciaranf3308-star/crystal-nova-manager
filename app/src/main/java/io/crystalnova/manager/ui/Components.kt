@@ -5,6 +5,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.BringIntoViewRequester
+import androidx.compose.foundation.gestures.bringIntoViewRequester
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -154,6 +156,18 @@ fun CrystalButton(
     val focusRequester = remember { FocusRequester() }
     val scrollModifier = Modifier.controllerScrollItem(scrollEngine, scrollIndex)
     val tagModifier = if (testTag != null) Modifier.testTag(testTag) else Modifier
+    // Suppress Compose's automatic bring-into-view on focus: it animates
+    // (which never settles under Robolectric) and fights our scroll engine
+    // for the lazy list's scroll mutex. The controllerScrollItem engine
+    // owns all focus scrolling, placing rows comfortably (centered, never
+    // edge-flush) instead of the default minimal edge-aligned scroll.
+    val noopBringIntoView = remember {
+        object : BringIntoViewRequester {
+            override suspend fun bringIntoView(rect: androidx.compose.ui.geometry.Rect?) {
+                // Intentionally empty: scrolling is owned by the engine.
+            }
+        }
+    }
     LaunchedEffect(key, onClick) {
         dispatcher.register(key, onClick)
         dispatcher.registerFocusRequester(key, focusRequester)
@@ -193,6 +207,7 @@ fun CrystalButton(
                 focused = it.isFocused
                 if (it.isFocused) dispatcher.onFocused(key)
             }
+            .bringIntoViewRequester(noopBringIntoView)
             .focusable(enabled = enabled)
             .clip(RoundedCornerShape(2.dp))
             .background(bg)
