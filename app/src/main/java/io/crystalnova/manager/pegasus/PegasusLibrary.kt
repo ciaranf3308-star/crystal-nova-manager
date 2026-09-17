@@ -278,7 +278,7 @@ class PegasusLibrary(
             logger(TAG, "metafile readback failed", e)
             null
         }
-        if (readBack.isNullOrEmpty()) {
+        if (readBack == null || readBack.isEmpty()) {
             logger(TAG, "metafile readback missing or empty", null)
             return false
         }
