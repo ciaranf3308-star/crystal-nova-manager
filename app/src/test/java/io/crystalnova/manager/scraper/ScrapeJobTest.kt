@@ -476,7 +476,7 @@ class ScrapeJobTest {
         val games = listOf(entry())
         val first = job(storage, http, tmp = tmp).run(games, onProgress = {})
         assertEquals(1, first.succeeded)
-        val manifest = storage.loadManifest("gba", "mario-golf-e")!!
+        val manifest = storage.loadManifest("gba", "mario-golf")!!
         assertEquals(Completeness.COMPLETE_CASE_AND_MEDIA, manifest.completeness)
 
         // Second run, incomplete-only, with a provider that counts calls:
