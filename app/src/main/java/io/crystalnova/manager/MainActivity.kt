@@ -3,6 +3,7 @@ package io.crystalnova.manager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
+import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
@@ -24,7 +25,11 @@ import io.crystalnova.manager.pegasus.LauncherPresets
 import io.crystalnova.manager.pegasus.LauncherProfile
 import io.crystalnova.manager.pegasus.LauncherSource
 import io.crystalnova.manager.pegasus.LauncherType
+import io.crystalnova.manager.pegasus.ConfigValidity
+import io.crystalnova.manager.pegasus.PegasusConfigRoots
+import io.crystalnova.manager.pegasus.PegasusIntents
 import io.crystalnova.manager.pegasus.PegasusLibrary
+import io.crystalnova.manager.pegasus.PegasusRestartGate
 import io.crystalnova.manager.scraper.match.PlatformTable
 import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
@@ -52,6 +57,7 @@ import io.crystalnova.manager.ui.ThemeScreen
 import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.diag.EmulatorPackageStatus
+import io.crystalnova.manager.diag.PegasusConfigDiag
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
@@ -135,6 +141,14 @@ class MainActivity : ComponentActivity() {
     private var pegasusConfigRev: Int by mutableStateOf(0)
 
     /**
+     * v18 reload path: set after every successful BUILD so the next
+     * OPEN PEGASUS tap restarts Pegasus (verified full-rescan reload,
+     * see [PegasusIntents]). A plain tap with no pending build keeps
+     * the old resume behavior.
+     */
+    private val pegasusRestartGate = PegasusRestartGate()
+
+    /**
      * Themes-root picker. Keeps the U1.1 normalize + guidance behavior:
      * picking the theme folder itself re-prompts for the themes/ parent.
      */
@@ -208,22 +222,64 @@ class MainActivity : ComponentActivity() {
         }
 
     /**
-     * Pegasus config-root picker. This is a SEPARATE persisted SAF grant
-     * from the themes/ROM/media folders — the Manager owns exactly one
-     * file under it (metafiles/crystal-nova.metadata.pegasus.txt) and
-     * never assumes another grant covers it.
+     * Pegasus config-root picker (v18 repair flow). This is a SEPARATE
+     * persisted SAF grant from the themes/ROM/media folders — the
+     * Manager owns exactly one file under it
+     * (metafiles/crystal-nova.metadata.pegasus.txt) and never assumes
+     * another grant covers it.
+     *
+     * The picked tree is VALIDATED against the two real Pegasus config
+     * roots ([PegasusConfigRoots]) BEFORE anything is persisted: an
+     * invalid pick keeps the old state (the old preference is never
+     * deleted by a bad pick) and shows a short notice; a cancelled
+     * pick keeps the old state silently. A valid pick is persisted and
+     * the dashboard re-evaluates to CONFIG READY.
      */
     private val pegasusPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            if (uri != null) {
-                val ok = pegasus.config.adoptTreeUri(contentResolver, uri)
+            if (uri == null) return@registerForActivityResult // Cancelled: keep old state.
+            val documentId =
+                runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
+            if (documentId == null ||
+                PegasusConfigRoots.validateDocumentId(documentId) != ConfigValidity.VALID
+            ) {
                 pegasusNotice =
-                    if (ok) null else "COULD NOT KEEP PEGASUS FOLDER ACCESS — PLEASE TRY AGAIN"
-                // Force the setup screen to recompose: it reads the
-                // persisted URI directly, and pegasusNotice may not change.
-                if (ok) pegasusConfigRev++
+                    "THAT ISN'T A PEGASUS CONFIG FOLDER — PICK THE pegasus-frontend FOLDER"
+                return@registerForActivityResult
             }
+            // Take the grant first, persist only now that the tree is
+            // known valid.
+            if (!pegasus.config.takeGrant(contentResolver, uri)) {
+                pegasusNotice = "COULD NOT KEEP PEGASUS FOLDER ACCESS — PLEASE TRY AGAIN"
+                return@registerForActivityResult
+            }
+            pegasus.config.adoptTreeUriString(uri.toString())
+            pegasusNotice = null
+            // Force the setup screen to recompose: it reads the
+            // persisted URI directly, and pegasusNotice may not change.
+            pegasusConfigRev++
         }
+
+    /**
+     * Opens the config picker near the top of internal storage (API
+     * 26+), so the user sees the real `pegasus-frontend` folder
+     * without having to know about Android/data internals. Any failure
+     * falls back to a plain launch(null).
+     */
+    private fun pegasusConfigInitialUri(): Uri? {
+        return try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents",
+                    "primary:",
+                )
+            } else {
+                null
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 
     /**
      * U1.1: the U1 wording led users to pick crystal-nova-pegasus-theme/
@@ -497,7 +553,12 @@ class MainActivity : ComponentActivity() {
                     val configRev = pegasusConfigRev
                     val rows = pegasusRows()
                     val configUri = pegasus.config.treeUri()
-                    val configReady = configUri != null && pegasus.config.hasAccess()
+                    // v18: BUILD is gated on a VALID config root, and the
+                    // dashboard row reflects the full validity state
+                    // (WRONG FOLDER / ACCESS LOST / NOT SELECTED), not
+                    // just readability.
+                    val configReady = configUri != null &&
+                        pegasus.config.validity() == ConfigValidity.VALID
                     val unconfigured = rows
                         .filter { it.gameCount > 0 && it.launcherStatus == "NOT CONFIGURED" }
                         .map { it.label.uppercase() }
@@ -511,7 +572,7 @@ class MainActivity : ComponentActivity() {
                         injecting = pegasusBusy,
                         notice = pegasusNotice,
                         pegasusInstalled = isPegasusInstalled(),
-                        onPickConfig = { pegasusPicker.launch(null) },
+                        onPickConfig = { pegasusPicker.launch(pegasusConfigInitialUri()) },
                         onRescan = { scraper.scan() },
                         onConfigureLaunchers = { nav.navigate(Dest.PegasusLaunchers) },
                         onInject = { injectPegasus() },
@@ -663,6 +724,21 @@ class MainActivity : ComponentActivity() {
         emulatorPackages = emulatorDetector.detectionReport().map { (pkg, installed) ->
             EmulatorPackageStatus(pkg, installed)
         },
+        // v18: the Pegasus config root Pegasus actually reads — the
+        // display path (never a raw content:// URI in the dashboard),
+        // the validity state, whether the Manager-owned metafile is
+        // present and its size, and the last verified build's counts.
+        pegasusConfig = runCatching {
+            val status = pegasus.metafileStatus()
+            val uri = pegasus.config.treeUri()
+            PegasusConfigDiag(
+                displayPath = uri?.let { pegasus.describeUri(it) } ?: "NOT SELECTED",
+                validity = pegasus.config.validity().name,
+                metafilePresent = status.present,
+                metafileBytes = status.bytes,
+                lastInjected = pegasus.lastInjectSummary(),
+            )
+        }.getOrNull(),
     )
 
     /**
@@ -697,8 +773,29 @@ class MainActivity : ComponentActivity() {
     private fun isPegasusInstalled(): Boolean =
         packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE) != null
 
+    /**
+     * v18 reload path. When a fresh BUILD is pending, launches Pegasus
+     * with the verified restart intent (explicit component +
+     * NEW_TASK|CLEAR_TASK, see [PegasusIntents]) so Pegasus cold-starts
+     * and rescans the library — and clears the pending state. A plain
+     * tap with no pending build keeps the old resume behavior (never
+     * kills the user's session unnecessarily). Guarded: Pegasus may
+     * not be installed, so a failed launch is a no-op, exactly like
+     * the old path.
+     */
     private fun openPegasus() {
-        packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE)?.let(::startActivity)
+        val restart = pegasusRestartGate.consumeRestart()
+        val intent = if (restart) {
+            PegasusIntents.restartIntent()
+        } else {
+            packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE)
+        }
+        try {
+            intent?.let(::startActivity)
+        } catch (_: Exception) {
+            // Pegasus not installed (or launch refused): the setup
+            // screen already shows the PEGASUS NOT INSTALLED line.
+        }
     }
 
     /**
@@ -769,9 +866,13 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Explicit INJECT / REFRESH PEGASUS LIBRARY. Runs off the main
+     * Explicit INJECT / BUILD PEGASUS LIBRARY. Runs off the main
      * thread; the result (counts, skipped systems, or a failure
      * message) lands in [pegasusNotice]. Never runs automatically.
+     *
+     * v18: a verified build arms the restart gate — the next OPEN
+     * PEGASUS tap restarts Pegasus so it cold-starts and rescans the
+     * new library (see [PegasusIntents]).
      */
     private fun injectPegasus() {
         if (pegasusBusy) return
@@ -782,18 +883,21 @@ class MainActivity : ComponentActivity() {
             withContext(Dispatchers.Main) {
                 pegasusBusy = false
                 pegasusNotice = when (outcome) {
-                    is PegasusLibrary.InjectOutcome.Ok -> buildString {
-                        append("INJECTED ${outcome.games} GAMES · ${outcome.collections} SYSTEMS")
-                        if (outcome.skippedNoLauncher.isNotEmpty()) {
-                            append(" — SKIPPED — NO LAUNCHER: ")
-                            append(outcome.skippedNoLauncher.joinToString(", ").uppercase())
-                        }
-                        if (outcome.unknownFolders.isNotEmpty()) {
-                            append(" — IGNORED FOLDERS (NOT RECOGNIZED): ")
-                            append(outcome.unknownFolders.joinToString(", ").uppercase())
-                        }
-                        append(" — RESTART PEGASUS TO APPLY")
-                    }.toString()
+                    is PegasusLibrary.InjectOutcome.Ok -> {
+                        pegasusRestartGate.pendingBuild = true
+                        buildString {
+                            append("LIBRARY BUILT · ${outcome.collections} SYSTEMS · ${outcome.games} GAMES")
+                            if (outcome.skippedNoLauncher.isNotEmpty()) {
+                                append(" — SKIPPED — NO LAUNCHER: ")
+                                append(outcome.skippedNoLauncher.joinToString(", ").uppercase())
+                            }
+                            if (outcome.unknownFolders.isNotEmpty()) {
+                                append(" — IGNORED FOLDERS (NOT RECOGNIZED): ")
+                                append(outcome.unknownFolders.joinToString(", ").uppercase())
+                            }
+                            append(" · OPEN PEGASUS TO RESTART & RELOAD")
+                        }.toString()
+                    }
                     is PegasusLibrary.InjectOutcome.Failed -> outcome.message
                 }
             }

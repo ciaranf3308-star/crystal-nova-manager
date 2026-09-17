@@ -93,6 +93,30 @@ fun DiagnosticsScreen(
                     }
                 }
             }
+            info.pegasusConfig?.let { p ->
+                section {
+                    CrystalPanel {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            DiagSection("PEGASUS CONFIG")
+                            DiagRow("CONFIG PATH", p.displayPath, null)
+                            DiagRow(
+                                "VALIDITY",
+                                p.validity.replace('_', ' '),
+                                if (p.validity == "VALID") Crystal.Good else Crystal.Bad,
+                            )
+                            DiagRow(
+                                "MANAGER METAFILE",
+                                if (p.metafilePresent) "PRESENT" else "NOT FOUND",
+                                if (p.metafilePresent) Crystal.Good else Crystal.Bad,
+                            )
+                            p.metafileBytes?.let {
+                                DiagRow("METAFILE SIZE", "$it BYTES", null)
+                            }
+                            DiagRow("LAST BUILD", p.lastInjected, null)
+                        }
+                    }
+                }
+            }
             info.lastCrashTrace?.let { trace ->
                 section {
                     CrystalPanel {

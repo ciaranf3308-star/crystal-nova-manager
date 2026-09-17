@@ -23,12 +23,31 @@ data class DiagnosticsInfo(
     val lastCrashTrace: String? = null,
     /** Every known emulator candidate package with its install state. */
     val emulatorPackages: List<EmulatorPackageStatus> = emptyList(),
+    /** v18: the Pegasus config root Pegasus actually reads. */
+    val pegasusConfig: PegasusConfigDiag? = null,
 )
 
 /** One known emulator candidate and whether PackageManager sees it. */
 data class EmulatorPackageStatus(
     val packageName: String,
     val installed: Boolean,
+)
+
+/**
+ * v18: the Pegasus config root Pegasus actually reads (or doesn't).
+ * Plain data; the Diagnostics screen only renders it.
+ */
+data class PegasusConfigDiag(
+    /** Friendly display path of the selected config root, or NOT SELECTED. */
+    val displayPath: String,
+    /** [io.crystalnova.manager.pegasus.ConfigValidity] name, e.g. VALID / WRONG_FOLDER. */
+    val validity: String,
+    /** Whether the Manager-owned metafile could be read back. */
+    val metafilePresent: Boolean,
+    /** Its byte size, null when unreadable. */
+    val metafileBytes: Long?,
+    /** "n SYSTEMS · m GAMES" from the last verified inject, or "NONE". */
+    val lastInjected: String,
 )
 
 /** One-line summary of the manager self-update state. */

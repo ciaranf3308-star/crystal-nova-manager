@@ -110,17 +110,24 @@ fun PegasusSetupScreen(
                         )
                         SummaryRow(
                             label = "PEGASUS",
-                            value = if (configReady) "CONFIG READY" else configStatus,
+                            value = configStatus,
                             valueColor = if (configReady) Crystal.Good else Crystal.Bad,
                         )
                     }
                 }
             }
             if (!configReady) {
+                // v18: any non-valid config (not selected, wrong folder,
+                // or lost grant) gets the one obvious repair action. The
+                // picker opens near the top of internal storage so the
+                // user never has to know about Android/data internals.
+                section {
+                    DimLine("PEGASUS READS ITS LIBRARY FROM A pegasus-frontend FOLDER AT THE TOP OF INTERNAL STORAGE.")
+                }
                 control(
                     key = "pegasus-setup-config",
                     testTag = "pegasus-setup-config",
-                    label = "SELECT PEGASUS FOLDER",
+                    label = "FIX PEGASUS FOLDER",
                     onClick = onPickConfig,
                 )
             }

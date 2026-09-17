@@ -24,19 +24,31 @@ import io.crystalnova.manager.storage.SafThemeFs
  * - Writes exactly one Manager-owned file,
  *   `metafiles/crystal-nova.metadata.pegasus.txt`, via tmp-file +
  *   rename. Never writes or overwrites any other metadata file.
+ *   After the write, the metafile is reopened and read back: the
+ *   inject fails unless the readback is non-empty and byte-identical
+ *   to what was written.
+ * - The config root must be one Pegasus actually reads
+ *   ([ConfigValidity.VALID]); a wrong or lost root refuses the inject
+ *   and points the user at FIX PEGASUS FOLDER.
  * - Regeneration happens only on explicit INJECT/REFRESH — never
  *   automatically.
  *
- * [gameSource]/[writer] are seams for unit tests; null means the
- * SAF-backed defaults. [logger] is a seam for the same reason:
- * android.util.Log throws under JVM unit tests.
+ * [gameSource]/[writer]/[metafileReader] are seams for unit tests; null
+ * means the SAF-backed defaults. [logger] is a seam for the same
+ * reason: android.util.Log throws under JVM unit tests.
  */
 class PegasusLibrary(
     private val context: Context?,
-    prefs: KeyValueStore,
+    private val prefs: KeyValueStore,
     private val locations: io.crystalnova.manager.storage.StorageLocations,
     internal var gameSource: (suspend () -> List<ScannedGame>)? = null,
     internal var writer: ((configTreeUri: String, bytes: ByteArray) -> Boolean)? = null,
+    /**
+     * Readback seam mirroring [writer]: reopens the Manager-owned
+     * metafile and returns its bytes, or null when unreadable.
+     * Defaults to a SAF read of the same metafile the writer wrote.
+     */
+    internal var metafileReader: ((configTreeUri: String) -> ByteArray?)? = null,
     private val logger: (tag: String, msg: String, err: Throwable?) -> Unit =
         { tag, msg, err -> Log.w(tag, msg, err) },
 ) {
@@ -50,18 +62,22 @@ class PegasusLibrary(
          */
         internal const val TMP_NAME = "crystal-nova-manager-write.tmp"
         internal const val BACKUP_NAME = "crystal-nova-manager-backup.tmp"
+
+        /** Last verified inject, stored as "systems|games". */
+        internal const val KEY_LAST_INJECT = "pegasus_last_inject"
     }
 
     val config = PegasusConfig(context, prefs, logger)
     val profiles = LauncherProfileStore(prefs)
 
     /**
-     * Grant-check seams. Production defaults hit [PegasusConfig.hasAccess]
-     * and [io.crystalnova.manager.storage.StorageLocations.hasAccess];
+     * Grant-check seams. Production defaults hit
+     * [PegasusConfig.validity] and
+     * [io.crystalnova.manager.storage.StorageLocations.hasAccess];
      * unit tests override them because DocumentFile/PackageManager are
      * unavailable on the JVM.
      */
-    internal var checkConfigAccess: () -> Boolean = config::hasAccess
+    internal var checkConfigValidity: () -> ConfigValidity = config::validity
     internal var checkRomAccess: () -> Boolean = { locations.hasAccess(LocationKind.ROM) }
     internal var describeUri: (String) -> String = { locations.displayPath(it) }
 
@@ -180,8 +196,17 @@ class PegasusLibrary(
     suspend fun inject(): InjectOutcome {
         val configUri = config.treeUri()
             ?: return InjectOutcome.Failed("PEGASUS FOLDER NOT SELECTED")
-        if (!checkConfigAccess()) {
-            return InjectOutcome.Failed("PEGASUS FOLDER ACCESS LOST — PLEASE RESELECT")
+        // v18: the config root must be a real Pegasus config root, not
+        // just a readable folder. An invalid root refuses the inject —
+        // the UI points the user at FIX PEGASUS FOLDER.
+        when (checkConfigValidity()) {
+            ConfigValidity.VALID -> Unit
+            ConfigValidity.NOT_SELECTED ->
+                return InjectOutcome.Failed("PEGASUS FOLDER NOT SELECTED")
+            ConfigValidity.WRONG_FOLDER ->
+                return InjectOutcome.Failed("PEGASUS FOLDER INVALID — USE FIX PEGASUS FOLDER")
+            ConfigValidity.ACCESS_LOST ->
+                return InjectOutcome.Failed("PEGASUS FOLDER ACCESS LOST — PLEASE RESELECT")
         }
         if (!checkRomAccess()) {
             return InjectOutcome.Failed("ROM LIBRARY NOT AVAILABLE")
@@ -219,27 +244,98 @@ class PegasusLibrary(
             logger(TAG, "bad game path in metafile", e)
             return InjectOutcome.Failed("BAD GAME PATH — ${e.message}")
         }
-        val ok = writeMetafile(configUri, text.toByteArray())
-        return if (ok) {
-            InjectOutcome.Ok(
-                collections.size,
-                collections.sumOf { it.games.size },
-                built.unknownFolders,
-                built.unconfiguredSystems,
-            )
-        } else {
-            InjectOutcome.Failed("WRITE FAILED — CHECK THE PEGASUS FOLDER GRANT")
+        val bytes = text.toByteArray()
+        val ok = writeMetafile(configUri, bytes)
+        if (!ok) {
+            return InjectOutcome.Failed("WRITE FAILED — CHECK THE PEGASUS FOLDER GRANT")
+        }
+        // v18: verify the write, not just the rename. Reopen the
+        // Manager-owned metafile and require it to be non-empty AND
+        // byte-identical to what was written.
+        if (!verifyMetafile(configUri, bytes)) {
+            return InjectOutcome.Failed("METAFILE VERIFY FAILED — READBACK DID NOT MATCH")
+        }
+        val systems = collections.size
+        val games = collections.sumOf { it.games.size }
+        noteLastInject(systems, games)
+        return InjectOutcome.Ok(
+            systems,
+            games,
+            built.unknownFolders,
+            built.unconfiguredSystems,
+        )
+    }
+
+    /**
+     * v18: readback verification. Reopens the metafile the writer just
+     * wrote and requires nonzero bytes that are exactly equal to what
+     * was written. Never throws.
+     */
+    private fun verifyMetafile(configTreeUri: String, bytes: ByteArray): Boolean {
+        val readBack = try {
+            (metafileReader ?: ::defaultRead)(configTreeUri)
+        } catch (e: Exception) {
+            logger(TAG, "metafile readback failed", e)
+            null
+        }
+        if (readBack.isNullOrEmpty()) {
+            logger(TAG, "metafile readback missing or empty", null)
+            return false
+        }
+        if (!readBack.contentEquals(bytes)) {
+            logger(TAG, "metafile readback bytes differ from what was written", null)
+            return false
+        }
+        return true
+    }
+
+    /** Result of [metafileStatus]. */
+    data class MetafileStatus(val present: Boolean, val bytes: Long?)
+
+    /**
+     * Whether the Manager-owned metafile is present and readable, and
+     * its byte size (null when unreadable). Backed by the
+     * [metafileReader] seam, so diagnostics and verification agree.
+     * Never throws.
+     */
+    fun metafileStatus(): MetafileStatus {
+        val configUri = config.treeUri() ?: return MetafileStatus(false, null)
+        val bytes = try {
+            (metafileReader ?: ::defaultRead)(configUri)
+        } catch (_: Exception) {
+            null
+        }
+        return MetafileStatus(bytes != null, bytes?.size?.toLong())
+    }
+
+    /** "n SYSTEMS · m GAMES" from the last verified inject, or "NONE". */
+    fun lastInjectSummary(): String {
+        val raw = prefs.getString(KEY_LAST_INJECT) ?: return "NONE"
+        val parts = raw.split('|')
+        val systems = parts.getOrNull(0)?.toIntOrNull() ?: 0
+        val games = parts.getOrNull(1)?.toIntOrNull() ?: 0
+        return "$systems SYSTEMS · $games GAMES"
+    }
+
+    /** Persists the counts of the last VERIFIED inject. */
+    private fun noteLastInject(systems: Int, games: Int) {
+        try {
+            prefs.putString(KEY_LAST_INJECT, "$systems|$games")
+        } catch (e: Exception) {
+            logger(TAG, "persist last inject failed", e)
         }
     }
 
     /**
-     * Friendly config-root status for the UI. Never a raw content://
-     * URI: `NOT SELECTED`, the parsed display path, or the access-lost
-     * reselection prompt.
+     * Friendly config-root validity for the dashboard PEGASUS CONFIG
+     * row. Never a raw content:// URI; the real display path lives in
+     * Diagnostics.
      */
-    fun configDisplayPath(): String {
-        val uri = config.treeUri() ?: return "NOT SELECTED"
-        return if (checkConfigAccess()) describeUri(uri) else "ACCESS LOST — RESELECT"
+    fun configDisplayPath(): String = when (checkConfigValidity()) {
+        ConfigValidity.VALID -> "CONFIG READY"
+        ConfigValidity.WRONG_FOLDER -> "WRONG FOLDER"
+        ConfigValidity.ACCESS_LOST -> "ACCESS LOST — RESELECT"
+        ConfigValidity.NOT_SELECTED -> "NOT SELECTED"
     }
 
     private fun writeMetafile(configTreeUri: String, bytes: ByteArray): Boolean {
@@ -301,6 +397,25 @@ class PegasusLibrary(
         } catch (e: Exception) {
             logger(TAG, "default metafile write failed", e)
             false
+        }
+    }
+
+    /**
+     * SAF read of the Manager-owned metafile — the default behind
+     * [metafileReader], i.e. the same `<config root>/metafiles/`
+     * file the writer wrote. Used for write verification and the
+     * diagnostics metafile status. Null on any failure; never throws.
+     */
+    private fun defaultRead(configTreeUri: String): ByteArray? {
+        return try {
+            val fs = SafThemeFs(context!!) { configTreeUri }
+            val root = fs.root() ?: return null
+            val metafiles = fs.find(root, MetafileGenerator.METAFILES_DIR) ?: return null
+            val node = fs.find(metafiles, MetafileGenerator.FILE_NAME) ?: return null
+            fs.openInput(node).use { it.readBytes() }
+        } catch (e: Exception) {
+            logger(TAG, "default metafile read failed", e)
+            null
         }
     }
 }

@@ -15,9 +15,16 @@ class PegasusLibraryTest {
             logger = { _, _, _ -> },
         )
         // JVM-test seams: DocumentFile / PackageManager are unavailable here.
-        lib.checkConfigAccess = { true }
+        lib.config.documentIdOf = { "primary:pegasus-frontend" }
+        lib.config.grantStillHeld = { true }
         lib.checkRomAccess = { true }
         lib.describeUri = { "DISPLAY/$it" }
+        // In-memory stand-in for the SAF config root: writer stores,
+        // reader reads back — the same round trip the real SAF path
+        // must survive.
+        val disk = mutableMapOf<String, ByteArray>()
+        lib.writer = { uri, bytes -> disk[uri] = bytes; true }
+        lib.metafileReader = { uri -> disk[uri] }
         return lib
     }
 
@@ -142,7 +149,7 @@ class PegasusLibraryTest {
         val prefs = FakePrefs()
         val lib = library(prefs)
         lib.config.adoptTreeUriString("content://com.example/tree/1")
-        lib.checkConfigAccess = { false }
+        lib.config.grantStillHeld = { false }
         val outcome = runBlocking { lib.inject() }
         assertEquals(
             PegasusLibrary.InjectOutcome.Failed("PEGASUS FOLDER ACCESS LOST — PLEASE RESELECT"),
@@ -212,6 +219,7 @@ class PegasusLibraryTest {
         }
         var writtenBytes: ByteArray? = null
         lib.writer = { _, bytes -> writtenBytes = bytes; true }
+        lib.metafileReader = { writtenBytes } // read back what the writer wrote
 
         val outcome = runBlocking { lib.inject() }
 
@@ -248,6 +256,7 @@ class PegasusLibraryTest {
         var writtenUri: String? = null
         var writtenBytes: ByteArray? = null
         lib.writer = { uri, bytes -> writtenUri = uri; writtenBytes = bytes; true }
+        lib.metafileReader = { writtenBytes } // read back what the writer wrote
 
         val outcome = runBlocking { lib.inject() }
 
@@ -305,15 +314,113 @@ class PegasusLibraryTest {
     }
 
     @Test
-    fun configDisplayPath_states() {
+    fun configDisplayPath_reflectsValidity() {
         val prefs = FakePrefs()
         val lib = library(prefs)
         assertEquals("NOT SELECTED", lib.configDisplayPath())
 
         lib.config.adoptTreeUriString("content://com.example/tree/1")
-        assertEquals("DISPLAY/content://com.example/tree/1", lib.configDisplayPath())
+        assertEquals("CONFIG READY", lib.configDisplayPath())
 
-        lib.checkConfigAccess = { false }
+        lib.config.grantStillHeld = { false }
         assertEquals("ACCESS LOST — RESELECT", lib.configDisplayPath())
+
+        lib.config.grantStillHeld = { true }
+        lib.config.documentIdOf = { "primary:Emulation/pegasus-frontend" }
+        assertEquals("WRONG FOLDER", lib.configDisplayPath())
+    }
+
+    @Test
+    fun inject_refusesWrongFolder_neverClearsProfilesOrState() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        // The real Nova bug, persisted: Emulation/pegasus-frontend.
+        lib.config.documentIdOf = { "primary:Emulation/pegasus-frontend" }
+        lib.config.adoptTreeUriString(
+            "content://com.android.externalstorage.documents/tree/primary%3AEmulation%2Fpegasus-frontend",
+        )
+        lib.profiles.set("gba", LauncherProfile(type = LauncherType.CUSTOM, command = "launch"))
+        lib.gameSource = {
+            listOf(game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"))
+        }
+        var wrote = false
+        lib.writer = { _, _ -> wrote = true; true }
+        var read = false
+        lib.metafileReader = { read = true; null }
+
+        val outcome = runBlocking { lib.inject() }
+
+        assertEquals(
+            PegasusLibrary.InjectOutcome.Failed("PEGASUS FOLDER INVALID — USE FIX PEGASUS FOLDER"),
+            outcome,
+        )
+        assertFalse("nothing may be written to an invalid root", wrote)
+        assertFalse("nothing may even be read back", read)
+        // Launcher profiles, library state, and the bad selection
+        // itself are untouched — the repair flow only overwrites the
+        // pref with a VALID pick.
+        assertNotNull(lib.config.treeUri())
+        assertNotNull(lib.profiles.get("gba"))
+        assertEquals("NONE", lib.lastInjectSummary())
+    }
+
+    @Test
+    fun inject_readbackMismatch_fails() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        lib.gameSource = {
+            listOf(game("gba", "Game Boy Advance", "Game", "/storage/emulated/0/ROMs/gba/game.gba"))
+        }
+        lib.metafileReader = { "tampered".toByteArray() }
+        val outcome = runBlocking { lib.inject() }
+        assertEquals(
+            PegasusLibrary.InjectOutcome.Failed("METAFILE VERIFY FAILED — READBACK DID NOT MATCH"),
+            outcome,
+        )
+        assertEquals("NONE", lib.lastInjectSummary())
+    }
+
+    @Test
+    fun inject_readbackMissing_fails() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        lib.gameSource = {
+            listOf(game("gba", "Game Boy Advance", "Game", "/storage/emulated/0/ROMs/gba/game.gba"))
+        }
+        lib.metafileReader = { null }
+        val outcome = runBlocking { lib.inject() }
+        assertEquals(
+            PegasusLibrary.InjectOutcome.Failed("METAFILE VERIFY FAILED — READBACK DID NOT MATCH"),
+            outcome,
+        )
+        assertEquals("NONE", lib.lastInjectSummary())
+    }
+
+    @Test
+    fun inject_success_persistsLastInjectCountsAndMetafileStatus() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        assertEquals("NONE", lib.lastInjectSummary())
+        assertEquals(PegasusLibrary.MetafileStatus(false, null), lib.metafileStatus())
+
+        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        lib.gameSource = {
+            listOf(
+                game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"),
+                game("psx", "PlayStation", "Doom", "/storage/emulated/0/ROMs/psx/doom.cue"),
+            )
+        }
+        val outcome = runBlocking { lib.inject() }
+        val ok = outcome as PegasusLibrary.InjectOutcome.Ok
+        assertEquals(2, ok.collections)
+        assertEquals(2, ok.games)
+
+        // Only a VERIFIED inject persists counts.
+        assertEquals("2 SYSTEMS · 2 GAMES", lib.lastInjectSummary())
+        val status = lib.metafileStatus()
+        assertTrue(status.present)
+        assertTrue("metafile must be non-empty", (status.bytes ?: 0) > 0)
     }
 }
