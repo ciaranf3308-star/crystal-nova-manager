@@ -196,7 +196,7 @@ private fun UpdateBanner(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(modifier = Modifier.weight(1f)) {
-            StatusLine(text, Crystal.Cream)
+            StatusLine(text, Crystal.Joystick)
         }
         Box(modifier = Modifier.weight(1f)) {
             CrystalButton(

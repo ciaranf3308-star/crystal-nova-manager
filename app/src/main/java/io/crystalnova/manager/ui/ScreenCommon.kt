@@ -79,7 +79,7 @@ fun CrystalHeader() {
             style = TextStyle(
                 fontFamily = Crystal.Mono,
                 fontSize = Crystal.TitleSize,
-                color = Crystal.Divider,
+                color = Crystal.Joystick,
             ),
         )
     }

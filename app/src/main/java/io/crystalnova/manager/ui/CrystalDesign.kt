@@ -26,6 +26,11 @@ object Crystal {
     val Keycap = Color(0xFFCFD9E2)
     val Good = Color(0xFF9FD6A8)
     val Bad = Color(0xFFE08A8A)
+    /**
+     * Joystick yellow — the Retroid Pocket Nova's yellow sticks.
+     * Used sparingly: focus rings, the masthead mark, update chrome.
+     */
+    val Joystick = Color(0xFFFFC93C)
 
     val Mono: FontFamily = FontFamily(Font(R.font.departuremono_regular))
 

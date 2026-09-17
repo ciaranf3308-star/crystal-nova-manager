@@ -126,7 +126,8 @@ fun CrystalPanel(
 /**
  * Full-width Crystal button. Focused (D-pad) or pressed state uses the
  * cream selection treatment from the Pegasus theme; focused buttons
- * also get a heavier 3dp frame so focus is unmissable at Nova density.
+ * also get a heavier 3dp joystick-yellow frame so focus is unmissable
+ * at Nova density.
  *
  * [scrollEngine]/[scrollIndex]: when set, D-pad focus on this button
  * scrolls it to a comfortable (centered) viewport position via the
@@ -173,7 +174,7 @@ fun CrystalButton(
         else -> Crystal.Ink
     }
     val borderColor = when {
-        focused -> Crystal.Cream
+        focused -> Crystal.Joystick
         danger -> Crystal.Bad
         else -> Crystal.Frame
     }
