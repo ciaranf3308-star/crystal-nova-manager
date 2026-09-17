@@ -152,12 +152,7 @@ class ControllerScrollEngine internal constructor(
      * scroll from a previous focus event first.
      */
     fun requestScroll(index: Int, scope: CoroutineScope) {
-        if (index < 0) return
-        scrollJob?.cancel()
-        scrollJob = scope.launch {
-            // EXPERIMENT: no-op body to isolate whether the launch itself
-            // breaks the layout vs the scrollToItem inside it.
-        }
+        // EXPERIMENT: completely empty — no launch, no cancel.
     }
 
     /**
