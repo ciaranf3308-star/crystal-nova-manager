@@ -23,8 +23,8 @@ data class DiagnosticsInfo(
     val lastCrashTrace: String? = null,
     /** Every known emulator candidate package with its install state. */
     val emulatorPackages: List<EmulatorPackageStatus> = emptyList(),
-    /** v18: the Pegasus config root Pegasus actually reads. */
-    val pegasusConfig: PegasusConfigDiag? = null,
+    /** v19: the Manager-owned game-dir metafile in the ROM root. */
+    val pegasusMetafile: PegasusMetafileDiag? = null,
 )
 
 /** One known emulator candidate and whether PackageManager sees it. */
@@ -34,18 +34,30 @@ data class EmulatorPackageStatus(
 )
 
 /**
- * v18: the Pegasus config root Pegasus actually reads (or doesn't).
- * Plain data; the Diagnostics screen only renders it.
+ * v19: the Manager-owned game-dir metafile at the TOP LEVEL of the ROM
+ * root (`crystal-nova.metadata.pegasus.txt` — the name matches the
+ * `*.metadata.pegasus.txt` game-dir scanner pattern). Plain data; the
+ * Diagnostics screen only renders it.
  */
-data class PegasusConfigDiag(
-    /** Friendly display path of the selected config root, or NOT SELECTED. */
-    val displayPath: String,
-    /** [io.crystalnova.manager.pegasus.ConfigValidity] name, e.g. VALID / WRONG_FOLDER. */
-    val validity: String,
+data class PegasusMetafileDiag(
+    /** Friendly display path of the ROM root, or NOT SELECTED. */
+    val romRootPath: String,
+    /** Whether the persisted ROM-root grant carries read+write. */
+    val romWritable: Boolean,
+    /** The Manager-owned metafile name, e.g. `crystal-nova.metadata.pegasus.txt`. */
+    val fileName: String,
     /** Whether the Manager-owned metafile could be read back. */
     val metafilePresent: Boolean,
     /** Its byte size, null when unreadable. */
     val metafileBytes: Long?,
+    /** Crystal-parsed `collection:` line count, null when unparseable. */
+    val collectionCount: Int?,
+    /** Crystal-parsed `game:` line count, null when unparseable. */
+    val gameCount: Int?,
+    /** First `collection:` name, null when unparseable. */
+    val firstCollection: String?,
+    /** First emitted ROM path, null when unparseable. */
+    val firstRomPath: String?,
     /** "n SYSTEMS · m GAMES" from the last verified inject, or "NONE". */
     val lastInjected: String,
 )

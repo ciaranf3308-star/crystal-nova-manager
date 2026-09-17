@@ -18,11 +18,11 @@ import org.junit.Test
  * fails — that is the point of this test.
  *
  * Notes on the fixtures:
- * - Pegasus Setup uses `configReady = false` (shows SELECT PEGASUS
- *   FOLDER), an inject warning, a dismissible notice, and Pegasus
- *   installed — the tallest honest configuration. `injectEnabled = true`
- *   keeps INJECT focusable so the walk covers it; a disabled control is
- *   correctly skipped by D-pad and is a separate behavior.
+ * - Pegasus Setup uses `romWritable = false` (shows RE-PICK ROM ROOT),
+ *   an inject warning, a dismissible notice, and Pegasus installed — the
+ *   tallest honest configuration. `injectEnabled = true` keeps INJECT
+ *   focusable so the walk covers it; a disabled control is correctly
+ *   skipped by D-pad and is a separate behavior.
  * - The notice's DISMISS button carries no testTag (it is built by
  *   `SectionScope.notice`), so it is addressed by its exact label text.
  * - Theme uses the busiest `ManagerState.Ready`: update available,
@@ -34,8 +34,8 @@ class NovaNoStrandedControlTest : NovaUiTest() {
     fun everyPegasusSetupControlReachableByDpad() {
         setNovaContent {
             PegasusSetupScreen(
-                configStatus = "NOT CONFIGURED",
-                configReady = false,
+                metafileTarget = "INTERNAL STORAGE /ROMs · NOT WRITABLE — RE-PICK ROM ROOT",
+                romWritable = false,
                 systems = listOf(
                     PegasusSystemRow(
                         slug = "snes",
@@ -59,7 +59,7 @@ class NovaNoStrandedControlTest : NovaUiTest() {
                 injecting = false,
                 notice = "LIBRARY REFRESHED — 20 GAMES FOUND.",
                 pegasusInstalled = true,
-                onPickConfig = {},
+                onRepickRomRoot = {},
                 onRescan = {},
                 onConfigureLaunchers = {},
                 onInject = {},
@@ -71,7 +71,7 @@ class NovaNoStrandedControlTest : NovaUiTest() {
 
         assertDpadTraversalInViewport(
             listOf(
-                { composeTestRule.onNodeWithTag("pegasus-setup-config") },
+                { composeTestRule.onNodeWithTag("pegasus-setup-rom-root") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-autoconfigure") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-launchers") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-refresh") },

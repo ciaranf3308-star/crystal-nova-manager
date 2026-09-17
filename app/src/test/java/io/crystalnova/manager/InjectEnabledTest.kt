@@ -32,30 +32,30 @@ class InjectEnabledTest {
 
     @Test fun `mixed configured and unconfigured leaves INJECT enabled`() {
         val rows = listOf(configured("gba", 12), unconfigured("n64", 5))
-        assertTrue(isInjectEnabled(configReady = true, busy = false, rows = rows))
+        assertTrue(isInjectEnabled(romWritable = true, busy = false, rows = rows))
     }
 
     @Test fun `all populated systems unconfigured leaves INJECT disabled`() {
         val rows = listOf(unconfigured("gba", 12), unconfigured("n64", 5))
-        assertFalse(isInjectEnabled(configReady = true, busy = false, rows = rows))
+        assertFalse(isInjectEnabled(romWritable = true, busy = false, rows = rows))
     }
 
     @Test fun `no populated systems leaves INJECT disabled`() {
         val rows = listOf(configured("gba", 0), unconfigured("n64", 0))
-        assertFalse(isInjectEnabled(configReady = true, busy = false, rows = rows))
+        assertFalse(isInjectEnabled(romWritable = true, busy = false, rows = rows))
     }
 
     @Test fun `empty rows leave INJECT disabled`() {
-        assertFalse(isInjectEnabled(configReady = true, busy = false, rows = emptyList()))
+        assertFalse(isInjectEnabled(romWritable = true, busy = false, rows = emptyList()))
     }
 
-    @Test fun `config not ready disables INJECT`() {
+    @Test fun `ROM root not writable disables INJECT`() {
         val rows = listOf(configured("gba", 12))
-        assertFalse(isInjectEnabled(configReady = false, busy = false, rows = rows))
+        assertFalse(isInjectEnabled(romWritable = false, busy = false, rows = rows))
     }
 
     @Test fun `busy disables INJECT`() {
         val rows = listOf(configured("gba", 12))
-        assertFalse(isInjectEnabled(configReady = true, busy = true, rows = rows))
+        assertFalse(isInjectEnabled(romWritable = true, busy = true, rows = rows))
     }
 }

@@ -35,11 +35,19 @@ data class PegasusSystemRow(
 
 /**
  * PEGASUS SETUP: a compact status dashboard, not an endless page.
- * Three status rows (games / emulators / pegasus config), then the
+ * Three status rows (games / emulators / metafile target), then the
  * actions with the setup assistant as the obvious primary:
  * AUTO-CONFIGURE, REVIEW n ISSUES, REFRESH LIBRARY, BUILD PEGASUS
  * LIBRARY, OPEN PEGASUS. Per-system launcher configuration lives on
  * its own list screen as the advanced manual override.
+ *
+ * v19: the metafile is written to the TOP LEVEL of the ROM root —
+ * a registered Pegasus game dir — so the third row shows the
+ * ROM-root target and its writability. A non-writable ROM root gets
+ * the one obvious repair action: RE-PICK ROM ROOT (a standard
+ * ACTION_OPEN_DOCUMENT_TREE re-pick of the same folder, which refreshes
+ * the persistable read+write grant). BUILD is gated on that
+ * writability. The legacy pegasus-frontend config-root flow is gone.
  *
  * Never fakes configuration: unconfigured systems are listed as NOT
  * CONFIGURED, uninstalled emulator apps as NOT INSTALLED, and
@@ -48,15 +56,15 @@ data class PegasusSystemRow(
  */
 @Composable
 fun PegasusSetupScreen(
-    configStatus: String,
-    configReady: Boolean,
+    metafileTarget: String,
+    romWritable: Boolean,
     systems: List<PegasusSystemRow>,
     injectEnabled: Boolean,
     injectWarning: String?,
     injecting: Boolean,
     notice: String?,
     pegasusInstalled: Boolean,
-    onPickConfig: () -> Unit,
+    onRepickRomRoot: () -> Unit,
     onRescan: () -> Unit,
     onConfigureLaunchers: () -> Unit,
     onInject: () -> Unit,
@@ -79,7 +87,7 @@ fun PegasusSetupScreen(
         onBack = onBack,
         modifier = modifier,
         fallbackFocusKey = when {
-            !configReady -> "pegasus-setup-config"
+            !romWritable -> "pegasus-setup-rom-root"
             needSetup > 0 -> "pegasus-setup-autoconfigure"
             else -> "pegasus-setup-inject"
         },
@@ -109,26 +117,31 @@ fun PegasusSetupScreen(
                             valueColor = if (needSetup == 0) Crystal.Good else Crystal.Bad,
                         )
                         SummaryRow(
-                            label = "PEGASUS",
-                            value = configStatus,
-                            valueColor = if (configReady) Crystal.Good else Crystal.Bad,
+                            label = "METAFILE TARGET",
+                            value = metafileTarget,
+                            valueColor = if (romWritable) Crystal.Good else Crystal.Bad,
                         )
                     }
                 }
             }
-            if (!configReady) {
-                // v18: any non-valid config (not selected, wrong folder,
-                // or lost grant) gets the one obvious repair action. The
-                // picker opens near the top of internal storage so the
-                // user never has to know about Android/data internals.
+            // The one-time Pegasus-side step: Pegasus must know the ROM
+            // root as a game directory before it will see the metafile.
+            section {
+                DimLine("In Pegasus → Settings → \"Set game directories...\" → add the ROM root folder.")
+            }
+            if (!romWritable) {
+                // v19: BUILD needs WRITE on the ROM root. A read-only or
+                // lost grant gets the one obvious repair action — a
+                // standard re-pick of the ROM folder, which takes a fresh
+                // persistable read+write grant.
                 section {
-                    DimLine("PEGASUS READS ITS LIBRARY FROM A pegasus-frontend FOLDER AT THE TOP OF INTERNAL STORAGE.")
+                    DimLine("BUILD PEGASUS LIBRARY NEEDS WRITE ACCESS TO THE ROM ROOT — RE-PICK THE ROM FOLDER TO GRANT IT.")
                 }
                 control(
-                    key = "pegasus-setup-config",
-                    testTag = "pegasus-setup-config",
-                    label = "FIX PEGASUS FOLDER",
-                    onClick = onPickConfig,
+                    key = "pegasus-setup-rom-root",
+                    testTag = "pegasus-setup-rom-root",
+                    label = "RE-PICK ROM ROOT",
+                    onClick = onRepickRomRoot,
                 )
             }
             control(

@@ -93,17 +93,18 @@ fun DiagnosticsScreen(
                     }
                 }
             }
-            info.pegasusConfig?.let { p ->
+            info.pegasusMetafile?.let { p ->
                 section {
                     CrystalPanel {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            DiagSection("PEGASUS CONFIG")
-                            DiagRow("CONFIG PATH", p.displayPath, null)
+                            DiagSection("PEGASUS METAFILE")
+                            DiagRow("ROM ROOT", p.romRootPath, null)
                             DiagRow(
-                                "VALIDITY",
-                                p.validity.replace('_', ' '),
-                                if (p.validity == "VALID") Crystal.Good else Crystal.Bad,
+                                "ROM WRITABLE",
+                                if (p.romWritable) "YES" else "NO — RE-PICK ROM ROOT",
+                                if (p.romWritable) Crystal.Good else Crystal.Bad,
                             )
+                            DiagRow("FILE", p.fileName, null)
                             DiagRow(
                                 "MANAGER METAFILE",
                                 if (p.metafilePresent) "PRESENT" else "NOT FOUND",
@@ -112,7 +113,29 @@ fun DiagnosticsScreen(
                             p.metafileBytes?.let {
                                 DiagRow("METAFILE SIZE", "$it BYTES", null)
                             }
+                            p.collectionCount?.let {
+                                DiagRow("COLLECTIONS", "$it", null)
+                            }
+                            p.gameCount?.let {
+                                DiagRow("GAMES", "$it", null)
+                            }
+                            p.firstCollection?.let {
+                                DiagRow("FIRST COLLECTION", it, null)
+                            }
+                            p.firstRomPath?.let {
+                                DiagRow("FIRST ROM PATH", it, null)
+                            }
                             DiagRow("LAST BUILD", p.lastInjected, null)
+                        }
+                    }
+                }
+                section {
+                    CrystalPanel {
+                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                            DiagSection("COLLECTIONS NOT APPEARING?")
+                            MetafileHint("1. ADD THE ROM ROOT IN PEGASUS → SETTINGS → \"SET GAME DIRECTORIES\"")
+                            MetafileHint("2. PEGASUS SCANS GAMES ON LAUNCH — LEAVE THAT DEFAULT ON")
+                            MetafileHint("3. PEGASUS NEEDS ITS OWN STORAGE ACCESS — IT ASKS ON FIRST RUN")
                         }
                     }
                 }
@@ -238,6 +261,19 @@ fun DiagnosticsScreen(
 private fun DiagSection(title: String) {
     SectionLabel(title)
     CrystalDivider()
+}
+
+/** Compact static hint line for the Pegasus metafile panel. */
+@Composable
+private fun MetafileHint(text: String) {
+    BasicText(
+        text = text,
+        style = TextStyle(
+            fontFamily = Crystal.Mono,
+            fontSize = Crystal.SmallSize,
+            color = Crystal.Ink,
+        ),
+    )
 }
 
 @Composable

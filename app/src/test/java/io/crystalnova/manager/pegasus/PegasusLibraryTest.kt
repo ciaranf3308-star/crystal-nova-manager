@@ -7,6 +7,8 @@ import org.junit.Test
 
 class PegasusLibraryTest {
 
+    private val romUri = "content://com.example/tree/roms"
+
     private fun library(prefs: FakePrefs = FakePrefs()): PegasusLibrary {
         val lib = PegasusLibrary(
             context = null,
@@ -15,11 +17,10 @@ class PegasusLibraryTest {
             logger = { _, _, _ -> },
         )
         // JVM-test seams: DocumentFile / PackageManager are unavailable here.
-        lib.config.documentIdOf = { "primary:pegasus-frontend" }
-        lib.config.grantStillHeld = { true }
         lib.checkRomAccess = { true }
+        lib.checkRomWritable = { true }
         lib.describeUri = { "DISPLAY/$it" }
-        // In-memory stand-in for the SAF config root: writer stores,
+        // In-memory stand-in for the SAF ROM root: writer stores,
         // reader reads back — the same round trip the real SAF path
         // must survive.
         val disk = mutableMapOf<String, ByteArray>()
@@ -28,8 +29,48 @@ class PegasusLibraryTest {
         return lib
     }
 
+    /** v19: the ROM root is the write target, persisted as the ROM tree URI. */
+    private fun adoptRomRoot(prefs: FakePrefs) {
+        prefs.putString(StorageLocations.KEY_ROM_TREE_URI, romUri)
+    }
+
     private fun game(slug: String, label: String, title: String, path: String) =
         PegasusLibrary.ScannedGame(slug, label, title, path)
+
+    @Test
+    fun metafileFileName_matchesPegasusGameDirScannerPattern() {
+        // Pegasus's is_metadata_file() accepts `*.metadata.pegasus.txt`
+        // at the top level of a registered game dir.
+        assertEquals("crystal-nova.metadata.pegasus.txt", MetafileGenerator.FILE_NAME)
+        assertTrue(
+            "crystal-nova.metadata.pegasus.txt".matches(Regex(""".*\.metadata\.pegasus\.txt""")),
+        )
+        assertTrue(
+            "crystal-nova.metadata.pegasus.txt".matches(Regex(""".*\.metadata\.txt""")),
+        )
+        assertFalse("swap scratch must never look like a metadata file",
+            PegasusLibrary.TMP_NAME.matches(Regex(""".*\.metadata\.pegasus\.txt""")),
+        )
+        assertFalse("backup must never look like a metadata file",
+            PegasusLibrary.BACKUP_NAME.matches(Regex(""".*\.metadata\.pegasus\.txt""")),
+        )
+    }
+
+    @Test
+    fun metafileTargetDisplay_showsRomRootPathAndWritability() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        assertEquals("NOT SELECTED", lib.metafileTargetDisplay())
+
+        adoptRomRoot(prefs)
+        assertEquals("DISPLAY/$romUri · WRITABLE", lib.metafileTargetDisplay())
+
+        lib.checkRomWritable = { false }
+        assertEquals(
+            "DISPLAY/$romUri · NOT WRITABLE — RE-PICK ROM ROOT",
+            lib.metafileTargetDisplay(),
+        )
+    }
 
     @Test
     fun gamePath_joinsRomRootAndRelativePath() {
@@ -40,7 +81,7 @@ class PegasusLibraryTest {
         )
         assertEquals(
             "/storage/1A2B-3C4D/ROMs/psx/game.cue",
-            lib.gamePath("/storage/1A2B-3C4D/ROMs", "psx/game.cue"),
+            lib.gamePath("/storage/1A2B-3C4D/ROMs", "gba/game.gba"),
         )
     }
 
@@ -136,32 +177,55 @@ class PegasusLibraryTest {
     }
 
     @Test
-    fun inject_failsWhenConfigNotSelected() {
-        val outcome = runBlocking { library().inject() }
+    fun inject_gatedOnRomWritability_refusesWithRepickMessage() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        adoptRomRoot(prefs)
+        lib.checkRomWritable = { false }
+        lib.gameSource = {
+            listOf(game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"))
+        }
+        var wrote = false
+        lib.writer = { _, _ -> wrote = true; true }
+        var read = false
+        lib.metafileReader = { read = true; null }
+
+        val outcome = runBlocking { lib.inject() }
+
         assertEquals(
-            PegasusLibrary.InjectOutcome.Failed("PEGASUS FOLDER NOT SELECTED"),
+            PegasusLibrary.InjectOutcome.Failed("ROM ROOT NOT WRITABLE — RE-PICK ROM ROOT TO GRANT WRITE ACCESS"),
             outcome,
         )
+        assertFalse("a non-writable ROM root must refuse before any write", wrote)
+        assertFalse("a non-writable ROM root must refuse before any read", read)
+        assertEquals("NONE", lib.lastInjectSummary())
     }
 
     @Test
-    fun inject_failsWhenConfigAccessLost() {
+    fun inject_ignoresLegacyConfigPref_writesOnlyToRomRoot() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
-        lib.config.grantStillHeld = { false }
-        val outcome = runBlocking { lib.inject() }
-        assertEquals(
-            PegasusLibrary.InjectOutcome.Failed("PEGASUS FOLDER ACCESS LOST — PLEASE RESELECT"),
-            outcome,
-        )
+        // v18's legacy pref is still stored (never silently deleted),
+        // but the v19 inject never consults or writes to it.
+        prefs.putString("pegasus_config_tree_uri", "content://com.example/tree/legacy")
+        adoptRomRoot(prefs)
+        lib.gameSource = {
+            listOf(game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"))
+        }
+        var writtenUri: String? = null
+        lib.writer = { uri, bytes -> writtenUri = uri; true }
+        lib.metafileReader = { null } // no readback yet: verification fails, but the URI is what matters
+
+        runBlocking { lib.inject() }
+
+        assertEquals("the write target is the ROM root, never the legacy tree", romUri, writtenUri)
     }
 
     @Test
     fun inject_failsWhenRomAccessLost() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.checkRomAccess = { false }
         val outcome = runBlocking { lib.inject() }
         assertEquals(
@@ -174,7 +238,7 @@ class PegasusLibraryTest {
     fun inject_failsWhenScanLosesRomGrant() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = { throw SecurityException("revoked") }
         val outcome = runBlocking { lib.inject() }
         assertEquals(
@@ -187,7 +251,7 @@ class PegasusLibraryTest {
     fun inject_failsWhenNothingConfigured() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = {
             listOf(game("saturn", "Sega Saturn", "Some Game", "/storage/emulated/0/ROMs/saturn/game.iso"))
         }
@@ -208,7 +272,7 @@ class PegasusLibraryTest {
     fun inject_skipsUnconfiguredSystemsAndInjectsConfigured() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         // gba has a curated default launcher; saturn is populated but
         // unconfigured — progressive setup must not block the GBA inject.
         lib.gameSource = {
@@ -235,10 +299,10 @@ class PegasusLibraryTest {
     }
 
     @Test
-    fun inject_ok_writesCanonicalMetafileAndCounts() {
+    fun inject_ok_writesToRomRootTopLevelWithCanonicalMetafile() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         // n3ds has no curated default: the user configures it explicitly.
         lib.profiles.set(
             "n3ds",
@@ -265,7 +329,9 @@ class PegasusLibraryTest {
         assertEquals(3, ok.games) // 1 gba + 1 grouped psx multi-disc game + 1 n3ds
         assertEquals(listOf("Mystery Folder"), ok.unknownFolders)
 
-        assertEquals("content://com.example/tree/1", writtenUri)
+        // v19: the single write goes to the ROM root (top level), never
+        // to a legacy <config>/metafiles/ dir.
+        assertEquals(romUri, writtenUri)
         val text = writtenBytes!!.toString(Charsets.UTF_8)
         assertFalse("no content:// may leak into the metafile", text.contains("content://"))
         assertFalse("unknown folders are excluded", text.contains("Mystery"))
@@ -285,7 +351,7 @@ class PegasusLibraryTest {
     fun inject_badGamePath_reportsFailed() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = {
             listOf(game("gba", "Game Boy Advance", "Game", "content://com.example/tree/roms/game.gba"))
         }
@@ -301,74 +367,23 @@ class PegasusLibraryTest {
     fun inject_writerFailure_reportsFailed() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = {
             listOf(game("gba", "Game Boy Advance", "Game", "/storage/emulated/0/ROMs/gba/game.gba"))
         }
         lib.writer = { _, _ -> throw RuntimeException("disk gone") }
         val outcome = runBlocking { lib.inject() }
         assertEquals(
-            PegasusLibrary.InjectOutcome.Failed("WRITE FAILED — CHECK THE PEGASUS FOLDER GRANT"),
+            PegasusLibrary.InjectOutcome.Failed("WRITE FAILED — CHECK THE ROM ROOT GRANT"),
             outcome,
         )
-    }
-
-    @Test
-    fun configDisplayPath_reflectsValidity() {
-        val prefs = FakePrefs()
-        val lib = library(prefs)
-        assertEquals("NOT SELECTED", lib.configDisplayPath())
-
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
-        assertEquals("CONFIG READY", lib.configDisplayPath())
-
-        lib.config.grantStillHeld = { false }
-        assertEquals("ACCESS LOST — RESELECT", lib.configDisplayPath())
-
-        lib.config.grantStillHeld = { true }
-        lib.config.documentIdOf = { "primary:Emulation/pegasus-frontend" }
-        assertEquals("WRONG FOLDER", lib.configDisplayPath())
-    }
-
-    @Test
-    fun inject_refusesWrongFolder_neverClearsProfilesOrState() {
-        val prefs = FakePrefs()
-        val lib = library(prefs)
-        // The real Nova bug, persisted: Emulation/pegasus-frontend.
-        lib.config.documentIdOf = { "primary:Emulation/pegasus-frontend" }
-        lib.config.adoptTreeUriString(
-            "content://com.android.externalstorage.documents/tree/primary%3AEmulation%2Fpegasus-frontend",
-        )
-        lib.profiles.set("gba", LauncherProfile(type = LauncherType.CUSTOM, command = "launch"))
-        lib.gameSource = {
-            listOf(game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"))
-        }
-        var wrote = false
-        lib.writer = { _, _ -> wrote = true; true }
-        var read = false
-        lib.metafileReader = { read = true; null }
-
-        val outcome = runBlocking { lib.inject() }
-
-        assertEquals(
-            PegasusLibrary.InjectOutcome.Failed("PEGASUS FOLDER INVALID — USE FIX PEGASUS FOLDER"),
-            outcome,
-        )
-        assertFalse("nothing may be written to an invalid root", wrote)
-        assertFalse("nothing may even be read back", read)
-        // Launcher profiles, library state, and the bad selection
-        // itself are untouched — the repair flow only overwrites the
-        // pref with a VALID pick.
-        assertNotNull(lib.config.treeUri())
-        assertNotNull(lib.profiles.get("gba"))
-        assertEquals("NONE", lib.lastInjectSummary())
     }
 
     @Test
     fun inject_readbackMismatch_fails() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = {
             listOf(game("gba", "Game Boy Advance", "Game", "/storage/emulated/0/ROMs/gba/game.gba"))
         }
@@ -385,7 +400,7 @@ class PegasusLibraryTest {
     fun inject_readbackMissing_fails() {
         val prefs = FakePrefs()
         val lib = library(prefs)
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = {
             listOf(game("gba", "Game Boy Advance", "Game", "/storage/emulated/0/ROMs/gba/game.gba"))
         }
@@ -405,7 +420,7 @@ class PegasusLibraryTest {
         assertEquals("NONE", lib.lastInjectSummary())
         assertEquals(PegasusLibrary.MetafileStatus(false, null), lib.metafileStatus())
 
-        lib.config.adoptTreeUriString("content://com.example/tree/1")
+        adoptRomRoot(prefs)
         lib.gameSource = {
             listOf(
                 game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"),
@@ -422,5 +437,80 @@ class PegasusLibraryTest {
         val status = lib.metafileStatus()
         assertTrue(status.present)
         assertTrue("metafile must be non-empty", (status.bytes ?: 0) > 0)
+    }
+
+    @Test
+    fun parseMetafileSummary_countsCollectionsAndGames() {
+        val summary = parseMetafileSummary(
+            "collection: Game Boy Advance\n" +
+                "shortname: gba\n" +
+                "launch: am start --user 0\n" +
+                "  -n com.example/.Main\n" +
+                "\n" +
+                "game: Mario Golf\n" +
+                "file: /storage/emulated/0/ROMs/gba/mario.gba\n" +
+                "\n" +
+                "collection: PlayStation\n" +
+                "shortname: psx\n" +
+                "launch: am start --user 0\n" +
+                "\n" +
+                "game: Final Fantasy VII\n" +
+                "files:\n" +
+                "  /storage/emulated/0/ROMs/psx/ff7-1.cue\n" +
+                "  /storage/emulated/0/ROMs/psx/ff7-2.cue\n",
+        )
+        assertEquals(2, summary.collections)
+        assertEquals(2, summary.games)
+        assertEquals("Game Boy Advance", summary.firstCollection)
+        assertEquals("/storage/emulated/0/ROMs/gba/mario.gba", summary.firstRomPath)
+    }
+
+    @Test
+    fun parseMetafileSummary_firstRomPathFromFilesList() {
+        // A multi-disc-first library: the first game emits a files: list.
+        val summary = parseMetafileSummary(
+            "collection: PlayStation\n" +
+                "shortname: psx\n" +
+                "launch: am start --user 0\n" +
+                "\n" +
+                "game: Final Fantasy VII\n" +
+                "files:\n" +
+                "  /storage/emulated/0/ROMs/psx/ff7-1.cue\n" +
+                "  /storage/emulated/0/ROMs/psx/ff7-2.cue\n",
+        )
+        assertEquals(1, summary.collections)
+        assertEquals(1, summary.games)
+        assertEquals("PlayStation", summary.firstCollection)
+        assertEquals("/storage/emulated/0/ROMs/psx/ff7-1.cue", summary.firstRomPath)
+    }
+
+    @Test
+    fun metafileSummary_parsesVerifiedBuildForDiagnostics() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        adoptRomRoot(prefs)
+        lib.gameSource = {
+            listOf(
+                game("gba", "Game Boy Advance", "Mario Golf", "/storage/emulated/0/ROMs/gba/mario.gba"),
+                game("psx", "PlayStation", "Doom", "/storage/emulated/0/ROMs/psx/doom.cue"),
+            )
+        }
+        runBlocking { lib.inject() }
+
+        val summary = lib.metafileSummary()
+        assertNotNull(summary)
+        assertEquals(2, summary!!.collections)
+        assertEquals(2, summary.games)
+        assertEquals("Game Boy Advance", summary.firstCollection)
+        assertEquals("/storage/emulated/0/ROMs/gba/mario.gba", summary.firstRomPath)
+    }
+
+    @Test
+    fun metafileSummary_nullWhenMetafileAbsent() {
+        val prefs = FakePrefs()
+        val lib = library(prefs)
+        adoptRomRoot(prefs)
+        lib.metafileReader = { null }
+        assertNull(lib.metafileSummary())
     }
 }

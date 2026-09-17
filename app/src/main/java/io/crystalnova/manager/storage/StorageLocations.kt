@@ -221,6 +221,30 @@ class StorageLocations(
         }
     }
 
+    /**
+     * True when the pref is set AND the persisted grant still carries
+     * BOTH read and write ([ContentResolver.persistedUriPermissions]).
+     * v19: BUILD PEGASUS LIBRARY requires the ROM root to be WRITABLE
+     * — a read-only grant can scan but cannot receive the game-dir
+     * metafile. SecurityException reads as "no grant", never as
+     * configured.
+     */
+    fun hasWriteAccess(kind: LocationKind): Boolean {
+        val uriString = prefs.getString(keyFor(kind)) ?: return false
+        val ctx = context ?: return false
+        return try {
+            val uri = Uri.parse(uriString)
+            ctx.contentResolver.persistedUriPermissions.any { p ->
+                p.uri == uri && p.isReadPermission && p.isWritePermission
+            }
+        } catch (e: SecurityException) {
+            logger(TAG, "persisted write-grant probe failed", e)
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
+
     /** Friendly path, `NOT CONFIGURED`, or `ACCESS LOST — RESELECT`. Never a raw content:// URI. */
     fun displayPathFor(kind: LocationKind): String {
         val uri = prefs.getString(keyFor(kind)) ?: return "NOT CONFIGURED"

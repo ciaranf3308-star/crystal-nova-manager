@@ -9,12 +9,12 @@ import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
 
 /**
- * Owns the Pegasus setup flow: the config-root grant ([PegasusConfig]),
- * the per-platform launcher choices ([LauncherProfileStore]), the
- * library scan → canonical-path mapping, metafile generation, and the
- * SAF write.
+ * Owns the Pegasus setup flow: the ROM-root grant (from
+ * [io.crystalnova.manager.storage.StorageLocations]), the per-platform
+ * launcher choices ([LauncherProfileStore]), the library scan →
+ * canonical-path mapping, metafile generation, and the SAF write.
  *
- * Injection contract:
+ * Injection contract (v19):
  * - Reads games from [LibraryScanner]'s canonical/deduplicated entries
  *   (CUE/BIN→CUE, M3U→M3U, GDI tracks, numbered tracks never become
  *   separate games — the scanner owns that dedup).
@@ -22,16 +22,19 @@ import io.crystalnova.manager.storage.SafThemeFs
  *   [StorageLocations.canonicalPath] of the ROM tree plus the scanner's
  *   relative path. `content://` URIs never reach the metafile.
  * - Writes exactly one Manager-owned file,
- *   `metafiles/crystal-nova.metadata.pegasus.txt`, via tmp-file +
- *   rename. Never writes or overwrites any other metadata file.
- *   After the write, the metafile is reopened and read back: the
- *   inject fails unless the readback is non-empty and byte-identical
- *   to what was written.
- * - The config root must be one Pegasus actually reads
- *   ([ConfigValidity.VALID]); a wrong or lost root refuses the inject
- *   and points the user at FIX PEGASUS FOLDER.
- * - Regeneration happens only on explicit INJECT/REFRESH — never
- *   automatically.
+ *   `crystal-nova.metadata.pegasus.txt`, at the TOP LEVEL of the ROM
+ *   root — the name matches the `*.metadata.pegasus.txt` game-dir
+ *   scanner pattern, so Pegasus picks it up in its own game scan
+ *   (Pegasus reads global metafiles only from its app-specific
+ *   `Android/data/…/metafiles/`, which a third-party app cannot write
+ *   on API 30+, and never from a legacy config folder).
+ * - The write is tmp-file + rename in the ROM root. After the write,
+ *   the metafile is reopened and read back: the inject fails unless
+ *   the readback is non-empty and byte-identical to what was written.
+ * - The ROM-root grant must carry WRITE. A read-only grant can scan
+ *   but not receive the metafile; the inject refuses and names the
+ *   RE-PICK ROM ROOT action.
+ * - Regeneration happens only on explicit BUILD — never automatically.
  *
  * [gameSource]/[writer]/[metafileReader] are seams for unit tests; null
  * means the SAF-backed defaults. [logger] is a seam for the same
@@ -42,13 +45,13 @@ class PegasusLibrary(
     private val prefs: KeyValueStore,
     private val locations: io.crystalnova.manager.storage.StorageLocations,
     internal var gameSource: (suspend () -> List<ScannedGame>)? = null,
-    internal var writer: ((configTreeUri: String, bytes: ByteArray) -> Boolean)? = null,
+    internal var writer: ((romTreeUri: String, bytes: ByteArray) -> Boolean)? = null,
     /**
      * Readback seam mirroring [writer]: reopens the Manager-owned
      * metafile and returns its bytes, or null when unreadable.
      * Defaults to a SAF read of the same metafile the writer wrote.
      */
-    internal var metafileReader: ((configTreeUri: String) -> ByteArray?)? = null,
+    internal var metafileReader: ((romTreeUri: String) -> ByteArray?)? = null,
     private val logger: (tag: String, msg: String, err: Throwable?) -> Unit =
         { tag, msg, err -> Log.w(tag, msg, err) },
 ) {
@@ -56,9 +59,11 @@ class PegasusLibrary(
         private const val TAG = "PegasusLibrary"
 
         /**
-         * Scratch names for the tmp-file + rename swap. Deliberately do
-         * NOT look like Pegasus metadata files (Pegasus reads *.txt
-         * under metafiles/).
+         * Scratch names for the tmp-file + rename swap, written at the
+         * TOP LEVEL of the ROM root beside the metafile. Deliberately
+         * do NOT look like Pegasus metadata files (Pegasus's game-dir
+         * scan only recognizes `*.metadata.pegasus.txt` /
+         * `*.metadata.txt` etc.), so the swap is invisible to Pegasus.
          */
         internal const val TMP_NAME = "crystal-nova-manager-write.tmp"
         internal const val BACKUP_NAME = "crystal-nova-manager-backup.tmp"
@@ -67,18 +72,16 @@ class PegasusLibrary(
         internal const val KEY_LAST_INJECT = "pegasus_last_inject"
     }
 
-    val config = PegasusConfig(context, prefs, logger)
     val profiles = LauncherProfileStore(prefs)
 
     /**
-     * Grant-check seams. Production defaults hit
-     * [PegasusConfig.validity] and
-     * [io.crystalnova.manager.storage.StorageLocations.hasAccess];
-     * unit tests override them because DocumentFile/PackageManager are
-     * unavailable on the JVM.
+     * Grant-check seams. Production defaults hit the persisted ROM-root
+     * grant in [io.crystalnova.manager.storage.StorageLocations];
+     * unit tests override them because ContentResolver/DocumentFile
+     * are unavailable on the JVM.
      */
-    internal var checkConfigValidity: () -> ConfigValidity = config::validity
     internal var checkRomAccess: () -> Boolean = { locations.hasAccess(LocationKind.ROM) }
+    internal var checkRomWritable: () -> Boolean = { locations.hasWriteAccess(LocationKind.ROM) }
     internal var describeUri: (String) -> String = { locations.displayPath(it) }
 
     /** One game with its canonical absolute ROM path. */
@@ -192,22 +195,20 @@ class PegasusLibrary(
      * Full explicit-refresh flow: validate grants, scan, generate,
      * write. Never throws for expected failure modes — they come back
      * as [InjectOutcome.Failed] with a UI-ready message.
+     *
+     * v19: the metafile is written to the TOP LEVEL of the ROM root
+     * (the SAF tree Crystal already scans). BUILD is gated on the
+     * ROM-root grant carrying WRITE. The legacy `<config>/metafiles/`
+     * write path is retired — it is never consulted, never written.
      */
     suspend fun inject(): InjectOutcome {
-        val configUri = config.treeUri()
-            ?: return InjectOutcome.Failed("PEGASUS FOLDER NOT SELECTED")
-        // v18: the config root must be a real Pegasus config root, not
-        // just a readable folder. An invalid root refuses the inject —
-        // the UI points the user at FIX PEGASUS FOLDER.
-        when (checkConfigValidity()) {
-            ConfigValidity.VALID -> Unit
-            ConfigValidity.NOT_SELECTED ->
-                return InjectOutcome.Failed("PEGASUS FOLDER NOT SELECTED")
-            ConfigValidity.WRONG_FOLDER ->
-                return InjectOutcome.Failed("PEGASUS FOLDER INVALID — USE FIX PEGASUS FOLDER")
-            ConfigValidity.ACCESS_LOST ->
-                return InjectOutcome.Failed("PEGASUS FOLDER ACCESS LOST — PLEASE RESELECT")
+        // v19 gate: the ROM-root grant must carry WRITE — a read-only
+        // grant can scan but cannot receive the metafile.
+        if (!checkRomWritable()) {
+            return InjectOutcome.Failed("ROM ROOT NOT WRITABLE — RE-PICK ROM ROOT TO GRANT WRITE ACCESS")
         }
+        val romTreeUri = locations.romTreeUri()
+            ?: return InjectOutcome.Failed("ROM LIBRARY NOT AVAILABLE")
         if (!checkRomAccess()) {
             return InjectOutcome.Failed("ROM LIBRARY NOT AVAILABLE")
         }
@@ -245,14 +246,14 @@ class PegasusLibrary(
             return InjectOutcome.Failed("BAD GAME PATH — ${e.message}")
         }
         val bytes = text.toByteArray()
-        val ok = writeMetafile(configUri, bytes)
+        val ok = writeMetafile(romTreeUri, bytes)
         if (!ok) {
-            return InjectOutcome.Failed("WRITE FAILED — CHECK THE PEGASUS FOLDER GRANT")
+            return InjectOutcome.Failed("WRITE FAILED — CHECK THE ROM ROOT GRANT")
         }
-        // v18: verify the write, not just the rename. Reopen the
+        // v18/v19: verify the write, not just the rename. Reopen the
         // Manager-owned metafile and require it to be non-empty AND
         // byte-identical to what was written.
-        if (!verifyMetafile(configUri, bytes)) {
+        if (!verifyMetafile(romTreeUri, bytes)) {
             return InjectOutcome.Failed("METAFILE VERIFY FAILED — READBACK DID NOT MATCH")
         }
         val systems = collections.size
@@ -267,13 +268,13 @@ class PegasusLibrary(
     }
 
     /**
-     * v18: readback verification. Reopens the metafile the writer just
+     * Readback verification. Reopens the metafile the writer just
      * wrote and requires nonzero bytes that are exactly equal to what
      * was written. Never throws.
      */
-    private fun verifyMetafile(configTreeUri: String, bytes: ByteArray): Boolean {
+    private fun verifyMetafile(romTreeUri: String, bytes: ByteArray): Boolean {
         val readBack = try {
-            (metafileReader ?: ::defaultRead)(configTreeUri)
+            (metafileReader ?: ::defaultRead)(romTreeUri)
         } catch (e: Exception) {
             logger(TAG, "metafile readback failed", e)
             null
@@ -293,19 +294,48 @@ class PegasusLibrary(
     data class MetafileStatus(val present: Boolean, val bytes: Long?)
 
     /**
-     * Whether the Manager-owned metafile is present and readable, and
-     * its byte size (null when unreadable). Backed by the
-     * [metafileReader] seam, so diagnostics and verification agree.
+     * Whether the Manager-owned metafile is present and readable at the
+     * ROM root, and its byte size (null when unreadable). Backed by
+     * the [metafileReader] seam, so diagnostics and verification agree.
      * Never throws.
      */
     fun metafileStatus(): MetafileStatus {
-        val configUri = config.treeUri() ?: return MetafileStatus(false, null)
+        val romUri = locations.romTreeUri() ?: return MetafileStatus(false, null)
         val bytes = try {
-            (metafileReader ?: ::defaultRead)(configUri)
+            (metafileReader ?: ::defaultRead)(romUri)
         } catch (_: Exception) {
             null
         }
         return MetafileStatus(bytes != null, bytes?.size?.toLong())
+    }
+
+    /** Crystal-side parse of the game-dir metafile, for Diagnostics. */
+    data class MetafileParseSummary(
+        val collections: Int,
+        val games: Int,
+        val firstCollection: String?,
+        val firstRomPath: String?,
+    )
+
+    /**
+     * Crystal-side parse of the Manager-owned game-dir metafile: counts
+     * `collection:` / `game:` lines and captures the first collection
+     * name and the first emitted ROM path (`file:` or the first entry
+     * of a `files:` list). Null when the metafile is absent or
+     * unreadable; never throws.
+     */
+    fun metafileSummary(): MetafileParseSummary? {
+        val romUri = locations.romTreeUri() ?: return null
+        val bytes = try {
+            (metafileReader ?: ::defaultRead)(romUri)
+        } catch (_: Exception) {
+            null
+        } ?: return null
+        return try {
+            parseMetafileSummary(bytes.toString(Charsets.UTF_8))
+        } catch (_: Exception) {
+            null
+        }
     }
 
     /** "n SYSTEMS · m GAMES" from the last verified inject, or "NONE". */
@@ -327,20 +357,18 @@ class PegasusLibrary(
     }
 
     /**
-     * Friendly config-root validity for the dashboard PEGASUS CONFIG
-     * row. Never a raw content:// URI; the real display path lives in
-     * Diagnostics.
+     * Friendly ROM-root metafile target for the setup screen row, e.g.
+     * "INTERNAL STORAGE /ROMs · WRITABLE". Never a raw content:// URI.
      */
-    fun configDisplayPath(): String = when (checkConfigValidity()) {
-        ConfigValidity.VALID -> "CONFIG READY"
-        ConfigValidity.WRONG_FOLDER -> "WRONG FOLDER"
-        ConfigValidity.ACCESS_LOST -> "ACCESS LOST — RESELECT"
-        ConfigValidity.NOT_SELECTED -> "NOT SELECTED"
+    fun metafileTargetDisplay(): String {
+        val uri = locations.romTreeUri() ?: return "NOT SELECTED"
+        val path = describeUri(uri)
+        return if (checkRomWritable()) "$path · WRITABLE" else "$path · NOT WRITABLE — RE-PICK ROM ROOT"
     }
 
-    private fun writeMetafile(configTreeUri: String, bytes: ByteArray): Boolean {
+    private fun writeMetafile(romTreeUri: String, bytes: ByteArray): Boolean {
         return try {
-            (writer ?: ::defaultWrite)(configTreeUri, bytes)
+            (writer ?: ::defaultWrite)(romTreeUri, bytes)
         } catch (e: Exception) {
             logger(TAG, "metafile write failed", e)
             false
@@ -348,34 +376,32 @@ class PegasusLibrary(
     }
 
     /**
-     * SAF write of the single Manager-owned metafile: tmp-file +
-     * rename inside `<config root>/metafiles/`. The swap is
-     * backup/restore: the previous Manager-owned metafile (if any) is
-     * moved aside to a clearly non-metadata backup name first, so a
-     * failed rename restores it instead of losing it. A revoked grant
-     * surfaces as SecurityException from [SafThemeFs.root] and reads
-     * as a failed write, never as a silent skip. No other metadata
-     * file is touched.
+     * SAF write of the single Manager-owned metafile at the TOP LEVEL
+     * of the ROM root (a registered Pegasus game dir): tmp-file +
+     * rename. The swap is backup/restore: the previous Manager-owned
+     * metafile (if any) is moved aside to a clearly non-metadata backup
+     * name first, so a failed rename restores it instead of losing it.
+     * A revoked grant surfaces as SecurityException from [SafThemeFs.root]
+     * and reads as a failed write, never as a silent skip. No other
+     * metadata file is touched.
      */
-    private fun defaultWrite(configTreeUri: String, bytes: ByteArray): Boolean {
+    private fun defaultWrite(romTreeUri: String, bytes: ByteArray): Boolean {
         return try {
-            val fs = SafThemeFs(context!!) { configTreeUri }
+            val fs = SafThemeFs(context!!) { romTreeUri }
             val root = fs.root() ?: return false
-            val metafiles = fs.find(root, MetafileGenerator.METAFILES_DIR)
-                ?: fs.mkdir(root, MetafileGenerator.METAFILES_DIR)
             val swap = object : MetafileSwapFs {
                 override fun find(name: String): Boolean =
-                    fs.find(metafiles, name) != null
+                    fs.find(root, name) != null
 
                 override fun create(name: String): Boolean = try {
-                    fs.createFile(metafiles, name)
+                    fs.createFile(root, name)
                     true
                 } catch (e: Exception) {
                     false
                 }
 
                 override fun write(name: String, bytes: ByteArray): Boolean {
-                    val node = fs.find(metafiles, name) ?: return false
+                    val node = fs.find(root, name) ?: return false
                     return try {
                         fs.openOutput(node).use { it.write(bytes) }
                         true
@@ -385,12 +411,12 @@ class PegasusLibrary(
                 }
 
                 override fun rename(from: String, to: String): Boolean {
-                    val node = fs.find(metafiles, from) ?: return false
+                    val node = fs.find(root, from) ?: return false
                     return fs.rename(node, to)
                 }
 
                 override fun delete(name: String) {
-                    fs.find(metafiles, name)?.let { fs.deleteRecursively(it) }
+                    fs.find(root, name)?.let { fs.deleteRecursively(it) }
                 }
             }
             swapMetafile(swap, bytes)
@@ -401,17 +427,16 @@ class PegasusLibrary(
     }
 
     /**
-     * SAF read of the Manager-owned metafile — the default behind
-     * [metafileReader], i.e. the same `<config root>/metafiles/`
+     * SAF read of the Manager-owned metafile at the TOP LEVEL of the
+     * ROM root — the default behind [metafileReader], i.e. the same
      * file the writer wrote. Used for write verification and the
      * diagnostics metafile status. Null on any failure; never throws.
      */
-    private fun defaultRead(configTreeUri: String): ByteArray? {
+    private fun defaultRead(romTreeUri: String): ByteArray? {
         return try {
-            val fs = SafThemeFs(context!!) { configTreeUri }
+            val fs = SafThemeFs(context!!) { romTreeUri }
             val root = fs.root() ?: return null
-            val metafiles = fs.find(root, MetafileGenerator.METAFILES_DIR) ?: return null
-            val node = fs.find(metafiles, MetafileGenerator.FILE_NAME) ?: return null
+            val node = fs.find(root, MetafileGenerator.FILE_NAME) ?: return null
             fs.openInput(node).use { it.readBytes() }
         } catch (e: Exception) {
             logger(TAG, "default metafile read failed", e)
@@ -421,8 +446,55 @@ class PegasusLibrary(
 }
 
 /**
+ * Crystal-side parse of a generated metafile: counts `collection:` /
+ * `game:` lines and captures the first collection name plus the first
+ * emitted ROM path (from a `file:` line or the first entry of a
+ * `files:` list). Pure Kotlin, JVM-testable; never throws.
+ */
+internal fun parseMetafileSummary(text: String): PegasusLibrary.MetafileParseSummary {
+    var collections = 0
+    var games = 0
+    var firstCollection: String? = null
+    var firstRomPath: String? = null
+    var inFilesList = false
+    for (rawLine in text.lineSequence()) {
+        val line = rawLine.trimEnd()
+        when {
+            line.startsWith("collection: ") -> {
+                collections++
+                if (firstCollection == null) {
+                    firstCollection = line.removePrefix("collection: ").trim().ifEmpty { null }
+                }
+                inFilesList = false
+            }
+            line.startsWith("game: ") -> {
+                games++
+                inFilesList = false
+            }
+            line.startsWith("file: ") -> {
+                if (firstRomPath == null) {
+                    firstRomPath = line.removePrefix("file: ").trim().ifEmpty { null }
+                }
+                inFilesList = false
+            }
+            line == "files:" -> inFilesList = true
+            inFilesList && line.isNotBlank() -> {
+                // Two-space-indented entry of a multi-file game.
+                if (firstRomPath == null) {
+                    firstRomPath = line.trimStart().ifEmpty { null }
+                }
+                inFilesList = false
+            }
+            line.isBlank() -> inFilesList = false
+        }
+    }
+    return PegasusLibrary.MetafileParseSummary(collections, games, firstCollection, firstRomPath)
+}
+
+/**
  * Minimal filesystem seam for the metafile swap, so the
- * backup/restore ordering is unit-testable without DocumentFile.
+ * backup/restore ordering is unit-testable without DocumentFile. The
+ * seam is a single directory — v19 callers hand it the ROM root.
  */
 internal interface MetafileSwapFs {
     fun find(name: String): Boolean
@@ -433,12 +505,12 @@ internal interface MetafileSwapFs {
 }
 
 /**
- * SAF write of the single Manager-owned metafile: tmp-file + rename
- * inside `<config root>/metafiles/`. The swap is backup/restore: the
- * previous Manager-owned metafile (if any) is moved aside to a
- * clearly non-metadata backup name first, so a failed rename restores
- * it instead of losing it. Never touches any other metadata file.
- * Returns true only when the final metafile holds [bytes].
+ * SAF write of the single Manager-owned metafile: tmp-file + rename in
+ * the caller's directory (v19: the ROM root top level). The swap is
+ * backup/restore: the previous Manager-owned metafile (if any) is moved
+ * aside to a clearly non-metadata backup name first, so a failed rename
+ * restores it instead of losing it. Never touches any other metadata
+ * file. Returns true only when the final metafile holds [bytes].
  */
 internal fun swapMetafile(fs: MetafileSwapFs, bytes: ByteArray): Boolean {
     val final = MetafileGenerator.FILE_NAME

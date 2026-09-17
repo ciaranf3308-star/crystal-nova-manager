@@ -3,7 +3,6 @@ package io.crystalnova.manager
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
-import android.os.Build
 import android.os.Bundle
 import android.provider.DocumentsContract
 import androidx.activity.ComponentActivity
@@ -25,8 +24,7 @@ import io.crystalnova.manager.pegasus.LauncherPresets
 import io.crystalnova.manager.pegasus.LauncherProfile
 import io.crystalnova.manager.pegasus.LauncherSource
 import io.crystalnova.manager.pegasus.LauncherType
-import io.crystalnova.manager.pegasus.ConfigValidity
-import io.crystalnova.manager.pegasus.PegasusConfigRoots
+import io.crystalnova.manager.pegasus.MetafileGenerator
 import io.crystalnova.manager.pegasus.PegasusIntents
 import io.crystalnova.manager.pegasus.PegasusLibrary
 import io.crystalnova.manager.pegasus.PegasusRestartGate
@@ -57,7 +55,7 @@ import io.crystalnova.manager.ui.ThemeScreen
 import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.diag.EmulatorPackageStatus
-import io.crystalnova.manager.diag.PegasusConfigDiag
+import io.crystalnova.manager.diag.PegasusMetafileDiag
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
@@ -183,6 +181,11 @@ class MainActivity : ComponentActivity() {
      * ROM library picker. The SAF grant is taken inside
      * [StorageLocations.adoptTreeUri]; on success the scraper refreshes
      * so the Library screen flips from the picker prompt to the grid.
+     *
+     * v19: this is also the RE-PICK ROM ROOT repair action on the
+     * Pegasus setup screen — re-picking refreshes the persistable
+     * read+write grant, so the setup screen re-evaluates the metafile
+     * target's writability ([pegasusConfigRev] forces the recompose).
      */
     private val romPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -192,6 +195,7 @@ class MainActivity : ComponentActivity() {
                 )
                 if (ok) {
                     locationError = null
+                    pegasusConfigRev++
                     scraper.refresh()
                 } else {
                     locationError = "COULD NOT KEEP ROM LIBRARY ACCESS — PLEASE TRY AGAIN"
@@ -222,64 +226,12 @@ class MainActivity : ComponentActivity() {
         }
 
     /**
-     * Pegasus config-root picker (v18 repair flow). This is a SEPARATE
-     * persisted SAF grant from the themes/ROM/media folders — the
-     * Manager owns exactly one file under it
-     * (metafiles/crystal-nova.metadata.pegasus.txt) and never assumes
-     * another grant covers it.
-     *
-     * The picked tree is VALIDATED against the two real Pegasus config
-     * roots ([PegasusConfigRoots]) BEFORE anything is persisted: an
-     * invalid pick keeps the old state (the old preference is never
-     * deleted by a bad pick) and shows a short notice; a cancelled
-     * pick keeps the old state silently. A valid pick is persisted and
-     * the dashboard re-evaluates to CONFIG READY.
+     * v19: the legacy pegasus-frontend config-root picker is RETIRED.
+     * The metafile now lives at the top level of the ROM root (a
+     * registered Pegasus game dir), so there is no separate Pegasus
+     * config grant anymore — [romPicker] below doubles as the
+     * RE-PICK ROM ROOT repair action on the setup screen.
      */
-    private val pegasusPicker =
-        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
-            if (uri == null) return@registerForActivityResult // Cancelled: keep old state.
-            val documentId =
-                runCatching { DocumentsContract.getTreeDocumentId(uri) }.getOrNull()
-            if (documentId == null ||
-                PegasusConfigRoots.validateDocumentId(documentId) != ConfigValidity.VALID
-            ) {
-                pegasusNotice =
-                    "THAT ISN'T A PEGASUS CONFIG FOLDER — PICK THE pegasus-frontend FOLDER"
-                return@registerForActivityResult
-            }
-            // Take the grant first, persist only now that the tree is
-            // known valid.
-            if (!pegasus.config.takeGrant(contentResolver, uri)) {
-                pegasusNotice = "COULD NOT KEEP PEGASUS FOLDER ACCESS — PLEASE TRY AGAIN"
-                return@registerForActivityResult
-            }
-            pegasus.config.adoptTreeUriString(uri.toString())
-            pegasusNotice = null
-            // Force the setup screen to recompose: it reads the
-            // persisted URI directly, and pegasusNotice may not change.
-            pegasusConfigRev++
-        }
-
-    /**
-     * Opens the config picker near the top of internal storage (API
-     * 26+), so the user sees the real `pegasus-frontend` folder
-     * without having to know about Android/data internals. Any failure
-     * falls back to a plain launch(null).
-     */
-    private fun pegasusConfigInitialUri(): Uri? {
-        return try {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                DocumentsContract.buildDocumentUri(
-                    "com.android.externalstorage.documents",
-                    "primary:",
-                )
-            } else {
-                null
-            }
-        } catch (_: Exception) {
-            null
-        }
-    }
 
     /**
      * U1.1: the U1 wording led users to pick crystal-nova-pegasus-theme/
@@ -545,34 +497,32 @@ class MainActivity : ComponentActivity() {
                 is Dest.PegasusSetup -> {
                     // Read the profiles revision so this screen recomposes
                     // after launcher choices change, and the config revision
-                    // so it recomposes right after the config root is picked
+                    // so it recomposes right after the ROM root is picked
                     // (the persisted URI is read directly, not via a flow).
                     @Suppress("UNUSED_VARIABLE")
                     val profilesRev = pegasusProfilesRev
                     @Suppress("UNUSED_VARIABLE")
                     val configRev = pegasusConfigRev
                     val rows = pegasusRows()
-                    val configUri = pegasus.config.treeUri()
-                    // v18: BUILD is gated on a VALID config root, and the
-                    // dashboard row reflects the full validity state
-                    // (WRONG FOLDER / ACCESS LOST / NOT SELECTED), not
-                    // just readability.
-                    val configReady = configUri != null &&
-                        pegasus.config.validity() == ConfigValidity.VALID
+                    // v19: BUILD is gated on the ROM root being WRITABLE —
+                    // the metafile is written to the top level of the ROM
+                    // root (a registered Pegasus game dir). The legacy
+                    // pegasus-frontend config-root flow is retired.
+                    val romWritable = locations.hasWriteAccess(LocationKind.ROM)
                     val unconfigured = rows
                         .filter { it.gameCount > 0 && it.launcherStatus == "NOT CONFIGURED" }
                         .map { it.label.uppercase() }
                     PegasusSetupScreen(
-                        configStatus = pegasus.configDisplayPath(),
-                        configReady = configReady,
+                        metafileTarget = pegasus.metafileTargetDisplay(),
+                        romWritable = romWritable,
                         systems = rows,
-                        injectEnabled = isInjectEnabled(configReady, pegasusBusy, rows),
+                        injectEnabled = isInjectEnabled(romWritable, pegasusBusy, rows),
                         injectWarning = unconfigured.takeIf { it.isNotEmpty() }
                             ?.let { "NO LAUNCHER: ${it.joinToString(", ")} — WILL BE SKIPPED" },
                         injecting = pegasusBusy,
                         notice = pegasusNotice,
                         pegasusInstalled = isPegasusInstalled(),
-                        onPickConfig = { pegasusPicker.launch(pegasusConfigInitialUri()) },
+                        onRepickRomRoot = { romPicker.launch(null) },
                         onRescan = { scraper.scan() },
                         onConfigureLaunchers = { nav.navigate(Dest.PegasusLaunchers) },
                         onInject = { injectPegasus() },
@@ -724,18 +674,25 @@ class MainActivity : ComponentActivity() {
         emulatorPackages = emulatorDetector.detectionReport().map { (pkg, installed) ->
             EmulatorPackageStatus(pkg, installed)
         },
-        // v18: the Pegasus config root Pegasus actually reads — the
-        // display path (never a raw content:// URI in the dashboard),
-        // the validity state, whether the Manager-owned metafile is
-        // present and its size, and the last verified build's counts.
-        pegasusConfig = runCatching {
+        // v19: the Pegasus panel is retargeted to the game-dir metafile —
+        // ROM-root path, writability, the Manager-owned metafile's
+        // presence/size, the Crystal-parsed collection/game counts, the
+        // first collection name and first emitted ROM path, and the last
+        // verified build's counts.
+        pegasusMetafile = runCatching {
             val status = pegasus.metafileStatus()
-            val uri = pegasus.config.treeUri()
-            PegasusConfigDiag(
-                displayPath = uri?.let { pegasus.describeUri(it) } ?: "NOT SELECTED",
-                validity = pegasus.config.validity().name,
+            val summary = pegasus.metafileSummary()
+            val romUri = locations.romTreeUri()
+            PegasusMetafileDiag(
+                romRootPath = romUri?.let { locations.displayPath(it) } ?: "NOT SELECTED",
+                romWritable = locations.hasWriteAccess(LocationKind.ROM),
+                fileName = MetafileGenerator.FILE_NAME,
                 metafilePresent = status.present,
                 metafileBytes = status.bytes,
+                collectionCount = summary?.collections,
+                gameCount = summary?.games,
+                firstCollection = summary?.firstCollection,
+                firstRomPath = summary?.firstRomPath,
                 lastInjected = pegasus.lastInjectSummary(),
             )
         }.getOrNull(),
@@ -921,15 +878,16 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * INJECT availability for Pegasus Setup. Enabled when the config is
- * ready, nothing is already running, and at least one populated system
+ * INJECT availability for Pegasus Setup. Enabled when the ROM root is
+ * writable (v19: the metafile is written to the top level of the ROM
+ * root), nothing is already running, and at least one populated system
  * has a configured launcher. Populated-but-unconfigured systems are
  * skipped and reported by the injection itself (see
  * InjectOutcome.Ok.skippedNoLauncher) — they never block it.
  */
 internal fun isInjectEnabled(
-    configReady: Boolean,
+    romWritable: Boolean,
     busy: Boolean,
     rows: List<PegasusSystemRow>,
-): Boolean = configReady && !busy &&
+): Boolean = romWritable && !busy &&
     rows.any { it.gameCount > 0 && it.launcherStatus != "NOT CONFIGURED" }

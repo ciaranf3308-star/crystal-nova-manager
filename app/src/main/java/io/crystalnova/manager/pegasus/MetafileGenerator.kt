@@ -2,8 +2,10 @@ package io.crystalnova.manager.pegasus
 
 /**
  * Renders the Manager-owned Pegasus metadata file:
- * `metafiles/crystal-nova.metadata.pegasus.txt` (relative to the
- * Pegasus config root). Pure Kotlin — no Android imports, JVM-testable.
+ * `crystal-nova.metadata.pegasus.txt` at the TOP LEVEL of the ROM root
+ * (a registered Pegasus game dir — Pegasus picks up `*.metadata.pegasus.txt`
+ * files in its own game-dir scan). Pure Kotlin — no Android imports,
+ * JVM-testable.
  *
  * Emission format (one collection per recognized system, blank line
  * between entries; official Pegasus syntax —
