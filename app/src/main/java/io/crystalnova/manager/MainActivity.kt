@@ -36,6 +36,7 @@ import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.storage.StorageLocations
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
+import io.crystalnova.manager.ui.EsdeProbeScreen
 import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
