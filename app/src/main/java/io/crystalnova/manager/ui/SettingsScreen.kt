@@ -1,7 +1,9 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.updater.AppUpdateState
@@ -50,6 +52,9 @@ fun SettingsScreen(
             state = listState,
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
+            // Nine rows must fit the 960px viewport without scrolling
+            // (NovaSettingsFitsViewportTest); tighter than the default.
+            verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
             control(
                 key = "settings-update-app",

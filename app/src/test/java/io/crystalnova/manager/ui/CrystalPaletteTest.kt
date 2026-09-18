@@ -99,7 +99,8 @@ class CrystalPaletteTest {
     fun `mix and shifts behave`() {
         val black = Color(0xFF000000)
         val white = Color(0xFFFFFFFF)
-        assertEquals("#7f7f7f", black.mix(white, 0.5f).toHex())
+        // Mid-gray: 0.5 * 255 = 127.5 rounds to 128 in 8-bit (#808080).
+        assertEquals("#808080", black.mix(white, 0.5f).toHex())
         assertEquals("#000000", black.mix(white, 0f).toHex())
         assertEquals("#ffffff", black.shiftV(2f).toHex()) // clamped
         assertEquals("#808080", parseHexColor("#808080")!!.shiftS(-1f).toHex()) // desaturated

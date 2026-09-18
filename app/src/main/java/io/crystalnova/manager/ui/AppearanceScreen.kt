@@ -6,7 +6,6 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,19 +26,16 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
@@ -47,7 +43,6 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.IntSize
 import kotlin.math.atan2
 import kotlin.math.cos
@@ -235,79 +230,77 @@ fun AppearanceScreen(
                             ),
                         )
                     }
-                    // Hue/saturation wheel (visual aid + touch target).
-                    BoxWithConstraints(
-                        modifier = Modifier.align(Alignment.CenterHorizontally),
-                    ) {
-                        val density = LocalDensity.current
-                        val wheelPx = remember(density) {
-                            with(density) { 200.dp.toPx().toInt() }
-                        }
-                        val wheel = remember(wheelPx) {
-                            buildHueSatWheel(wheelPx)
-                        }
-                        // Latest values for the gesture block: the block is
-                        // keyed on Unit (never restarts mid-drag), so it must
-                        // read through updated state instead of capturing.
-                        val latestBrightness = rememberUpdatedState(hsv[2])
-                        val latestApply = rememberUpdatedState { c: Color -> updateCurrent(c) }
-                        Box(
-                            modifier = Modifier
-                                .size(200.dp)
-                                .pointerInput(Unit) {
-                                    awaitEachGesture {
-                                        val down = awaitFirstDown()
-                                        applyWheelPosition(
-                                            down.position, size,
-                                            latestBrightness.value,
-                                        ) { latestApply.value(it) }
-                                        down.consume()
-                                        var dragging = true
-                                        while (dragging) {
-                                            val event = awaitPointerEvent()
-                                            val change = event.changes.firstOrNull()
-                                            if (change == null || !change.pressed) {
-                                                dragging = false
-                                            } else {
-                                                applyWheelPosition(
-                                                    change.position, size,
-                                                    latestBrightness.value,
-                                                ) { latestApply.value(it) }
-                                                change.consume()
-                                            }
+                    // Hue/saturation wheel (visual aid + touch target), drawn
+                    // with sweep gradients so it needs no Android bitmap
+                    // (bitmaps cannot be created under Robolectric).
+                    // Latest values for the gesture block: the block is
+                    // keyed on Unit (never restarts mid-drag), so it must
+                    // read through updated state instead of capturing.
+                    val latestBrightness = rememberUpdatedState(hsv[2])
+                    val latestApply = rememberUpdatedState { c: Color -> updateCurrent(c) }
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.CenterHorizontally)
+                            .size(200.dp)
+                            .pointerInput(Unit) {
+                                awaitEachGesture {
+                                    val down = awaitFirstDown()
+                                    applyWheelPosition(
+                                        down.position, size,
+                                        latestBrightness.value,
+                                    ) { latestApply.value(it) }
+                                    down.consume()
+                                    var dragging = true
+                                    while (dragging) {
+                                        val event = awaitPointerEvent()
+                                        val change = event.changes.firstOrNull()
+                                        if (change == null || !change.pressed) {
+                                            dragging = false
+                                        } else {
+                                            applyWheelPosition(
+                                                change.position, size,
+                                                latestBrightness.value,
+                                            ) { latestApply.value(it) }
+                                            change.consume()
                                         }
                                     }
-                                },
-                        ) {
-                            Image(
-                                bitmap = wheel,
-                                contentDescription = null,
-                                modifier = Modifier.fillMaxWidth(),
-                                contentScale = ContentScale.FillBounds,
-                            )
-                            // Marker at the current hue/saturation.
-                            Canvas(modifier = Modifier.fillMaxWidth()) {
-                                val r = size.minDimension / 2f
-                                val ang = Math.toRadians(hsv[0].toDouble())
-                                val d = hsv[1] * r
+                                }
+                            },
+                    ) {
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            val r = size.minDimension / 2f
+                            // Concentric rings: the outer ring is full
+                            // saturation, the center is white. Each ring is
+                            // a hue sweep at its own saturation.
+                            val rings = 28
+                            for (i in rings downTo 1) {
+                                val sat = i / rings.toFloat()
                                 drawCircle(
-                                    color = Color.White,
-                                    radius = 7f,
-                                    center = Offset(
-                                        size.width / 2f + cos(ang).toFloat() * d,
-                                        size.height / 2f + sin(ang).toFloat() * d,
+                                    brush = Brush.sweepGradient(
+                                        List(13) { k -> hsvToColor((k * 30f) % 360f, sat, 1f) },
                                     ),
-                                )
-                                drawCircle(
-                                    color = Color.Black,
-                                    radius = 7f,
-                                    center = Offset(
-                                        size.width / 2f + cos(ang).toFloat() * d,
-                                        size.height / 2f + sin(ang).toFloat() * d,
-                                    ),
-                                    style = Stroke(width = 2f),
+                                    radius = r * sat,
+                                    center = center,
                                 )
                             }
+                            // Marker at the current hue/saturation.
+                            val ang = Math.toRadians(hsv[0].toDouble())
+                            val d = hsv[1] * r
+                            val marker = Offset(
+                                center.x + cos(ang).toFloat() * d,
+                                center.y + sin(ang).toFloat() * d,
+                            )
+                            drawCircle(
+                                color = Color.White,
+                                radius = 7f,
+                                center = marker,
+                            )
+                            drawCircle(
+                                color = Color.Black,
+                                radius = 7f,
+                                center = marker,
+                                style = Stroke(width = 2f),
+                            )
                         }
                     }
                     scope.adjustRow(
@@ -487,24 +480,6 @@ fun SectionScope.adjustRow(
 }
 
 /** Renders a hue/saturation wheel at full brightness, returned as a bitmap. */
-private fun buildHueSatWheel(sizePx: Int): ImageBitmap {
-    val bmp = ImageBitmap(sizePx, sizePx)
-    val androidBmp = bmp.asAndroidBitmap()
-    val r = sizePx / 2f
-    for (y in 0 until sizePx) {
-        for (x in 0 until sizePx) {
-            val dx = x - r
-            val dy = y - r
-            val dist = sqrt(dx * dx + dy * dy) / r
-            if (dist <= 1f) {
-                val h = ((Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 360) % 360).toFloat()
-                androidBmp.setPixel(x, y, hsvToColor(h, dist.coerceIn(0f, 1f), 1f).toArgb())
-            }
-        }
-    }
-    return bmp
-}
-
 /**
  * Maps a press/drag position on the hue/saturation wheel to a color,
  * keeping the current brightness. Positions outside the wheel are

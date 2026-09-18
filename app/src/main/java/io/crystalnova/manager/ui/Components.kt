@@ -210,7 +210,7 @@ fun CrystalButton(
                 RoundedCornerShape(2.dp),
             )
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 8.dp, horizontal = 14.dp),
+            .padding(vertical = 6.dp, horizontal = 14.dp),
     ) {
         if (subLabel == null) {
             BasicText(
