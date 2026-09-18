@@ -6,6 +6,7 @@ import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.scraper.model.AssetProvenance
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.SourceType
+import io.crystalnova.manager.scraper.scan.RomEntry
 import io.crystalnova.manager.scraper.store.ScraperJson
 import io.crystalnova.manager.scraper.store.ScraperStorage
 import io.crystalnova.manager.storage.StorageLocations
@@ -68,9 +69,16 @@ class EsdeImportRunner(
 
     // ------------------------------------------------------------------
     // Pre-scan.
+    //
+    // Matches the ES-DE export against the authoritative ROM library —
+    // the ROM scan's [RomEntry] list, NOT the scraper's index.json
+    // (which only gains entries once artwork is scraped and therefore
+    // can never be a pre-import prerequisite). The caller
+    // (ScraperManager.runEsdeImportPrescan) guarantees [roms] is a
+    // fresh-or-cached scan before calling.
     // ------------------------------------------------------------------
 
-    fun prescan(): PrescanResult {
+    fun prescan(roms: List<RomEntry>): PrescanResult {
         val exportRoot = openExportRoot()
             ?: return PrescanResult.Failed(
                 "Cannot read the ES-DE export folder — it is not picked, " +
@@ -92,15 +100,12 @@ class EsdeImportRunner(
         val exportIndex = mutableMapOf<String, DocumentFile>()
         indexTree(mediaDir, "media", 0, exportIndex)
 
-        val games = readRomGames()
-            ?: return PrescanResult.Failed(
-                "Could not read the Crystal game index. Run the ROM " +
-                    "library build first.",
-            )
+        val games = roms.map(EsdeImport::romGameFromEntry)
         if (games.isEmpty()) {
             return PrescanResult.Failed(
                 "The ROM library is empty — nothing to match against. " +
-                    "Run the ROM library build first.",
+                    "Check Settings → ROM LIBRARY: the folder must grant " +
+                    "access and contain game files.",
             )
         }
 
@@ -341,26 +346,9 @@ class EsdeImportRunner(
         return null
     }
 
-    private fun readRomGames(): List<EsdeImport.RomGame>? {
-        val text = try { storage.loadIndexJson() } catch (_: Exception) { return null }
-            ?: return null
-        return try {
-            val games = JSONObject(text).optJSONObject("games") ?: return emptyList()
-            games.keys().asSequence().mapNotNull { key ->
-                val o = games.optJSONObject(key) ?: return@mapNotNull null
-                // fileName may be absent on old entries: the game still
-                // counts as scanned (unmatched) rather than vanishing.
-                EsdeImport.RomGame(
-                    platform = o.optString("platform", ""),
-                    gameId = o.optString("gameId", key.substringAfter('/')),
-                    title = o.optString("title", key),
-                    fileName = o.optString("fileName", ""),
-                )
-            }.toList()
-        } catch (_: Exception) {
-            null
-        }
-    }
+    // ------------------------------------------------------------------
+    // Shared helpers.
+    // ------------------------------------------------------------------
 
     private fun resolveExportDoc(root: DocumentFile, relativePath: String): DocumentFile? {
         var node = root

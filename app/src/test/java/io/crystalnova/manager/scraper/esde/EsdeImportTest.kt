@@ -1,8 +1,10 @@
 package io.crystalnova.manager.scraper.esde
 
+import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.AssetProvenance
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.SourceType
+import io.crystalnova.manager.scraper.scan.RomEntry
 import org.junit.Assert.*
 import org.junit.Test
 
@@ -216,5 +218,43 @@ class EsdeImportTest {
 
         val c4 = EsdeImport.resolveGamelistMediaCandidates("ps2", "../../../evil.png")
         assertTrue(c4.isEmpty())
+    }
+
+    // -- ROM-scan source (pre-scan no longer reads index.json) ----------
+
+    private fun entry(
+        platformSlug: String = "ps2",
+        fileName: String = "TOCA Race Driver 3.iso",
+    ) = RomEntry(
+        platformSlug = platformSlug,
+        platformLabel = "PlayStation 2",
+        relativePath = "$platformSlug/$fileName",
+        fileName = fileName,
+        size = 1L,
+        lastModified = 0L,
+    )
+
+    @Test fun `romGameFromEntry keeps platform and strips title from the file name`() {
+        val g = EsdeImport.romGameFromEntry(entry())
+        assertEquals("ps2", g.platform)
+        assertEquals("TOCA Race Driver 3", g.title)
+        assertEquals("TOCA Race Driver 3.iso", g.fileName)
+    }
+
+    @Test fun `romGameFromEntry gameId follows the scraper index convention`() {
+        // ScrapeJob and the orphan prune both key games by
+        // slugify(fileName); the import must write the same keys so its
+        // manifests/index entries are recognized, not duplicated.
+        val g = EsdeImport.romGameFromEntry(entry())
+        assertEquals(TitleNormalizer.slugify("TOCA Race Driver 3.iso"), g.gameId)
+    }
+
+    @Test fun `romGameFromEntry handles nested relative paths`() {
+        val g = EsdeImport.romGameFromEntry(
+            entry(platformSlug = "gba", fileName = "Mario Golf (E).gba"),
+        )
+        assertEquals("gba", g.platform)
+        assertEquals("Mario Golf (E)", g.title)
+        assertEquals(TitleNormalizer.slugify("Mario Golf (E).gba"), g.gameId)
     }
 }

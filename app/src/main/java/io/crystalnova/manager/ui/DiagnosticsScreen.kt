@@ -38,6 +38,8 @@ import io.crystalnova.manager.scraper.work.BridgeStatus
 @Composable
 fun DiagnosticsScreen(
     info: DiagnosticsInfo,
+    libraryScanning: Boolean,
+    onRescanLibrary: () -> Unit,
     onRefresh: () -> Unit,
     onClose: () -> Unit,
     modifier: Modifier = Modifier,
@@ -277,6 +279,25 @@ fun DiagnosticsScreen(
                     }
                 }
             }
+            section {
+                CrystalPanel {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        DiagSection("RECOVERY")
+                        MetafileHint(
+                            "THE LIBRARY DISCOVERS ITSELF AUTOMATICALLY — " +
+                                "THIS IS ONLY FOR FORCING A FULL REWALK WHEN " +
+                                "SOMETHING LOOKS STUCK.",
+                        )
+                    }
+                }
+            }
+            control(
+                key = "diag-rescan-library",
+                testTag = "diag-rescan-library",
+                label = if (libraryScanning) "SCANNING…" else "RESCAN ROM LIBRARY",
+                onClick = onRescanLibrary,
+                enabled = !libraryScanning,
+            )
             control(
                 key = "diag-refresh",
                 testTag = "diag-refresh",

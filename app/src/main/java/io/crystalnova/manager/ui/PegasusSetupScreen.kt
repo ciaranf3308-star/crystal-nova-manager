@@ -65,7 +65,6 @@ fun PegasusSetupScreen(
     notice: String?,
     pegasusInstalled: Boolean,
     onRepickRomRoot: () -> Unit,
-    onRescan: () -> Unit,
     onConfigureLaunchers: () -> Unit,
     onInject: () -> Unit,
     onDismissNotice: () -> Unit,
@@ -162,14 +161,6 @@ fun PegasusSetupScreen(
                     onClick = onConfigureLaunchers,
                 )
             }
-            control(
-                key = "pegasus-setup-refresh",
-                testTag = "pegasus-setup-refresh",
-                label = "REFRESH LIBRARY",
-                onClick = onRescan,
-            )
-
-            injectWarning?.let { section { StatusLine(it, Crystal.Bad) } }
             control(
                 key = "pegasus-setup-inject",
                 testTag = "pegasus-setup-inject",

@@ -311,6 +311,7 @@ private fun channelLabel(channel: AppUpdateChannel): String = when (channel) {
 fun EsdeImportScreen(
     esdeLocation: LocationState,
     prescanning: Boolean,
+    importStatus: String?,
     importPlanReady: Boolean,
     importReport: String?,
     importRunning: Boolean,
@@ -357,6 +358,13 @@ fun EsdeImportScreen(
             importReport?.let { report ->
                 section {
                     StatusLine(report)
+                }
+            }
+            if (prescanning) {
+                section {
+                    // Live phase: automatic ROM-library discovery first,
+                    // then the export match. No manual step in between.
+                    StatusLine(importStatus ?: "SCANNING…")
                 }
             }
             if (importRunning) {

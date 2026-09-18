@@ -243,6 +243,9 @@ class MainActivity : ComponentActivity() {
                     locationError = null
                     pegasusConfigRev++
                     scraper.refresh()
+                    // Adopting a ROM folder discovers the library
+                    // immediately — no manual rescan step.
+                    scraper.scan()
                 } else {
                     locationError = "COULD NOT KEEP ROM LIBRARY ACCESS — PLEASE TRY AGAIN"
                 }
@@ -404,6 +407,20 @@ class MainActivity : ComponentActivity() {
 
         pegasus = PegasusLibrary(this, prefs, locations)
 
+        // Appliance behavior: the ROM library discovers itself. On
+        // startup, scan the ROM roots when this session has not scanned
+        // yet (new ROMs appear, removed games are reconciled out of the
+        // derived index). After every completed scan the Pegasus launch
+        // records regenerate silently, so Crystal/Pegasus always
+        // reflects the library. Manual rebuild stays available under
+        // Diagnostics → RECOVERY.
+        scraper.onLibraryScanCompleted = { games ->
+            if (games.isNotEmpty()) syncPegasusLibrary()
+        }
+        scope.launch(Dispatchers.IO) {
+            scraper.ensureLibraryScan()
+        }
+
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() {
                 val nav = navigator
@@ -514,7 +531,6 @@ class MainActivity : ComponentActivity() {
                     onSelectSystem = { slug, label ->
                         nav.navigate(Dest.System(slug, label))
                     },
-                    onRescan = { scraper.scan() },
                     onDismissNotice = { scraper.dismissNotice() },
                     onBack = pop,
                 )
@@ -613,6 +629,7 @@ class MainActivity : ComponentActivity() {
                 is Dest.SettingsEsdeImport -> EsdeImportScreen(
                     esdeLocation = scraperState.esdeLocation,
                     prescanning = scraperState.importPrescanning,
+                    importStatus = scraperState.importStatus,
                     importPlanReady = scraperState.importPlan != null,
                     importReport = scraperState.importReport,
                     importRunning = scraperState.importRunning,
@@ -741,7 +758,6 @@ class MainActivity : ComponentActivity() {
                         notice = pegasusNotice,
                         pegasusInstalled = isPegasusInstalled(),
                         onRepickRomRoot = { romPicker.launch(null) },
-                        onRescan = { scraper.scan() },
                         onConfigureLaunchers = { nav.navigate(Dest.PegasusLaunchers) },
                         onInject = { injectPegasus() },
                         onDismissNotice = { pegasusNotice = null },
@@ -832,6 +848,8 @@ class MainActivity : ComponentActivity() {
                     if (info != null) {
                         DiagnosticsScreen(
                             info = info,
+                            libraryScanning = scraperState.scanning,
+                            onRescanLibrary = { scraper.scan() },
                             onRefresh = {
                                 // SAF index read happens here; keep it off
                                 // the main thread for large libraries.
@@ -1098,6 +1116,45 @@ class MainActivity : ComponentActivity() {
                     is PegasusLibrary.InjectOutcome.Failed -> outcome.message
                 }
             }
+        }
+    }
+
+    /**
+     * Silent Pegasus library sync: regenerates the launch records
+     * (per-system `crystal-nova.metadata.pegasus.txt`) after an
+     * automatic library scan, so Crystal/Pegasus always reflects the
+     * current ROMs without a manual BUILD step. Success arms the
+     * restart gate exactly like the manual INJECT; expected
+     * not-configured states (no launcher yet, nothing injectable)
+     * stay silent — the manual INJECT on Pegasus Setup remains the
+     * visible repair path. Unexpected failures are logged, not
+     * surfaced, to keep startup quiet.
+     */
+    private fun syncPegasusLibrary() {
+        scope.launch(Dispatchers.Main) {
+            if (pegasusBusy) return@launch
+            pegasusBusy = true
+            val outcome = withContext(Dispatchers.IO) {
+                try {
+                    pegasus.inject()
+                } catch (e: Exception) {
+                    android.util.Log.w("CrystalNova", "silent Pegasus sync failed", e)
+                    null
+                }
+            }
+            when (outcome) {
+                is PegasusLibrary.InjectOutcome.Ok ->
+                    pegasusRestartGate.pendingBuild = true
+                is PegasusLibrary.InjectOutcome.Failed ->
+                    // "NO LAUNCHER" / "NOTHING TO INJECT" are normal
+                    // pre-configuration states, not errors.
+                    android.util.Log.i(
+                        "CrystalNova",
+                        "silent Pegasus sync: ${outcome.message}",
+                    )
+                null -> Unit
+            }
+            pegasusBusy = false
         }
     }
 

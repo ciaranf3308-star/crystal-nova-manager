@@ -53,6 +53,8 @@ data class ScraperUiState(
     val esdeLocation: LocationState = LocationState.NotConfigured,
     /** True while the ES-DE pre-scan is running. */
     val importPrescanning: Boolean = false,
+    /** Human-readable pre-scan phase ("SCANNING ROM LIBRARY…"); null when idle. */
+    val importStatus: String? = null,
     /** Last pre-scan plan; the IMPORT action executes exactly this. */
     val importPlan: EsdeImport.ImportPlan? = null,
     /** Last pre-scan report (or failure); null when never run. */
@@ -118,6 +120,13 @@ class ScraperManager(
 
     private var scrapeJob: Job? = null
     private var lastScan: List<RomEntry> = emptyList()
+    /**
+     * Fired on the IO dispatcher after every [runLibraryScan] completes
+     * (success or failure), with the discovered games. MainActivity
+     * uses it to regenerate Pegasus launch records automatically, so
+     * the launcher always reflects the current ROMs.
+     */
+    var onLibraryScanCompleted: ((List<RomEntry>) -> Unit)? = null
     private var pegasusEntries: Map<String, List<io.crystalnova.manager.scraper.provider.PegasusMetadataReader.Entry>> = emptyMap()
 
     private fun storage(): ScraperStorage {
@@ -176,33 +185,50 @@ class ScraperManager(
     }
 
     /**
-     * Pre-scans the ES-DE export: matches it against the authoritative
-     * ROM library and builds the import plan WITHOUT copying anything.
-     * The user reviews [ScraperUiState.importReport], then confirms with
-     * [runEsdeImport]. Runs off the UI thread. Never throws.
+     * Pre-scans the ES-DE export with automatic ROM-library discovery.
+     * When the library has not been scanned yet this session, the ROM
+     * roots are scanned first (same walk as the library scan, with
+     * progress), then the export is matched against the fresh game
+     * list and the import plan is built WITHOUT copying anything.
+     * There is no manual library-build prerequisite: a missing or
+     * stale scan is detected and repaired inline. The user reviews
+     * [ScraperUiState.importReport], then confirms with [runEsdeImport].
+     * Runs off the UI thread. Never throws.
      */
     fun runEsdeImportPrescan() {
         if (_state.value.importPrescanning || _state.value.importRunning) return
         _state.value = _state.value.copy(
-            importPrescanning = true, importReport = null,
-            importPlan = null, importResult = null,
+            importPrescanning = true, importStatus = "SCANNING ROM LIBRARY…",
+            importReport = null, importPlan = null, importResult = null,
         )
         scope.launch(ioDispatcher) {
             var plan: EsdeImport.ImportPlan? = null
-            val report = try {
-                when (val outcome = EsdeImportRunner(context, locations, storage()).prescan()) {
-                    is EsdeImportRunner.PrescanResult.Ready -> {
-                        plan = outcome.plan
-                        outcome.plan.reportText()
+            // Automatic discovery: missing/stale library -> scan ROM
+            // roots now -> resume the pre-scan against the result.
+            val roms = ensureLibraryScan()
+            var report: String? = null
+            if (roms.isEmpty() && !hasGamesFolderAccess()) {
+                report = "PRE-SCAN FAILED\n\nROM LIBRARY NOT AVAILABLE — " +
+                    "PICK YOUR ROMS FOLDER IN SETTINGS → ROM LIBRARY FIRST."
+            }
+            if (report == null) {
+                _state.value = _state.value.copy(importStatus = "MATCHING ES-DE EXPORT…")
+                report = try {
+                    when (val outcome = EsdeImportRunner(context, locations, storage()).prescan(roms)) {
+                        is EsdeImportRunner.PrescanResult.Ready -> {
+                            plan = outcome.plan
+                            outcome.plan.reportText()
+                        }
+                        is EsdeImportRunner.PrescanResult.Failed ->
+                            "PRE-SCAN FAILED\n\n${outcome.reason}"
                     }
-                    is EsdeImportRunner.PrescanResult.Failed ->
-                        "PRE-SCAN FAILED\n\n${outcome.reason}"
+                } catch (e: Exception) {
+                    "PRE-SCAN FAILED\n\n${e.message ?: e.javaClass.simpleName}"
                 }
-            } catch (e: Exception) {
-                "PRE-SCAN FAILED\n\n${e.message ?: e.javaClass.simpleName}"
             }
             _state.value = _state.value.copy(
-                importPrescanning = false, importReport = report, importPlan = plan,
+                importPrescanning = false, importStatus = null,
+                importReport = report, importPlan = plan,
             )
         }
     }
@@ -518,6 +544,10 @@ class ScraperManager(
         } catch (_: Exception) { emptyList() }
     }
 
+    /**
+     * Manual ROM-library rescan entry point (Recovery/Diagnostics UI).
+     * Fire-and-forget; the automatic paths use [ensureLibraryScan].
+     */
     fun scan() {
         val treeUri = prefs.getString(KEY_GAMES_TREE_URI) ?: return
         if (_state.value.scanning || _state.value.scraping) return
@@ -529,67 +559,96 @@ class ScraperManager(
             )
             return
         }
+        scope.launch(ioDispatcher) { runLibraryScan(treeUri) }
+    }
+
+    /**
+     * Returns the ROM library, scanning the ROM roots first when this
+     * session has not scanned yet. This is the single automatic
+     * discovery path: PRE-SCAN, startup sync, and ROM-folder adoption
+     * all funnel through here, so there is never a manual
+     * "build the library" prerequisite. Returns the cached scan when
+     * one already ran; empty when the ROM folder is unavailable.
+     * Never throws.
+     */
+    suspend fun ensureLibraryScan(): List<RomEntry> {
+        if (lastScan.isNotEmpty()) return lastScan
+        val treeUri = prefs.getString(KEY_GAMES_TREE_URI) ?: return emptyList()
+        if (!hasGamesFolderAccess()) return emptyList()
+        // Don't pile a second scan onto an in-flight manual one; the
+        // in-flight scan will populate lastScan when it lands.
+        if (_state.value.scanning || _state.value.scraping) return lastScan
+        return runLibraryScan(treeUri)
+    }
+
+    /**
+     * The actual ROM-root walk. Suspends on the caller's dispatcher
+     * (callers run this on IO). Updates UI state exactly like the old
+     * fire-and-forget scan did: systems grid, stats, orphan pruning
+     * (removed games reconciled out of the derived index), persisted
+     * system snapshot. Returns the discovered games. Never throws.
+     */
+    private suspend fun runLibraryScan(treeUri: String): List<RomEntry> {
         _state.value = _state.value.copy(scanning = true, notice = null, scanProgress = null)
-        scope.launch(ioDispatcher) {
-            try {
-                val scanner = LibraryScanner(context, treeUri)
-                val result = scanner.scan { p ->
-                    _state.value = _state.value.copy(scanProgress = p)
-                }
-                // A revoked grant can surface as an empty listing rather
-                // than an exception; that must not read as "no games" —
-                // it would prune the entire index below. Fail into the
-                // reselection state instead (handled by the catch).
-                if (!hasGamesFolderAccess()) throw SecurityException("games folder not accessible")
-                lastScan = result.games
-                pegasusEntries = result.pegasusEntries
-                // Prune ghost index entries (renamed ROMs) after every
-                // successful scan — including an empty one, which means the
-                // folder was readable but holds no games. Asset dirs are
-                // kept until the user deletes them; only the derived index
-                // is pruned.
-                val orphaned = pruneOrphanedIndexEntries(result.games)
-                val entries = readIndexEntries()
-                val notices = buildList {
-                    if (result.games.isEmpty()) add("NO GAMES FOUND IN THIS FOLDER")
-                    if (orphaned > 0) add(
-                        "$orphaned ORPHANED " +
-                            if (orphaned == 1) "ENTRY REMOVED FROM INDEX"
-                            else "ENTRIES REMOVED FROM INDEX",
-                    )
-                }
+        try {
+            val scanner = LibraryScanner(context, treeUri)
+            val result = scanner.scan { p ->
+                _state.value = _state.value.copy(scanProgress = p)
+            }
+            // A revoked grant can surface as an empty listing rather
+            // than an exception; that must not read as "no games" —
+            // it would prune the entire index below. Fail into the
+            // reselection state instead (handled by the catch).
+            if (!hasGamesFolderAccess()) throw SecurityException("games folder not accessible")
+            lastScan = result.games
+            pegasusEntries = result.pegasusEntries
+            // Prune ghost index entries (renamed ROMs) after every
+            // successful scan — including an empty one, which means the
+            // folder was readable but holds no games. Asset dirs are
+            // kept until the user deletes them; only the derived index
+            // is pruned.
+            val orphaned = pruneOrphanedIndexEntries(result.games)
+            val entries = readIndexEntries()
+            val notices = buildList {
+                if (result.games.isEmpty()) add("NO GAMES FOUND IN THIS FOLDER")
+                if (orphaned > 0) add(
+                    "$orphaned ORPHANED " +
+                        if (orphaned == 1) "ENTRY REMOVED FROM INDEX"
+                        else "ENTRIES REMOVED FROM INDEX",
+                )
+            }
+            _state.value = _state.value.copy(
+                scanning = false,
+                scanProgress = null,
+                needsGamesFolder = false,
+                needsMediaFolder = false,
+                systems = result.systems,
+                stats = ScraperStats.fromEntries(entries).copy(systems = result.systems),
+                systemStats = SystemStats.perSystem(entries, result.systems),
+                notice = notices.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+            )
+            // Persist the lightweight system summary so a restart or
+            // APK update doesn't drop the grid back to 0 SYSTEMS.
+            prefs.putString(KEY_SYSTEM_SNAPSHOT, SystemSnapshot.encode(result.systems))
+            clearError()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            if (isRevocation(e) || !hasGamesFolderAccess()) {
+                // Covers media-root SecurityExceptions too: scan reads
+                // the index through storage(), which is media-rooted
+                // once a media folder is picked.
+                _state.value = revocationState()
+            } else {
+                val msg = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
+                recordError(msg)
                 _state.value = _state.value.copy(
                     scanning = false,
                     scanProgress = null,
-                    needsGamesFolder = false,
-                    needsMediaFolder = false,
-                    systems = result.systems,
-                    stats = ScraperStats.fromEntries(entries).copy(systems = result.systems),
-                    systemStats = SystemStats.perSystem(entries, result.systems),
-                    notice = notices.takeIf { it.isNotEmpty() }?.joinToString(" · "),
+                    notice = msg,
                 )
-                // Persist the lightweight system summary so a restart or
-                // APK update doesn't drop the grid back to 0 SYSTEMS.
-                prefs.putString(KEY_SYSTEM_SNAPSHOT, SystemSnapshot.encode(result.systems))
-                clearError()
-            } catch (e: Exception) {
-                if (e is kotlinx.coroutines.CancellationException) throw e
-                if (isRevocation(e) || !hasGamesFolderAccess()) {
-                    // Covers media-root SecurityExceptions too: scan reads
-                    // the index through storage(), which is media-rooted
-                    // once a media folder is picked.
-                    _state.value = revocationState()
-                } else {
-                    val msg = "SCAN FAILED: ${(e.message ?: "unknown").uppercase().take(80)}"
-                    recordError(msg)
-                    _state.value = _state.value.copy(
-                        scanning = false,
-                        scanProgress = null,
-                        notice = msg,
-                    )
-                }
             }
         }
+        return lastScan.also { onLibraryScanCompleted?.invoke(it) }
     }
 
     /**

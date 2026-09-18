@@ -60,7 +60,6 @@ class NovaNoStrandedControlTest : NovaUiTest() {
                 notice = "LIBRARY REFRESHED — 20 GAMES FOUND.",
                 pegasusInstalled = true,
                 onRepickRomRoot = {},
-                onRescan = {},
                 onConfigureLaunchers = {},
                 onInject = {},
                 onDismissNotice = {},
@@ -74,7 +73,6 @@ class NovaNoStrandedControlTest : NovaUiTest() {
                 { composeTestRule.onNodeWithTag("pegasus-setup-rom-root") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-autoconfigure") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-launchers") },
-                { composeTestRule.onNodeWithTag("pegasus-setup-refresh") },
                 { composeTestRule.onNodeWithTag("pegasus-setup-inject") },
                 // DISMISS has no testTag by construction; exact label text.
                 { composeTestRule.onNodeWithText("DISMISS") },

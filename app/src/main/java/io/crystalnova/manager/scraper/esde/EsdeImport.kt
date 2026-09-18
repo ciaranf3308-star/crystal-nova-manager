@@ -1,8 +1,10 @@
 package io.crystalnova.manager.scraper.esde
 
+import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.AssetProvenance
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.SourceType
+import io.crystalnova.manager.scraper.scan.RomEntry
 
 /**
  * ES-DE media importer — production architecture.
@@ -46,12 +48,25 @@ object EsdeImport {
         else -> platformSlug
     }
 
-    /** One game from the authoritative ROM library (index.json). */
+    /** One game from the authoritative ROM library (the ROM scan). */
     data class RomGame(
         val platform: String,
         val gameId: String,
         val title: String,
         val fileName: String,
+    )
+
+    /**
+     * Builds a pre-scan game from a ROM-scan entry. The gameId follows
+     * the scraper/index convention (slug of the ROM file name) so the
+     * import writes manifests and index entries the scraper itself
+     * would recognize.
+     */
+    fun romGameFromEntry(entry: RomEntry): RomGame = RomGame(
+        platform = entry.platformSlug,
+        gameId = TitleNormalizer.slugify(entry.fileName),
+        title = romBasename(entry.fileName),
+        fileName = entry.fileName,
     )
 
     /** ROM file name without folders and without extension — ES-DE names media after this. */

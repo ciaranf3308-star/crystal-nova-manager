@@ -26,7 +26,6 @@ fun LibraryScreen(
     state: ScraperUiState,
     onPickRomLibrary: () -> Unit,
     onSelectSystem: (slug: String, label: String) -> Unit,
-    onRescan: () -> Unit,
     onDismissNotice: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -101,22 +100,17 @@ fun LibraryScreen(
                     }
                 }
                 // Truthful scan feedback: current folder, systems x/y,
-                // games found so far. Never a percentage.
+                // games found so far. Never a percentage. The library
+                // discovers itself automatically (startup, ROM-folder
+                // pick, pre-scan); the manual rebuild lives under
+                // Diagnostics → RECOVERY, so there is no rescan button
+                // here.
                 if (state.scanning) {
                     StatusLine(
                         state.scanProgress?.displayLine() ?: "SCANNING…",
                         Crystal.Divider,
                     )
                 }
-                CrystalButton(
-                    key = "library-rescan",
-                    testTag = "library-rescan",
-                    label = if (state.scanning) "SCANNING…" else "RESCAN LIBRARY",
-                    onClick = onRescan,
-                    dispatcher = dispatcher,
-                    enabled = !state.scanning && !state.scraping,
-                    requestInitialFocus = isInitialFocus("library-rescan"),
-                )
             }
             state.notice?.let { NoticeBlock(it, onDismissNotice, dispatcher) }
         }
