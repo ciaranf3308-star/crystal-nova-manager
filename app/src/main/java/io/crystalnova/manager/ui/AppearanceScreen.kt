@@ -29,10 +29,11 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.input.pointer.awaitFirstDown
-import androidx.compose.ui.input.pointer.awaitPointerEvent
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -40,7 +41,9 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
@@ -211,6 +214,7 @@ fun AppearanceScreen(
             }
             // HSB editor for the selected slot.
             section {
+                val scope = this
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(
                         modifier = Modifier
@@ -235,8 +239,11 @@ fun AppearanceScreen(
                     BoxWithConstraints(
                         modifier = Modifier.align(Alignment.CenterHorizontally),
                     ) {
-                        val wheelPx = 200.dp.toPx().toInt()
-                        val wheel = remember {
+                        val density = LocalDensity.current
+                        val wheelPx = remember(density) {
+                            with(density) { 200.dp.toPx().toInt() }
+                        }
+                        val wheel = remember(wheelPx) {
                             buildHueSatWheel(wheelPx)
                         }
                         // Latest values for the gesture block: the block is
@@ -248,27 +255,25 @@ fun AppearanceScreen(
                             modifier = Modifier
                                 .size(200.dp)
                                 .pointerInput(Unit) {
-                                    awaitPointerEventScope {
-                                        while (true) {
-                                            val down = awaitFirstDown()
-                                            applyWheelPosition(
-                                                down.position, size,
-                                                latestBrightness.value,
-                                            ) { latestApply.value(it) }
-                                            down.consume()
-                                            var dragging = true
-                                            while (dragging) {
-                                                val event = awaitPointerEvent()
-                                                val change = event.changes.firstOrNull()
-                                                if (change == null || !change.pressed) {
-                                                    dragging = false
-                                                } else {
-                                                    applyWheelPosition(
-                                                        change.position, size,
-                                                        latestBrightness.value,
-                                                    ) { latestApply.value(it) }
-                                                    change.consume()
-                                                }
+                                    awaitEachGesture {
+                                        val down = awaitFirstDown()
+                                        applyWheelPosition(
+                                            down.position, size,
+                                            latestBrightness.value,
+                                        ) { latestApply.value(it) }
+                                        down.consume()
+                                        var dragging = true
+                                        while (dragging) {
+                                            val event = awaitPointerEvent()
+                                            val change = event.changes.firstOrNull()
+                                            if (change == null || !change.pressed) {
+                                                dragging = false
+                                            } else {
+                                                applyWheelPosition(
+                                                    change.position, size,
+                                                    latestBrightness.value,
+                                                ) { latestApply.value(it) }
+                                                change.consume()
                                             }
                                         }
                                     }
@@ -305,8 +310,7 @@ fun AppearanceScreen(
                             }
                         }
                     }
-                    val s = this
-                    s.adjustRow(
+                    scope.adjustRow(
                         key = "appearance-hue",
                         label = "HUE",
                         valueText = "${hsv[0].toInt()}°",
@@ -314,7 +318,7 @@ fun AppearanceScreen(
                         onAdjust = { d -> updateCurrent(hsvToColor(hsv[0] + d * 360f, hsv[1], hsv[2])) },
                         testTag = "appearance-hue",
                     )
-                    s.adjustRow(
+                    scope.adjustRow(
                         key = "appearance-sat",
                         label = "SATURATION",
                         valueText = "${(hsv[1] * 100).toInt()}%",
@@ -322,7 +326,7 @@ fun AppearanceScreen(
                         onAdjust = { d -> updateCurrent(hsvToColor(hsv[0], hsv[1] + d, hsv[2])) },
                         testTag = "appearance-sat",
                     )
-                    s.adjustRow(
+                    scope.adjustRow(
                         key = "appearance-bright",
                         label = "BRIGHTNESS",
                         valueText = "${(hsv[2] * 100).toInt()}%",
@@ -331,7 +335,7 @@ fun AppearanceScreen(
                         testTag = "appearance-bright",
                     )
                     // Preset cycler: left/right steps through presets.
-                    s.adjustRow(
+                    scope.adjustRow(
                         key = "appearance-preset",
                         label = "PRESET",
                         valueText = PRESETS[presetIndex].name,
@@ -519,7 +523,7 @@ private fun applyWheelPosition(
     val r = minOf(cx, cy)
     val dist = sqrt(dx * dx + dy * dy)
     if (dist <= r) {
-        val h = ((Math.toDegrees(atan2(dy, dx)) + 360) % 360).toFloat()
+        val h = ((Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())) + 360) % 360).toFloat()
         val s = (dist / r).coerceIn(0f, 1f)
         onColor(hsvToColor(h, s, brightness))
     }
