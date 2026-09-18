@@ -27,6 +27,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                     isRemovable = false,
                 ),
                 mediaLocation = LocationState.NotConfigured,
+                esdeLocation = LocationState.NotConfigured,
                 themesRootLabel = "INTERNAL STORAGE /Themes",
                 updateChannel = AppUpdateChannel.STABLE,
                 appVersion = "1.0.2",
@@ -36,6 +37,8 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                 onUpdateApp = {},
                 onOpenRom = {},
                 onOpenMedia = {},
+                onOpenEsde = {},
+                onOpenProbe = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
                 onDiagnostics = {},
@@ -46,6 +49,8 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
         assertNodeInViewport("settings-update-app")
         assertNodeInViewport("settings-row-rom")
         assertNodeInViewport("settings-row-media")
+        assertNodeInViewport("settings-row-esde")
+        assertNodeInViewport("settings-row-probe")
         assertNodeInViewport("settings-row-themes")
         assertNodeInViewport("settings-row-channel")
         assertNodeInViewport("settings-row-diagnostics")
