@@ -254,7 +254,12 @@ class UpdateManager(
             } catch (e: SecurityException) {
                 _state.value = ManagerState.UpdateFailed("STORAGE ACCESS LOST", restored = true)
             } catch (e: IOException) {
-                _state.value = ManagerState.UpdateFailed("DOWNLOAD FAILED", restored = true)
+                val stage = (_state.value as? ManagerState.Updating)?.stage
+                val detail = e.message?.take(120) ?: "unknown I/O error"
+                _state.value = ManagerState.UpdateFailed(
+                    "FAILED AT ${stage ?: "UNKNOWN"}: $detail",
+                    restored = true,
+                )
             } catch (e: Exception) {
                 _state.value = ManagerState.UpdateFailed(
                     "INSTALL FAILED — ${(e.message ?: "unknown error").uppercase()}",
