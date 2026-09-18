@@ -64,6 +64,20 @@ class StorageLocations(
         /** Persisted SAF tree URI of the read-only ES-DE import root. */
         const val KEY_ESDE_TREE_URI = "esde_tree_uri"
         const val BRIDGE_FILE_NAME = "crystal-media-bridge.json"
+
+        /**
+         * The persistable grant flags for [adoptTreeUri]. The ES-DE
+         * export is read-only: only the read grant is ever taken there,
+         * so no future code path can write beneath the user's export.
+         * Pure — unit-tested on the JVM.
+         */
+        fun grantFlags(readOnly: Boolean): Int =
+            if (readOnly) {
+                Intent.FLAG_GRANT_READ_URI_PERMISSION
+            } else {
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            }
         private const val TAG = "StorageLocations"
         private const val INTERNAL_ROOT = "/storage/emulated/0"
     }
@@ -169,8 +183,10 @@ class StorageLocations(
     fun esdeTreeUri(): String? = prefs.getString(KEY_ESDE_TREE_URI)
 
     /**
-     * Takes the persistable read+write grant, persists the URI, and for
+     * Takes the persistable URI grant, persists the URI, and for
      * MEDIA rewrites the theme bridge (needs [themesTreeUri] for that).
+     * With [readOnly] only the read grant is taken — used for the
+     * ES-DE export, which the Manager must never write to.
      * Returns false on SecurityException so the caller can show a retry
      * notice; never throws.
      */
@@ -179,12 +195,10 @@ class StorageLocations(
         uri: Uri,
         kind: LocationKind,
         themesTreeUri: String? = null,
+        readOnly: Boolean = false,
     ): Boolean {
         return try {
-            cr.takePersistableUriPermission(
-                uri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-            )
+            cr.takePersistableUriPermission(uri, grantFlags(readOnly))
             adoptTreeUriString(uri.toString(), kind, themesTreeUri)
         } catch (e: SecurityException) {
             logger(TAG, "persistable permission denied for $kind", e)

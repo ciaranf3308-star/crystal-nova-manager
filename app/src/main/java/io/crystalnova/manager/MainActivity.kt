@@ -273,13 +273,14 @@ class MainActivity : ComponentActivity() {
     /**
      * ES-DE import-root picker. Adopting stores the persistable grant;
      * the export is used READ-ONLY (the probe and the future importer
-     * only list/read beneath it) — nothing is ever written there.
+     * only list/read beneath it) — nothing is ever written there, so
+     * only the read grant is taken.
      */
     private val esdePicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
             if (uri != null) {
                 val ok = locations.adoptTreeUri(
-                    contentResolver, uri, LocationKind.ESDE,
+                    contentResolver, uri, LocationKind.ESDE, readOnly = true,
                 )
                 if (ok) {
                     locationError = null

@@ -1,6 +1,7 @@
 package io.crystalnova.manager.storage
 
 import android.content.Context
+import android.content.Intent
 import io.crystalnova.manager.data.KeyValueStore
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -283,6 +284,23 @@ class StorageLocationsTest {
         assertEquals(
             "SD CARD /Crystal/imports/esde",
             loc.displayPath(sdEsdeTree),
+        )
+    }
+
+    @Test
+    fun `grantFlags takes read-only for the ES-DE export`() {
+        assertEquals(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION,
+            StorageLocations.grantFlags(readOnly = true),
+        )
+    }
+
+    @Test
+    fun `grantFlags takes read-write by default`() {
+        assertEquals(
+            Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            StorageLocations.grantFlags(readOnly = false),
         )
     }
 }
