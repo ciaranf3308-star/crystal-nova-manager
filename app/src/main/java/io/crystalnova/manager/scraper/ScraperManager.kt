@@ -34,12 +34,16 @@ import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.StorageLocations
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
 import java.io.File
 
@@ -119,6 +123,8 @@ class ScraperManager(
     val state: StateFlow<ScraperUiState> = _state.asStateFlow()
 
     private var scrapeJob: Job? = null
+    private val scanMutex = Mutex()
+    private var scanDeferred: Deferred<List<RomEntry>>? = null
     private var lastScan: List<RomEntry> = emptyList()
     /**
      * Fired on the IO dispatcher after every [runLibraryScan] completes
@@ -204,26 +210,43 @@ class ScraperManager(
         scope.launch(ioDispatcher) {
             var plan: EsdeImport.ImportPlan? = null
             // Automatic discovery: missing/stale library -> scan ROM
-            // roots now -> resume the pre-scan against the result.
-            val roms = ensureLibraryScan()
-            var report: String? = null
-            if (roms.isEmpty() && !hasGamesFolderAccess()) {
-                report = "PRE-SCAN FAILED\n\nROM LIBRARY NOT AVAILABLE — " +
-                    "PICK YOUR ROMS FOLDER IN SETTINGS → ROM LIBRARY FIRST."
+            // roots now (waiting for any in-flight walk) -> resume the
+            // pre-scan against the result.
+            val roms: List<RomEntry>? = try {
+                ensureLibraryScan()
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                null
             }
-            if (report == null) {
-                _state.value = _state.value.copy(importStatus = "MATCHING ES-DE EXPORT…")
-                report = try {
-                    when (val outcome = EsdeImportRunner(context, locations, storage()).prescan(roms)) {
-                        is EsdeImportRunner.PrescanResult.Ready -> {
-                            plan = outcome.plan
-                            outcome.plan.reportText()
+            // The when's earlier branches prove roms non-null in else,
+            // so prescan() gets a non-nullable list.
+            val report: String? = when {
+                roms == null ->
+                    "PRE-SCAN FAILED\n\nTHE ROM SCAN ERRORED — PLEASE RETRY."
+                roms.isEmpty() && !hasGamesFolderAccess() ->
+                    "PRE-SCAN FAILED\n\nROM LIBRARY NOT AVAILABLE — " +
+                        "PICK YOUR ROMS FOLDER IN SETTINGS → ROM LIBRARY FIRST."
+                roms.isEmpty() ->
+                    // The walk completed with the folder readable but no
+                    // game files found: say exactly that, not "empty".
+                    "PRE-SCAN FAILED\n\nTHE ROM SCAN FINISHED BUT FOUND NO " +
+                        "GAME FILES — NOTHING TO MATCH AGAINST. CHECK " +
+                        "SETTINGS → ROM LIBRARY: THE PICKED FOLDER MUST " +
+                        "CONTAIN YOUR GAME FILES."
+                else -> {
+                    _state.value = _state.value.copy(importStatus = "MATCHING ES-DE EXPORT…")
+                    try {
+                        when (val outcome = EsdeImportRunner(context, locations, storage()).prescan(roms)) {
+                            is EsdeImportRunner.PrescanResult.Ready -> {
+                                plan = outcome.plan
+                                outcome.plan.reportText()
+                            }
+                            is EsdeImportRunner.PrescanResult.Failed ->
+                                "PRE-SCAN FAILED\n\n${outcome.reason}"
                         }
-                        is EsdeImportRunner.PrescanResult.Failed ->
-                            "PRE-SCAN FAILED\n\n${outcome.reason}"
+                    } catch (e: Exception) {
+                        "PRE-SCAN FAILED\n\n${e.message ?: e.javaClass.simpleName}"
                     }
-                } catch (e: Exception) {
-                    "PRE-SCAN FAILED\n\n${e.message ?: e.javaClass.simpleName}"
                 }
             }
             _state.value = _state.value.copy(
@@ -553,6 +576,8 @@ class ScraperManager(
     /**
      * Manual ROM-library rescan entry point (Recovery/Diagnostics UI).
      * Fire-and-forget; the automatic paths use [ensureLibraryScan].
+     * Registers the walk in [scanDeferred] so a concurrent PRE-SCAN or
+     * startup sync awaits THIS scan instead of racing an empty list.
      */
     fun scan() {
         val treeUri = prefs.getString(KEY_GAMES_TREE_URI) ?: return
@@ -565,7 +590,46 @@ class ScraperManager(
             )
             return
         }
-        scope.launch(ioDispatcher) { runLibraryScan(treeUri) }
+        scope.launch {
+            try {
+                launchLibraryScan(treeUri).await()
+            } catch (_: Exception) {
+                // runLibraryScan already reported the outcome into UI state.
+            }
+        }
+    }
+
+    /**
+     * Starts the ROM-root walk on the manager scope and registers it so
+     * concurrent callers (startup sync, PRE-SCAN, manual rescan) share
+     * ONE scan: latecomers await the in-flight walk instead of piling on
+     * a duplicate or — the old bug — returning an empty in-memory list
+     * while the walk was still running. Never throws.
+     */
+    private suspend fun launchLibraryScan(treeUri: String): Deferred<List<RomEntry>> {
+        scanMutex.withLock {
+            scanDeferred?.let { existing ->
+                if (existing.isActive) return existing
+            }
+            val deferred = scope.async(ioDispatcher) {
+                runLibraryScan(treeUri)
+            }
+            scanDeferred = deferred
+            // Release the slot once the walk lands so the next caller
+            // starts a fresh scan.
+            scope.launch {
+                try {
+                    deferred.await()
+                } catch (_: Exception) {
+                    // Outcome already recorded by runLibraryScan.
+                } finally {
+                    scanMutex.withLock {
+                        if (scanDeferred === deferred) scanDeferred = null
+                    }
+                }
+            }
+            return deferred
+        }
     }
 
     /**
@@ -573,18 +637,37 @@ class ScraperManager(
      * session has not scanned yet. This is the single automatic
      * discovery path: PRE-SCAN, startup sync, and ROM-folder adoption
      * all funnel through here, so there is never a manual
-     * "build the library" prerequisite. Returns the cached scan when
-     * one already ran; empty when the ROM folder is unavailable.
-     * Never throws.
+     * "build the library" prerequisite. When a scan is already running
+     * (e.g. the startup sync), this WAITS for it instead of returning
+     * an empty list — the race that used to fail PRE-SCAN with
+     * "ROM library is empty" seconds after launch. Returns the cached
+     * scan when one already ran; empty when the ROM folder is
+     * unavailable. Never throws (coroutine cancellation excepted).
      */
     suspend fun ensureLibraryScan(): List<RomEntry> {
         if (lastScan.isNotEmpty()) return lastScan
         val treeUri = prefs.getString(KEY_GAMES_TREE_URI) ?: return emptyList()
         if (!hasGamesFolderAccess()) return emptyList()
-        // Don't pile a second scan onto an in-flight manual one; the
-        // in-flight scan will populate lastScan when it lands.
-        if (_state.value.scanning || _state.value.scraping) return lastScan
-        return runLibraryScan(treeUri)
+        // A scrape already owns heavy I/O; don't start a competing
+        // walk — await any in-flight scan, else use what we have.
+        if (_state.value.scraping) {
+            val inFlight = scanDeferred
+            if (inFlight != null) {
+                return try {
+                    inFlight.await()
+                } catch (e: Exception) {
+                    if (e is kotlinx.coroutines.CancellationException) throw e
+                    lastScan
+                }
+            }
+            return lastScan
+        }
+        return try {
+            launchLibraryScan(treeUri).await()
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            lastScan
+        }
     }
 
     /**
