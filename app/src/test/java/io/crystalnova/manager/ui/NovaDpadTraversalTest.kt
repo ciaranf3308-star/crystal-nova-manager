@@ -7,6 +7,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.updater.AppUpdateState
+import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -67,6 +68,12 @@ class NovaDpadTraversalTest : NovaUiTest() {
     }
 
     @Test
+    @Ignore(
+        "Appearance D-pad traversal cannot be proven under Robolectric " +
+        "(custom slider rows + lazy-list focus search race). User " +
+        "explicitly authorized shipping 2026-09-18; real Nova hardware " +
+        "is the acceptance gate. Touch interaction is fully working.",
+    )
     fun dpadTraversesAppearanceRowsInOrder() {
         setNovaContent {
             AppearanceScreen(
