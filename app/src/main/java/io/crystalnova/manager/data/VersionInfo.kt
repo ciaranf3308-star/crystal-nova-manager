@@ -24,7 +24,9 @@ data class VersionInfo(
         fun parse(json: String): VersionInfo? = try {
             val o = JSONObject(json)
             val version = o.optString("version", "").trim()
+            // The theme repo writes "sha"; accept "commit" as an alias.
             val commit = o.optString("commit", "").trim()
+                .ifEmpty { o.optString("sha", "").trim() }
             val channel = o.optString("channel", "").trim().ifEmpty { CHANNEL_STABLE }
             if (version.isEmpty() || commit.isEmpty()) null
             else VersionInfo(version = version, commit = commit, channel = channel)
