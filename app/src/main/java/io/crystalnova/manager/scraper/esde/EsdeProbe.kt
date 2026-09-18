@@ -44,6 +44,36 @@ object EsdeProbe {
     )
 
     /**
+     * Percent-encodes an absolute filesystem path for a `file://` URL,
+     * segment by segment (UTF-8). Unreserved characters pass through;
+     * everything else (spaces, parentheses, non-ASCII, …) becomes %XX.
+     * Real ES-DE cover filenames contain spaces and parentheses, and a
+     * raw space is not valid in a URL — the theme decodes this back and
+     * requires the decoded path to equal [Pick.testAsset] exactly.
+     * Pure — unit-tested on the JVM.
+     */
+    fun encodePath(path: String): String {
+        val hex = "0123456789ABCDEF"
+        return path.split("/").joinToString("/") { segment ->
+            buildString {
+                for (b in segment.toByteArray(Charsets.UTF_8)) {
+                    val u = b.toInt() and 0xFF
+                    val c = u.toChar()
+                    if (c in 'a'..'z' || c in 'A'..'Z' || c in '0'..'9' ||
+                        c == '-' || c == '_' || c == '.' || c == '~'
+                    ) {
+                        append(c)
+                    } else {
+                        append('%')
+                        append(hex[u shr 4])
+                        append(hex[u and 0x0F])
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * Pure pick: first system directory (sorted) that has at least one
      * image in its `covers/`, and the first such image (sorted, image
      * extension only). Systems whose `covers/` is missing or empty are
@@ -71,7 +101,7 @@ object EsdeProbe {
                 sdMediaRoot = root,
                 system = system,
                 testAsset = asset,
-                themeUrl = "file://$asset",
+                themeUrl = "file://" + encodePath(asset),
                 createdSeconds = createdSeconds,
             )
         }

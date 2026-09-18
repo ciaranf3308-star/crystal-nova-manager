@@ -134,4 +134,42 @@ class EsdeProbeTest {
         )!!
         assertEquals("$root/media/gba/covers/a.png", pick.testAsset)
     }
+
+    @Test
+    fun `encodePath leaves unreserved characters alone`() {
+        assertEquals(
+            "/storage/1234-ABCD/Crystal/imports/esde/media/ps2/covers/a-b_c~d.png",
+            EsdeProbe.encodePath("/storage/1234-ABCD/Crystal/imports/esde/media/ps2/covers/a-b_c~d.png"),
+        )
+    }
+
+    @Test
+    fun `encodePath percent-encodes spaces and parentheses`() {
+        assertEquals(
+            "/storage/1234-ABCD/x/Sonic%20the%20Hedgehog%20%28USA%29.png",
+            EsdeProbe.encodePath("/storage/1234-ABCD/x/Sonic the Hedgehog (USA).png"),
+        )
+    }
+
+    @Test
+    fun `encodePath encodes non-ASCII as UTF-8 bytes`() {
+        assertEquals("/x/%C3%A9.png", EsdeProbe.encodePath("/x/é.png"))
+    }
+
+    @Test
+    fun `themeUrl is the encoded file URL while testAsset stays raw`() {
+        val pick = EsdeProbe.chooseTestImage(
+            sdMediaRoot = root,
+            systemDirs = listOf("ps2"),
+            coverFiles = { listOf("Sonic the Hedgehog (USA).png") },
+        )!!
+        assertEquals(
+            "$root/media/ps2/covers/Sonic the Hedgehog (USA).png",
+            pick.testAsset,
+        )
+        assertEquals(
+            "file://$root/media/ps2/covers/Sonic%20the%20Hedgehog%20%28USA%29.png",
+            pick.themeUrl,
+        )
+    }
 }
