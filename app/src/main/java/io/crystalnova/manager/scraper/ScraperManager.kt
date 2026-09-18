@@ -2,6 +2,8 @@ package io.crystalnova.manager.scraper
 
 import android.content.Context
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.scraper.esde.EsdeProbeOutcome
+import io.crystalnova.manager.scraper.esde.EsdeProbeRunner
 import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.Completeness
@@ -47,6 +49,12 @@ data class ScraperUiState(
     val needsMediaFolder: Boolean = false,
     val romLocation: LocationState = LocationState.NotConfigured,
     val mediaLocation: LocationState = LocationState.NotConfigured,
+    /** Readiness of the read-only ES-DE import root (probe only for now). */
+    val esdeLocation: LocationState = LocationState.NotConfigured,
+    /** True while the SD media probe is running. */
+    val probeRunning: Boolean = false,
+    /** Last probe diagnostic (or failure); null when never run. */
+    val probeReport: String? = null,
     val scanning: Boolean = false,
     /** Live scan counters while [scanning]; null when idle. Never a percentage. */
     val scanProgress: ScanProgress? = null,
@@ -136,6 +144,50 @@ class ScraperManager(
 
     /** Raw SAF tree URI of the picked media folder, for Diagnostics. */
     fun mediaFolderUri(): String? = locations.mediaTreeUri()
+
+    /** True when an ES-DE import root is picked AND its grant still reads. */
+    fun hasEsdeFolderAccess(): Boolean = locations.hasAccess(LocationKind.ESDE)
+
+    /** Raw SAF tree URI of the picked ES-DE import root, for Diagnostics. */
+    fun esdeFolderUri(): String? = locations.esdeTreeUri()
+
+    /**
+     * Persists the picked ES-DE import-root URI (MainActivity takes the
+     * persistable SAF permission first). Read-only usage: the probe and
+     * the future importer only list/read beneath it.
+     */
+    fun setEsdeFolder(uri: String) {
+        locations.adoptTreeUriString(uri, LocationKind.ESDE)
+        refresh()
+    }
+
+    /** Clears the ES-DE import root. Never touches the export itself. */
+    fun clearEsdeFolder() {
+        locations.clearLocation(LocationKind.ESDE)
+        refresh()
+    }
+
+    /**
+     * Runs the SD media probe: picks one cover from the ES-DE export
+     * and writes `crystal-esde-probe.json` for the theme. Runs off the
+     * UI thread; the result lands in [ScraperUiState.probeReport].
+     * Never throws.
+     */
+    fun runEsdeProbe() {
+        if (_state.value.probeRunning) return
+        _state.value = _state.value.copy(probeRunning = true, probeReport = null)
+        scope.launch(ioDispatcher) {
+            val report = try {
+                when (val outcome = EsdeProbeRunner(context, locations, themesTreeUri).run()) {
+                    is EsdeProbeOutcome.Success -> outcome.diagnostic
+                    is EsdeProbeOutcome.Failure -> "PROBE FAILED\n\n${outcome.reason}"
+                }
+            } catch (e: Exception) {
+                "PROBE FAILED\n\n${e.message ?: e.javaClass.simpleName}"
+            }
+            _state.value = _state.value.copy(probeRunning = false, probeReport = report)
+        }
+    }
 
     /** Last persisted scraper failure, surviving restarts. Null when clean. */
     fun lastError(): String? = prefs.getString(KEY_LAST_ERROR)
@@ -301,6 +353,7 @@ class ScraperManager(
             needsMediaFolder = locations.mediaTreeUri() != null && !hasMediaFolderAccess(),
             romLocation = summary.rom,
             mediaLocation = summary.media,
+            esdeLocation = locations.esdeState(),
         )
         if (!needs) {
             restoreSystemSnapshot()

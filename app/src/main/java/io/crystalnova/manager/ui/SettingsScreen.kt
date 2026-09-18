@@ -20,6 +20,7 @@ import io.crystalnova.manager.updater.AppUpdateState
 fun SettingsScreen(
     romLocation: LocationState,
     mediaLocation: LocationState,
+    esdeLocation: LocationState,
     themesRootLabel: String,
     updateChannel: AppUpdateChannel,
     appVersion: String,
@@ -29,6 +30,8 @@ fun SettingsScreen(
     onUpdateApp: () -> Unit,
     onOpenRom: () -> Unit,
     onOpenMedia: () -> Unit,
+    onOpenEsde: () -> Unit,
+    onOpenProbe: () -> Unit,
     onOpenThemes: () -> Unit,
     onOpenChannel: () -> Unit,
     onDiagnostics: () -> Unit,
@@ -65,6 +68,18 @@ fun SettingsScreen(
                 testTag = "settings-row-media",
                 label = "MEDIA LIBRARY\n${friendlyLocation(mediaLocation)}${mediaBadge(mediaLocation)}",
                 onClick = onOpenMedia,
+            )
+            control(
+                key = "settings-row-esde",
+                testTag = "settings-row-esde",
+                label = "ES-DE IMPORT\n${friendlyLocation(esdeLocation)}",
+                onClick = onOpenEsde,
+            )
+            control(
+                key = "settings-row-probe",
+                testTag = "settings-row-probe",
+                label = "SD MEDIA PROBE\nTEST ONLY — RENDER ONE SD IMAGE IN THE THEME",
+                onClick = onOpenProbe,
             )
             control(
                 key = "settings-row-themes",
@@ -274,4 +289,81 @@ private fun mediaBadge(loc: LocationState): String =
 private fun channelLabel(channel: AppUpdateChannel): String = when (channel) {
     AppUpdateChannel.DEV -> "DEV / CANDIDATE"
     AppUpdateChannel.STABLE -> "STABLE"
+}
+
+/**
+ * SD MEDIA PROBE (test only): picks ONE cover image from the read-only
+ * ES-DE export on the SD card and writes `crystal-esde-probe.json`
+ * for the theme, which then shows the image in a diagnostic overlay.
+ * This proves (or disproves) that Pegasus can render
+ * `file:///storage/XXXX-XXXX/Crystal/imports/esde/...` directly —
+ * the riskiest assumption of the ES-DE importer architecture.
+ *
+ * After RUN PROBE, restart Pegasus (cold) and look for the probe
+ * overlay on the home screen. Send the report text below back.
+ */
+@Composable
+fun EsdeProbeScreen(
+    esdeLocation: LocationState,
+    probeRunning: Boolean,
+    probeReport: String?,
+    onRunProbe: () -> Unit,
+    onBack: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val canRun = esdeLocation is LocationState.Ready && !probeRunning
+    ScreenScaffold(
+        routeKey = "settings-probe",
+        title = "SD MEDIA PROBE",
+        onBack = onBack,
+        modifier = modifier,
+        fallbackFocusKey = "settings-probe-run",
+    ) {
+        ControllerList(
+            state = listState,
+            dispatcher = dispatcher,
+            initialFocus = ::isInitialFocus,
+        ) {
+            section {
+                StatusLine(
+                    "ES-DE FOLDER: ${friendlyLocation(esdeLocation)}",
+                    if (esdeLocation is LocationState.AccessLost) Crystal.Bad else Crystal.Ink,
+                )
+                if (esdeLocation is LocationState.NotConfigured) {
+                    DimLine("PICK THE ES-DE EXPORT FOLDER FIRST (SETTINGS → ES-DE IMPORT).")
+                }
+                if (esdeLocation is LocationState.AccessLost) {
+                    DimLine("THE SAVED FOLDER IS NO LONGER READABLE — PICK IT AGAIN.")
+                }
+            }
+            control(
+                key = "settings-probe-run",
+                testTag = "settings-probe-run",
+                label = if (probeRunning) "PROBING…" else "RUN SD MEDIA PROBE",
+                onClick = onRunProbe,
+                enabled = canRun,
+            )
+            probeReport?.let { report ->
+                section {
+                    StatusLine(report)
+                }
+                section {
+                    DimLine(
+                        "AFTER RUNNING: COLD-RESTART PEGASUS. THE THEME SHOWS " +
+                            "THIS IMAGE IN A PROBE OVERLAY WHEN IT CAN READ IT " +
+                            "FROM THE SD CARD. SEND THE REPORT ABOVE BACK.",
+                    )
+                }
+            }
+            if (probeReport == null && !probeRunning) {
+                section {
+                    DimLine(
+                        "PICKS ONE COVER FROM media/<system>/covers/ IN THE " +
+                            "ES-DE EXPORT. NOTHING IS COPIED; THE EXPORT " +
+                            "STAYS READ-ONLY.",
+                    )
+                }
+            }
+        }
+    }
 }

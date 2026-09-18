@@ -271,6 +271,26 @@ class MainActivity : ComponentActivity() {
         }
 
     /**
+     * ES-DE import-root picker. Adopting stores the persistable grant;
+     * the export is used READ-ONLY (the probe and the future importer
+     * only list/read beneath it) — nothing is ever written there.
+     */
+    private val esdePicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null) {
+                val ok = locations.adoptTreeUri(
+                    contentResolver, uri, LocationKind.ESDE,
+                )
+                if (ok) {
+                    locationError = null
+                    scraper.refresh()
+                } else {
+                    locationError = "COULD NOT KEEP ES-DE FOLDER ACCESS — PLEASE TRY AGAIN"
+                }
+            }
+        }
+
+    /**
      * v19: the legacy pegasus-frontend config-root picker is RETIRED.
      * The metafile now lives at the top level of the ROM root (a
      * registered Pegasus game dir), so there is no separate Pegasus
@@ -533,6 +553,7 @@ class MainActivity : ComponentActivity() {
                 is Dest.Settings -> SettingsScreen(
                     romLocation = scraperState.romLocation,
                     mediaLocation = scraperState.mediaLocation,
+                    esdeLocation = scraperState.esdeLocation,
                     themesRootLabel = themesRootLabel(),
                     updateChannel = updateChannel,
                     appVersion = appVersionLabel,
@@ -542,6 +563,8 @@ class MainActivity : ComponentActivity() {
                     onUpdateApp = { onUpdateApp() },
                     onOpenRom = { nav.navigate(Dest.SettingsRom) },
                     onOpenMedia = { nav.navigate(Dest.SettingsMedia) },
+                    onOpenEsde = { nav.navigate(Dest.SettingsEsde) },
+                    onOpenProbe = { nav.navigate(Dest.SettingsProbe) },
                     onOpenThemes = { nav.navigate(Dest.SettingsThemes) },
                     onOpenChannel = { nav.navigate(Dest.SettingsChannel) },
                     onDiagnostics = { openDiagnostics(nav) },
@@ -571,6 +594,25 @@ class MainActivity : ComponentActivity() {
                         locations.writeBridge(storage.treeUri)
                         scraper.refresh()
                     },
+                    onBack = pop,
+                )
+                is Dest.SettingsEsde -> SettingsLocationScreen(
+                    routeKey = "settings-esde",
+                    title = "ES-DE IMPORT",
+                    location = scraperState.esdeLocation,
+                    showBadge = true,
+                    onPick = { esdePicker.launch(null) },
+                    onClear = {
+                        locations.clearLocation(LocationKind.ESDE)
+                        scraper.refresh()
+                    },
+                    onBack = pop,
+                )
+                is Dest.SettingsProbe -> EsdeProbeScreen(
+                    esdeLocation = scraperState.esdeLocation,
+                    probeRunning = scraperState.probeRunning,
+                    probeReport = scraperState.probeReport,
+                    onRunProbe = { scraper.runEsdeProbe() },
                     onBack = pop,
                 )
                 is Dest.SettingsThemes -> SettingsThemesScreen(

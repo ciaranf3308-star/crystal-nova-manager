@@ -9,8 +9,15 @@ import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.KeyValueStore
 import java.net.URLDecoder
 
-/** The two independent SAF trees the scraper uses: ROMs (source) and scraped media (sink). */
-enum class LocationKind { ROM, MEDIA }
+/**
+ * The three independent SAF trees the Manager uses:
+ * - ROM: the games library (source of truth for playable games).
+ * - MEDIA: the Manager-owned scraped-media sink (index.json, manifests).
+ * - ESDE: the READ-ONLY EmulationStation-DE export on the SD card
+ *   (`Crystal/imports/esde/`). The Manager only ever lists/reads
+ *   beneath this tree — never creates, writes, renames or deletes.
+ */
+enum class LocationKind { ROM, MEDIA, ESDE }
 
 /** Readiness of one storage location, for the scraper UI. */
 sealed interface LocationState {
@@ -23,10 +30,11 @@ sealed interface LocationState {
 data class StorageSummary(val rom: LocationState, val media: LocationState)
 
 /**
- * Owns the two independent persisted SAF tree locations used by the
- * scraper: the ROM/games folder (legacy pref `games_tree_uri`, so
- * existing installs keep their folder) and the new media folder
- * (`media_tree_uri`) where scraped artwork, cache and index.json live.
+ * Owns the persisted SAF tree locations used by the Manager: the
+ * ROM/games folder (legacy pref `games_tree_uri`, so existing installs
+ * keep their folder), the media folder (`media_tree_uri`) where scraped
+ * artwork, cache and index.json live, and the read-only ES-DE import
+ * root (`esde_tree_uri`).
  *
  * When a media folder is adopted or cleared, the theme bridge file
  * `crystal-media-bridge.json` in the *themes root* is rewritten so the
@@ -53,6 +61,8 @@ class StorageLocations(
          */
         const val KEY_ROM_TREE_URI = "games_tree_uri"
         const val KEY_MEDIA_TREE_URI = "media_tree_uri"
+        /** Persisted SAF tree URI of the read-only ES-DE import root. */
+        const val KEY_ESDE_TREE_URI = "esde_tree_uri"
         const val BRIDGE_FILE_NAME = "crystal-media-bridge.json"
         private const val TAG = "StorageLocations"
         private const val INTERNAL_ROOT = "/storage/emulated/0"
@@ -145,12 +155,18 @@ class StorageLocations(
 
     // ---------- persistence ----------
 
-    private fun keyFor(kind: LocationKind): String =
-        if (kind == LocationKind.ROM) KEY_ROM_TREE_URI else KEY_MEDIA_TREE_URI
+    private fun keyFor(kind: LocationKind): String = when (kind) {
+        LocationKind.ROM -> KEY_ROM_TREE_URI
+        LocationKind.MEDIA -> KEY_MEDIA_TREE_URI
+        LocationKind.ESDE -> KEY_ESDE_TREE_URI
+    }
 
     fun romTreeUri(): String? = prefs.getString(KEY_ROM_TREE_URI)
 
     fun mediaTreeUri(): String? = prefs.getString(KEY_MEDIA_TREE_URI)
+
+    /** Raw SAF tree URI of the picked ES-DE import root, or null. */
+    fun esdeTreeUri(): String? = prefs.getString(KEY_ESDE_TREE_URI)
 
     /**
      * Takes the persistable read+write grant, persists the URI, and for
@@ -253,6 +269,9 @@ class StorageLocations(
 
     fun summary(): StorageSummary =
         StorageSummary(stateFor(LocationKind.ROM), stateFor(LocationKind.MEDIA))
+
+    /** Readiness of the ES-DE import root (read-only; no bridge side effects). */
+    fun esdeState(): LocationState = stateFor(LocationKind.ESDE)
 
     private fun stateFor(kind: LocationKind): LocationState {
         val uri = prefs.getString(keyFor(kind)) ?: return LocationState.NotConfigured

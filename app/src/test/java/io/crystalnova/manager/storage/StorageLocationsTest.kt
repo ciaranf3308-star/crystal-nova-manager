@@ -245,4 +245,44 @@ class StorageLocationsTest {
         assertEquals("NOT CONFIGURED", loc.displayPathFor(LocationKind.ROM))
         assertEquals("NOT CONFIGURED", loc.displayPathFor(LocationKind.MEDIA))
     }
+
+    // ---------- ESDE (read-only import root) ----------
+
+    private val sdEsdeTree =
+        "content://com.android.externalstorage.documents/tree/1234-ABCD%3ACrystal%2Fimports%2Fesde"
+
+    @Test
+    fun `canonicalPath resolves the ES-DE export root on the SD card`() {
+        assertEquals(
+            "/storage/1234-ABCD/Crystal/imports/esde",
+            locations().canonicalPath(sdEsdeTree),
+        )
+    }
+
+    @Test
+    fun `adopt and clear round-trip the ES-DE tree URI`() {
+        val loc = locations()
+        assertTrue(loc.adoptTreeUriString(sdEsdeTree, LocationKind.ESDE))
+        assertEquals(sdEsdeTree, loc.esdeTreeUri())
+        loc.clearLocation(LocationKind.ESDE)
+        assertNull(loc.esdeTreeUri())
+    }
+
+    @Test
+    fun `adopting ES-DE never touches ROM or MEDIA prefs`() {
+        val loc = locations()
+        assertTrue(loc.adoptTreeUriString(sdEsdeTree, LocationKind.ESDE))
+        assertNull(loc.romTreeUri())
+        assertNull(loc.mediaTreeUri())
+    }
+
+    @Test
+    fun `displayPathFor ES-DE shows the SD card path`() {
+        val loc = locations()
+        loc.adoptTreeUriString(sdEsdeTree, LocationKind.ESDE)
+        assertEquals(
+            "SD CARD /Crystal/imports/esde",
+            loc.displayPath(sdEsdeTree),
+        )
+    }
 }
