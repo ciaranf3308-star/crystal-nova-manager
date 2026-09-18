@@ -821,7 +821,7 @@ class MainActivity : ComponentActivity() {
                             RetroArchOption(
                                 packageName = pkg,
                                 tag = tag,
-                                core = LauncherPresets.defaultCore(slug),
+                                cores = LauncherPresets.retroArchCores(slug),
                                 installed = pkg in installed,
                             )
                         },

@@ -25,8 +25,9 @@ data class RetroArchOption(
     val packageName: String,
     /** "64-BIT" / "32-BIT" */
     val tag: String,
-    /** Default libretro core .so, or null when the system has no known core. */
-    val core: String?,
+    /** Known libretro core .so variants, in preference order. Empty when
+     * the system has no known core. */
+    val cores: List<String>,
     val installed: Boolean,
 )
 
@@ -79,10 +80,13 @@ fun PegasusLauncherScreen(
     // known core, else the first standalone option, else CLEAR CHOICE.
     val defaultUsable = defaultProfile != null &&
         !(isDefault && currentStatus == defaultProfile.displayLabel())
-    val firstRaUsable = retroArchOptions.indexOfFirst { it.core != null }
+    val firstRaUsable = retroArchOptions.indexOfFirst { it.cores.isNotEmpty() }
     val fallbackFocusKey = when {
         defaultUsable -> "launcher-default"
-        firstRaUsable >= 0 -> "launcher-ra-${retroArchOptions[firstRaUsable].packageName}"
+        firstRaUsable >= 0 -> {
+            val opt = retroArchOptions[firstRaUsable]
+            "launcher-ra-${opt.packageName}-${opt.cores.first()}"
+        }
         standaloneOptions.isNotEmpty() ->
             "launcher-sa-${standaloneOptions.first().profile.packageName}"
         else -> "launcher-clear"
@@ -131,15 +135,21 @@ fun PegasusLauncherScreen(
                 }
             } else {
                 retroArchOptions.forEach { opt ->
-                    val coreLabel = opt.core ?: "NO KNOWN CORE"
-                    control(
-                        key = "launcher-ra-${opt.packageName}",
-                        testTag = "launcher-ra-${opt.packageName}",
-                        label = "RETROARCH ${opt.tag} + $coreLabel" +
-                            if (opt.installed) "" else " · NOT INSTALLED",
-                        onClick = { opt.core?.let { onSelectRetroArch(opt.packageName, it) } },
-                        enabled = opt.core != null,
-                    )
+                    if (opt.cores.isEmpty()) {
+                        section {
+                            DimLine("RETROARCH ${opt.tag} — NO KNOWN CORE.")
+                        }
+                    } else {
+                        opt.cores.forEach { core ->
+                            control(
+                                key = "launcher-ra-${opt.packageName}-$core",
+                                testTag = "launcher-ra-${opt.packageName}-$core",
+                                label = "RETROARCH ${opt.tag} + $core" +
+                                    if (opt.installed) "" else " · NOT INSTALLED",
+                                onClick = { onSelectRetroArch(opt.packageName, core) },
+                            )
+                        }
+                    }
                 }
                 section {
                     DimLine("{file.path} IS FILLED IN WHEN PEGASUS LAUNCHES THE GAME.")

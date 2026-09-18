@@ -142,6 +142,14 @@ object LauncherPresets {
     const val RETROARCH_AARCH64 = "com.retroarch.aarch64"
     const val RETROARCH_32 = "com.retroarch"
 
+    /** Mupen64Plus-Next GLES3 variant. Separate core from the standard
+     * build with its own .so filename — RetroArch hangs on a black
+     * screen (no error) when the LIBRETRO path doesn't resolve
+     * (libretro/RetroArch#19357), so the N64 recipe must offer the exact
+     * .so the user has installed, not assume one variant. */
+    const val MUPEN64PLUS_NEXT_GLES3 = "mupen64plus_next_gles3_libretro_android.so"
+    const val MUPEN64PLUS_NEXT = "mupen64plus_next_libretro_android.so"
+
     /** RetroArch packages we detect, in preference order. */
     val retroArchPackages: List<Pair<String, String>> = listOf(
         RETROARCH_AARCH64 to "64-BIT",
@@ -260,7 +268,7 @@ object LauncherPresets {
     fun defaultCore(slug: String): String? = when (slug) {
         "nes" -> "nestopia_libretro_android.so"
         "snes" -> "snes9x_libretro_android.so"
-        "n64" -> "mupen64plus_next_libretro_android.so"
+        "n64" -> MUPEN64PLUS_NEXT_GLES3
         "gb", "gbc" -> "gambatte_libretro_android.so"
         "gba" -> "mgba_libretro_android.so"
         "nds" -> "melonds_libretro_android.so"
@@ -275,6 +283,19 @@ object LauncherPresets {
         "virtualboy" -> "mednafen_vb_libretro_android.so"
         "pcengine" -> "mednafen_pce_fast_libretro_android.so"
         else -> null
+    }
+
+    /**
+     * All known libretro core .so variants for a platform slug, in
+     * preference order. Most systems have exactly one; N64 has two
+     * Mupen64Plus-Next builds (GLES3 and standard) with different .so
+     * filenames — the picker offers both so the user selects the exact
+     * file installed in RetroArch (a wrong LIBRETRO path hangs
+     * RetroArch on a black screen, libretro/RetroArch#19357).
+     */
+    fun retroArchCores(slug: String): List<String> = when (slug) {
+        "n64" -> listOf(MUPEN64PLUS_NEXT_GLES3, MUPEN64PLUS_NEXT)
+        else -> listOfNotNull(defaultCore(slug))
     }
 
     /**

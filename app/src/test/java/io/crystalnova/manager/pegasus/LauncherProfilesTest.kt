@@ -219,4 +219,31 @@ class LauncherProfilesTest {
         assertEquals("VIEW INTENT", LauncherProfile(type = LauncherType.VIEW_INTENT, packageName = "a", activity = "b").displayLabel())
         assertEquals("CUSTOM", LauncherProfile(type = LauncherType.CUSTOM, command = "x").displayLabel())
     }
+
+    @Test
+    fun n64_offersBothMupenVariants_gles3First() {
+        // GLES3 and standard Mupen64Plus-Next are separate .so files; a
+        // wrong LIBRETRO path hangs RetroArch (libretro/RetroArch#19357),
+        // so both must be offered and GLES3 (modern devices) is default.
+        assertEquals(
+            listOf(
+                "mupen64plus_next_gles3_libretro_android.so",
+                "mupen64plus_next_libretro_android.so",
+            ),
+            LauncherPresets.retroArchCores("n64"),
+        )
+        assertEquals(
+            "mupen64plus_next_gles3_libretro_android.so",
+            LauncherPresets.defaultCore("n64"),
+        )
+    }
+
+    @Test
+    fun retroArchCores_singleCoreForOtherSystems() {
+        assertEquals(
+            listOf("mgba_libretro_android.so"),
+            LauncherPresets.retroArchCores("gba"),
+        )
+        assertTrue(LauncherPresets.retroArchCores("arcade").isEmpty())
+    }
 }
