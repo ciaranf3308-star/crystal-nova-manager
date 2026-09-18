@@ -236,8 +236,10 @@ class UpdateManager(
                 _state.value = ManagerState.Updating(Stage.COMPLETE)
                 _state.value = ManagerState.UpdateDone(
                     version = installed?.let(VersionDisplay::of) ?: VersionDisplay.of(
-                        // Fall back to what we know from the remote marker.
-                        remote.version ?: throw IOException("Installed theme has no version marker"),
+                        // Fall back to what we know from the remote marker,
+                        // then to the validated theme source itself.
+                        remote.version ?: readVersionFromThemeRoot(themeRoot)
+                            ?: throw IOException("Installed theme has no version marker"),
                     ),
                 )
             } catch (e: CancellationException) {
@@ -471,5 +473,21 @@ class UpdateManager(
 
     fun noteAppUpdateFailed(message: String) {
         _appUpdate.value = AppUpdateState.Failed(message)
+    }
+
+    /**
+     * Reads the version from a validated theme source directory's
+     * crystal-version.json. Used as a fallback when the installed theme
+     * version can't be read and the remote version fetch failed.
+     */
+    private fun readVersionFromThemeRoot(themeRoot: File): String? = try {
+        val versionFile = File(themeRoot, "crystal-version.json")
+        if (!versionFile.isFile) return null
+        val json = versionFile.readText(Charsets.UTF_8)
+        // Simple extraction without adding a JSON dependency.
+        val match = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(json)
+        match?.groupValues?.get(1)?.ifBlank { null }
+    } catch (_: Exception) {
+        null
     }
 }
