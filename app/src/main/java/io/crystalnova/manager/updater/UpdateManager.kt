@@ -480,16 +480,13 @@ class UpdateManager(
      * crystal-version.json. Used as a fallback when the installed theme
      * version can't be read and the remote version fetch failed.
      */
-    private fun readVersionFromThemeRoot(themeRoot: File): String? {
+    private fun readVersionFromThemeRoot(themeRoot: File): VersionInfo? {
         return try {
             val versionFile = File(themeRoot, "crystal-version.json")
             if (!versionFile.isFile) {
                 null
             } else {
-                val json = versionFile.readText(Charsets.UTF_8)
-                // Simple extraction without adding a JSON dependency.
-                val match = Regex("\"version\"\\s*:\\s*\"([^\"]+)\"").find(json)
-                match?.groupValues?.get(1)?.ifBlank { null }
+                VersionInfo.parse(versionFile.readText(Charsets.UTF_8))
             }
         } catch (_: Exception) {
             null
