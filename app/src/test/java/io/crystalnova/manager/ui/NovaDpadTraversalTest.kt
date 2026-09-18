@@ -54,7 +54,7 @@ class NovaDpadTraversalTest : NovaUiTest() {
             "settings-row-rom",
             "settings-row-media",
             "settings-row-esde",
-            "settings-row-probe",
+            "settings-row-esde-import",
             "settings-row-themes",
             "settings-row-channel",
             "settings-row-diagnostics",

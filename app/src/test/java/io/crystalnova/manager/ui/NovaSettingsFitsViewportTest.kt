@@ -50,7 +50,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
         assertNodeInViewport("settings-row-rom")
         assertNodeInViewport("settings-row-media")
         assertNodeInViewport("settings-row-esde")
-        assertNodeInViewport("settings-row-probe")
+        assertNodeInViewport("settings-row-esde-import")
         assertNodeInViewport("settings-row-themes")
         assertNodeInViewport("settings-row-channel")
         assertNodeInViewport("settings-row-diagnostics")
