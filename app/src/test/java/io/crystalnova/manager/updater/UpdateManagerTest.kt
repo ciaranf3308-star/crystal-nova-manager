@@ -217,7 +217,7 @@ class UpdateManagerTest {
         advanceUntilIdle()
 
         val failed = manager.state.value as ManagerState.UpdateFailed
-        assertEquals("DOWNLOAD FAILED", failed.message)
+        assertEquals("FAILED AT DOWNLOADING: connection reset", failed.message)
         assertEquals("2.0.0", storage.readInstalledVersion()!!.version)
     }
 
