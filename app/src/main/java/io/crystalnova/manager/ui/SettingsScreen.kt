@@ -31,7 +31,7 @@ fun SettingsScreen(
     onOpenRom: () -> Unit,
     onOpenMedia: () -> Unit,
     onOpenEsde: () -> Unit,
-    onOpenProbe: () -> Unit,
+    onOpenEsdeImport: () -> Unit,
     onOpenThemes: () -> Unit,
     onOpenChannel: () -> Unit,
     onDiagnostics: () -> Unit,
@@ -76,10 +76,10 @@ fun SettingsScreen(
                 onClick = onOpenEsde,
             )
             control(
-                key = "settings-row-probe",
-                testTag = "settings-row-probe",
-                label = "SD MEDIA PROBE\nTEST ONLY — RENDER ONE SD IMAGE IN THE THEME",
-                onClick = onOpenProbe,
+                key = "settings-row-esde-import",
+                testTag = "settings-row-esde-import",
+                label = "ES-DE MEDIA IMPORT\nCOPY REAL ART INTO THE CRYSTAL LIBRARY",
+                onClick = onOpenEsdeImport,
             )
             control(
                 key = "settings-row-themes",
@@ -292,32 +292,43 @@ private fun channelLabel(channel: AppUpdateChannel): String = when (channel) {
 }
 
 /**
- * SD MEDIA PROBE (test only): picks ONE cover image from the read-only
- * ES-DE export on the SD card and writes `crystal-esde-probe.json`
- * for the theme, which then shows the image in a diagnostic overlay.
- * This proves (or disproves) that Pegasus can render
- * `file:///storage/XXXX-XXXX/Crystal/imports/esde/...` directly —
- * the riskiest assumption of the ES-DE importer architecture.
+ * ES-DE MEDIA IMPORT (production): copies real artwork from the
+ * read-only ES-DE export on the SD card into the existing Crystal
+ * media tree (`games/<platform>/<gameId>/<slot>.png`) via the same
+ * ScraperStorage path the scraper uses. The theme resolver is
+ * untouched.
  *
- * After RUN PROBE, restart Pegasus (cold) and look for the probe
- * overlay on the home screen. Send the report text below back.
+ * Flow is deliberately two-step and controller-friendly:
+ *  1. PRE-SCAN — matches the export against the ROM library and shows
+ *     the full report. Copies NOTHING.
+ *  2. IMPORT ES-DE MEDIA — one action, executes the reviewed plan.
+ *
+ * The import is idempotent: re-running only processes new/changed/
+ * missing assets. Replacement rules: USER art is never overwritten,
+ * REAL ES-DE art may replace GENERATED art, other REAL art is kept.
  */
 @Composable
-fun EsdeProbeScreen(
+fun EsdeImportScreen(
     esdeLocation: LocationState,
-    probeRunning: Boolean,
-    probeReport: String?,
-    onRunProbe: () -> Unit,
+    prescanning: Boolean,
+    importPlanReady: Boolean,
+    importReport: String?,
+    importRunning: Boolean,
+    importProgress: String?,
+    importResult: String?,
+    onPrescan: () -> Unit,
+    onImport: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val canRun = esdeLocation is LocationState.Ready && !probeRunning
+    val canPrescan = esdeLocation is LocationState.Ready && !prescanning && !importRunning
+    val canImport = importPlanReady && !prescanning && !importRunning
     ScreenScaffold(
-        routeKey = "settings-probe",
-        title = "SD MEDIA PROBE",
+        routeKey = "settings-esde-import",
+        title = "ES-DE MEDIA IMPORT",
         onBack = onBack,
         modifier = modifier,
-        fallbackFocusKey = "settings-probe-run",
+        fallbackFocusKey = "settings-esde-import-prescan",
     ) {
         ControllerList(
             state = listState,
@@ -337,30 +348,41 @@ fun EsdeProbeScreen(
                 }
             }
             control(
-                key = "settings-probe-run",
-                testTag = "settings-probe-run",
-                label = if (probeRunning) "PROBING…" else "RUN SD MEDIA PROBE",
-                onClick = onRunProbe,
-                enabled = canRun,
+                key = "settings-esde-import-prescan",
+                testTag = "settings-esde-import-prescan",
+                label = if (prescanning) "SCANNING…" else "PRE-SCAN",
+                onClick = onPrescan,
+                enabled = canPrescan,
             )
-            probeReport?.let { report ->
+            importReport?.let { report ->
                 section {
                     StatusLine(report)
                 }
+            }
+            if (importRunning) {
                 section {
-                    DimLine(
-                        "AFTER RUNNING: COLD-RESTART PEGASUS. THE THEME SHOWS " +
-                            "THIS IMAGE IN A PROBE OVERLAY WHEN IT CAN READ IT " +
-                            "FROM THE SD CARD. SEND THE REPORT ABOVE BACK.",
-                    )
+                    StatusLine("IMPORTING… ${importProgress ?: ""}")
                 }
             }
-            if (probeReport == null && !probeRunning) {
+            control(
+                key = "settings-esde-import-run",
+                testTag = "settings-esde-import-run",
+                label = "IMPORT ES-DE MEDIA",
+                onClick = onImport,
+                enabled = canImport,
+            )
+            importResult?.let { result ->
+                section {
+                    StatusLine(result)
+                }
+            }
+            if (importReport == null && importResult == null && !prescanning && !importRunning) {
                 section {
                     DimLine(
-                        "PICKS ONE COVER FROM media/<system>/covers/ IN THE " +
-                            "ES-DE EXPORT. NOTHING IS COPIED; THE EXPORT " +
-                            "STAYS READ-ONLY.",
+                        "PRE-SCAN MATCHES THE EXPORT AGAINST YOUR ROM LIBRARY " +
+                            "AND SHOWS EXACTLY WHAT WILL BE COPIED. NOTHING " +
+                            "IS WRITTEN UNTIL YOU PRESS IMPORT ES-DE MEDIA. " +
+                            "THE EXPORT STAYS READ-ONLY.",
                     )
                 }
             }

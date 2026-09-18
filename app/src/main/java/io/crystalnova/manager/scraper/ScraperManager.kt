@@ -2,8 +2,8 @@ package io.crystalnova.manager.scraper
 
 import android.content.Context
 import io.crystalnova.manager.data.KeyValueStore
-import io.crystalnova.manager.scraper.esde.EsdeProbeOutcome
-import io.crystalnova.manager.scraper.esde.EsdeProbeRunner
+import io.crystalnova.manager.scraper.esde.EsdeImport
+import io.crystalnova.manager.scraper.esde.EsdeImportRunner
 import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.Completeness
@@ -49,12 +49,20 @@ data class ScraperUiState(
     val needsMediaFolder: Boolean = false,
     val romLocation: LocationState = LocationState.NotConfigured,
     val mediaLocation: LocationState = LocationState.NotConfigured,
-    /** Readiness of the read-only ES-DE import root (probe only for now). */
+    /** Readiness of the read-only ES-DE export root (import source). */
     val esdeLocation: LocationState = LocationState.NotConfigured,
-    /** True while the SD media probe is running. */
-    val probeRunning: Boolean = false,
-    /** Last probe diagnostic (or failure); null when never run. */
-    val probeReport: String? = null,
+    /** True while the ES-DE pre-scan is running. */
+    val importPrescanning: Boolean = false,
+    /** Last pre-scan plan; the IMPORT action executes exactly this. */
+    val importPlan: EsdeImport.ImportPlan? = null,
+    /** Last pre-scan report (or failure); null when never run. */
+    val importReport: String? = null,
+    /** True while the ES-DE import is copying. */
+    val importRunning: Boolean = false,
+    /** Live import counter while [importRunning]; null when idle. */
+    val importProgress: String? = null,
+    /** Import summary incl. per-system validation; null when never run. */
+    val importResult: String? = null,
     val scanning: Boolean = false,
     /** Live scan counters while [scanning]; null when idle. Never a percentage. */
     val scanProgress: ScanProgress? = null,
@@ -168,25 +176,97 @@ class ScraperManager(
     }
 
     /**
-     * Runs the SD media probe: picks one cover from the ES-DE export
-     * and writes `crystal-esde-probe.json` for the theme. Runs off the
-     * UI thread; the result lands in [ScraperUiState.probeReport].
-     * Never throws.
+     * Pre-scans the ES-DE export: matches it against the authoritative
+     * ROM library and builds the import plan WITHOUT copying anything.
+     * The user reviews [ScraperUiState.importReport], then confirms with
+     * [runEsdeImport]. Runs off the UI thread. Never throws.
      */
-    fun runEsdeProbe() {
-        if (_state.value.probeRunning) return
-        _state.value = _state.value.copy(probeRunning = true, probeReport = null)
+    fun runEsdeImportPrescan() {
+        if (_state.value.importPrescanning || _state.value.importRunning) return
+        _state.value = _state.value.copy(
+            importPrescanning = true, importReport = null,
+            importPlan = null, importResult = null,
+        )
         scope.launch(ioDispatcher) {
+            var plan: EsdeImport.ImportPlan? = null
             val report = try {
-                when (val outcome = EsdeProbeRunner(context, locations, themesTreeUri).run()) {
-                    is EsdeProbeOutcome.Success -> outcome.diagnostic
-                    is EsdeProbeOutcome.Failure -> "PROBE FAILED\n\n${outcome.reason}"
+                when (val outcome = EsdeImportRunner(context, locations, storage()).prescan()) {
+                    is EsdeImportRunner.PrescanResult.Ready -> {
+                        plan = outcome.plan
+                        outcome.plan.reportText()
+                    }
+                    is EsdeImportRunner.PrescanResult.Failed ->
+                        "PRE-SCAN FAILED\n\n${outcome.reason}"
                 }
             } catch (e: Exception) {
-                "PROBE FAILED\n\n${e.message ?: e.javaClass.simpleName}"
+                "PRE-SCAN FAILED\n\n${e.message ?: e.javaClass.simpleName}"
             }
-            _state.value = _state.value.copy(probeRunning = false, probeReport = report)
+            _state.value = _state.value.copy(
+                importPrescanning = false, importReport = report, importPlan = plan,
+            )
         }
+    }
+
+    /**
+     * Executes the last pre-scan plan: copies only new/changed/missing
+     * assets via [ScraperStorage.saveAsset] (replacement rules honored),
+     * refreshes manifests + index.json, then validates the five focus
+     * systems. A post-import re-scan proves idempotency. Never throws.
+     */
+    fun runEsdeImport() {
+        val plan = _state.value.importPlan ?: return
+        if (_state.value.importRunning || _state.value.importPrescanning) return
+        if (plan.toWrite.isEmpty()) return
+        _state.value = _state.value.copy(
+            importRunning = true,
+            importProgress = "0/${plan.toWrite.size}",
+            importResult = null,
+        )
+        scope.launch(ioDispatcher) {
+            val resultText = try {
+                val total = plan.toWrite.size
+                val result = EsdeImportRunner(context, locations, storage()).execute(plan) { done, _ ->
+                    _state.value = _state.value.copy(importProgress = "$done/$total")
+                }
+                buildImportResultText(result)
+            } catch (e: Exception) {
+                "IMPORT FAILED\n\n${e.message ?: e.javaClass.simpleName}"
+            }
+            _state.value = _state.value.copy(
+                importRunning = false, importProgress = null,
+                importResult = resultText, importPlan = null,
+            )
+            // Refresh scraper stats so the new REAL assets show up.
+            loadStats()
+        }
+    }
+
+    private fun buildImportResultText(result: EsdeImportRunner.ImportResult): String = buildString {
+        appendLine("ES-DE MEDIA IMPORT — DONE")
+        appendLine()
+        appendLine("Files written: ${result.written}")
+        appendLine("Bytes copied: ${EsdeImport.ImportPlan.formatBytes(result.bytes)}")
+        appendLine("Skipped: ${result.skipped}")
+        if (result.failures.isNotEmpty()) {
+            appendLine()
+            appendLine("Failures (${result.failures.size}):")
+            result.failures.take(20).forEach { appendLine("  $it") }
+            if (result.failures.size > 20) appendLine("  …and ${result.failures.size - 20} more")
+        }
+        appendLine()
+        appendLine("System validation (index + manifest + file present):")
+        for (v in result.validations) {
+            appendLine("  ${v.label}: ${if (v.ok) "OK" else "—"} — ${v.detail}")
+        }
+        appendLine()
+        when {
+            result.rescanRemaining < 0 -> appendLine("Post-import re-scan: unavailable.")
+            result.rescanRemaining == 0 ->
+                appendLine("Post-import re-scan: 0 files to write — import is idempotent, library up to date.")
+            else -> appendLine("Post-import re-scan: ${result.rescanRemaining} file(s) still to write.")
+        }
+        appendLine()
+        appendLine("Restart Pegasus (cold) to see the imported artwork.")
     }
 
     /** Last persisted scraper failure, surviving restarts. Null when clean. */

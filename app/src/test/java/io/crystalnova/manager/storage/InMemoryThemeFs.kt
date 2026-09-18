@@ -35,6 +35,8 @@ class InMemoryThemeFs : ThemeFs {
 
     override fun name(node: FsNode): String = node(node).name
 
+    override fun length(node: FsNode): Long = node(node).bytes.size.toLong()
+
     override fun children(dir: FsNode): List<Pair<String, FsNode>> =
         node(dir).children.entries.map { it.key to it.value as FsNode }
 

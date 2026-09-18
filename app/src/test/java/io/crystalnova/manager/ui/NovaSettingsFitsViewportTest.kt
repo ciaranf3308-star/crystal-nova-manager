@@ -38,7 +38,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                 onOpenRom = {},
                 onOpenMedia = {},
                 onOpenEsde = {},
-                onOpenProbe = {},
+                onOpenEsdeImport = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
                 onDiagnostics = {},

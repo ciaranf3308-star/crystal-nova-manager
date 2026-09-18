@@ -28,8 +28,8 @@ sealed interface Dest {
     data object SettingsMedia : Dest
     /** ES-DE IMPORT child of SETTINGS (read-only export root). */
     data object SettingsEsde : Dest
-    /** SD MEDIA PROBE child of SETTINGS (one-image render test). */
-    data object SettingsProbe : Dest
+    /** ES-DE MEDIA IMPORT child of SETTINGS (copy real art into the library). */
+    data object SettingsEsdeImport : Dest
     /** THEME STORAGE child of SETTINGS. */
     data object SettingsThemes : Dest
     /** UPDATE CHANNEL child of SETTINGS. */

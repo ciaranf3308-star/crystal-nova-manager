@@ -41,7 +41,7 @@ class NovaDpadTraversalTest : NovaUiTest() {
                 onOpenRom = {},
                 onOpenMedia = {},
                 onOpenEsde = {},
-                onOpenProbe = {},
+                onOpenEsdeImport = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
                 onDiagnostics = {},

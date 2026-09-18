@@ -58,6 +58,8 @@ class SafThemeFs(
 
     override fun name(node: FsNode): String? = doc(node).name
 
+    override fun length(node: FsNode): Long = doc(node).length()
+
     override fun children(dir: FsNode): List<Pair<String, FsNode>> =
         doc(dir).listFiles().mapNotNull { f ->
             val name = f.name ?: return@mapNotNull null

@@ -203,6 +203,26 @@ class ScraperStorage(
     fun loadIndexJson(): String? = readBytes(INDEX_NAME)?.toString(Charsets.UTF_8)
 
     /**
+     * Byte length of a stored slot file, or null when absent. Find-only:
+     * never creates directories, so the pre-import scan can call it
+     * without materializing ghost game dirs.
+     */
+    fun assetLength(platform: String, gameId: String, slot: AssetSlot): Long? {
+        return try {
+            val root = fs.root() ?: return null
+            val data = if (rootSubdir != null) fs.find(root, rootSubdir) ?: return null else root
+            val games = fs.find(data, GAMES_DIR) ?: return null
+            val plat = fs.find(games, platform) ?: return null
+            val dir = fs.find(plat, gameId) ?: return null
+            val node = fs.find(dir, slot.fileName) ?: return null
+            fs.length(node)
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            null
+        }
+    }
+
+    /**
      * Diagnostics-grade presence check for one asset slot file. Never
      * throws — any failure (including a revoked grant) reads as absent;
      * Diagnostics reports media access separately, so this stays a pure

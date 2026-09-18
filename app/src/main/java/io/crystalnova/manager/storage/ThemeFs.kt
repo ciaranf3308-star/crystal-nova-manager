@@ -24,6 +24,8 @@ interface ThemeFs {
 
     fun find(dir: FsNode, name: String): FsNode?
     fun children(dir: FsNode): List<Pair<String, FsNode>>
+    /** Byte length of a file node; 0 for directories. */
+    fun length(node: FsNode): Long
     fun isDirectory(node: FsNode): Boolean
     fun mkdir(parent: FsNode, name: String): FsNode
     fun createFile(parent: FsNode, name: String): FsNode

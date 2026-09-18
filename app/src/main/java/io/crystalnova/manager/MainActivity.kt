@@ -36,7 +36,7 @@ import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.storage.StorageLocations
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
-import io.crystalnova.manager.ui.EsdeProbeScreen
+import io.crystalnova.manager.ui.EsdeImportScreen
 import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
@@ -273,7 +273,7 @@ class MainActivity : ComponentActivity() {
 
     /**
      * ES-DE import-root picker. Adopting stores the persistable grant;
-     * the export is used READ-ONLY (the probe and the future importer
+     * the export is used READ-ONLY (the importer
      * only list/read beneath it) — nothing is ever written there, so
      * only the read grant is taken.
      */
@@ -566,7 +566,7 @@ class MainActivity : ComponentActivity() {
                     onOpenRom = { nav.navigate(Dest.SettingsRom) },
                     onOpenMedia = { nav.navigate(Dest.SettingsMedia) },
                     onOpenEsde = { nav.navigate(Dest.SettingsEsde) },
-                    onOpenProbe = { nav.navigate(Dest.SettingsProbe) },
+                    onOpenEsdeImport = { nav.navigate(Dest.SettingsEsdeImport) },
                     onOpenThemes = { nav.navigate(Dest.SettingsThemes) },
                     onOpenChannel = { nav.navigate(Dest.SettingsChannel) },
                     onDiagnostics = { openDiagnostics(nav) },
@@ -610,11 +610,16 @@ class MainActivity : ComponentActivity() {
                     },
                     onBack = pop,
                 )
-                is Dest.SettingsProbe -> EsdeProbeScreen(
+                is Dest.SettingsEsdeImport -> EsdeImportScreen(
                     esdeLocation = scraperState.esdeLocation,
-                    probeRunning = scraperState.probeRunning,
-                    probeReport = scraperState.probeReport,
-                    onRunProbe = { scraper.runEsdeProbe() },
+                    prescanning = scraperState.importPrescanning,
+                    importPlanReady = scraperState.importPlan != null,
+                    importReport = scraperState.importReport,
+                    importRunning = scraperState.importRunning,
+                    importProgress = scraperState.importProgress,
+                    importResult = scraperState.importResult,
+                    onPrescan = { scraper.runEsdeImportPrescan() },
+                    onImport = { scraper.runEsdeImport() },
                     onBack = pop,
                 )
                 is Dest.SettingsThemes -> SettingsThemesScreen(
