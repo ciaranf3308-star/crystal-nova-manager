@@ -10,6 +10,7 @@ import io.crystalnova.manager.data.SelfUpdateChecker
 import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.data.StorageException
 import io.crystalnova.manager.data.ThemeStorage
+import io.crystalnova.manager.data.VersionInfo
 import io.crystalnova.manager.storage.SafThemeStorage
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
