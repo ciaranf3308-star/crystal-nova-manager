@@ -251,9 +251,15 @@ class ScraperManager(
         scope.launch(ioDispatcher) {
             val resultText = try {
                 val total = plan.toWrite.size
-                val result = EsdeImportRunner(context, locations, storage()).execute(plan) { done, _ ->
-                    _state.value = _state.value.copy(importProgress = "$done/$total")
-                }
+                // The library may have been rescanned since the pre-scan;
+                // ensureLibraryScan() returns the cached scan (no re-walk)
+                // so the idempotency re-scan matches against the same
+                // game list the plan was built from.
+                val roms = ensureLibraryScan()
+                val result = EsdeImportRunner(context, locations, storage())
+                    .execute(plan, roms) { done, _ ->
+                        _state.value = _state.value.copy(importProgress = "$done/$total")
+                    }
                 buildImportResultText(result)
             } catch (e: Exception) {
                 "IMPORT FAILED\n\n${e.message ?: e.javaClass.simpleName}"

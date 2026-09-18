@@ -181,6 +181,7 @@ class EsdeImportRunner(
 
     fun execute(
         plan: EsdeImport.ImportPlan,
+        roms: List<RomEntry>,
         onProgress: (done: Int, total: Int) -> Unit,
     ): ImportResult {
         val exportRoot = openExportRoot()
@@ -250,7 +251,7 @@ class EsdeImportRunner(
             validateSystem(platform, label)
         }
 
-        val rescanRemaining = when (val r = prescan()) {
+        val rescanRemaining = when (val r = prescan(roms)) {
             is PrescanResult.Ready -> r.plan.toWrite.size
             is PrescanResult.Failed -> -1
         }
