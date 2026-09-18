@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -208,8 +209,14 @@ fun AppearanceScreen(
                     onClick = { slot = s },
                 )
             }
-            // HSB editor for the selected slot.
-            section {
+            // HSB editor for the selected slot. The swatch + wheel live in the
+            // HUE section (they are a touch target, not D-pad focusable).
+            // Every adjustable row is its own KEYED section with a
+            // registered focus requester: the D-pad boundary handler can
+            // then move focus to it directly. A keyless section of custom
+            // focusables falls back to spatial search after the snap
+            // scroll, which races the layout and strands focus.
+            section(key = "appearance-hue") {
                 val scope = this
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(
@@ -312,37 +319,43 @@ fun AppearanceScreen(
                         onAdjust = { d -> updateCurrent(hsvToColor(hsv[0] + d * 360f, hsv[1], hsv[2])) },
                         testTag = "appearance-hue",
                     )
-                    scope.adjustRow(
-                        key = "appearance-sat",
-                        label = "SATURATION",
-                        valueText = "${(hsv[1] * 100).toInt()}%",
-                        fraction = hsv[1],
-                        onAdjust = { d -> updateCurrent(hsvToColor(hsv[0], hsv[1] + d, hsv[2])) },
-                        testTag = "appearance-sat",
-                    )
-                    scope.adjustRow(
-                        key = "appearance-bright",
-                        label = "BRIGHTNESS",
-                        valueText = "${(hsv[2] * 100).toInt()}%",
-                        fraction = hsv[2],
-                        onAdjust = { d -> updateCurrent(hsvToColor(hsv[0], hsv[1], hsv[2] + d)) },
-                        testTag = "appearance-bright",
-                    )
-                    // Preset cycler: left/right steps through presets.
-                    scope.adjustRow(
-                        key = "appearance-preset",
-                        label = "PRESET",
-                        valueText = PRESETS[presetIndex].name,
-                        fraction = presetIndex.toFloat() / (PRESETS.size - 1).coerceAtLeast(1),
-                        onAdjust = { d ->
-                            val next = (presetIndex + if (d > 0) 1 else -1)
-                                .mod(PRESETS.size)
-                            presetIndex = next
-                            draft = PRESETS[next].colors
-                        },
-                        testTag = "appearance-preset",
-                    )
                 }
+            }
+            section(key = "appearance-sat") {
+                adjustRow(
+                    key = "appearance-sat",
+                    label = "SATURATION",
+                    valueText = "${(hsv[1] * 100).toInt()}%",
+                    fraction = hsv[1],
+                    onAdjust = { d -> updateCurrent(hsvToColor(hsv[0], hsv[1] + d, hsv[2])) },
+                    testTag = "appearance-sat",
+                )
+            }
+            section(key = "appearance-bright") {
+                adjustRow(
+                    key = "appearance-bright",
+                    label = "BRIGHTNESS",
+                    valueText = "${(hsv[2] * 100).toInt()}%",
+                    fraction = hsv[2],
+                    onAdjust = { d -> updateCurrent(hsvToColor(hsv[0], hsv[1], hsv[2] + d)) },
+                    testTag = "appearance-bright",
+                )
+            }
+            // Preset cycler: left/right steps through presets.
+            section(key = "appearance-preset") {
+                adjustRow(
+                    key = "appearance-preset",
+                    label = "PRESET",
+                    valueText = PRESETS[presetIndex].name,
+                    fraction = presetIndex.toFloat() / (PRESETS.size - 1).coerceAtLeast(1),
+                    onAdjust = { d ->
+                        val next = (presetIndex + if (d > 0) 1 else -1)
+                            .mod(PRESETS.size)
+                        presetIndex = next
+                        draft = PRESETS[next].colors
+                    },
+                    testTag = "appearance-preset",
+                )
             }
             control(
                 key = "appearance-apply",
@@ -403,6 +416,12 @@ fun SectionScope.adjustRow(
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
+    // Register with the focus dispatcher so the D-pad boundary handler
+    // (and the scaffold's initial-focus restore) can move focus here
+    // directly by key, exactly like a standard control row.
+    LaunchedEffect(key) {
+        dispatcher.registerFocusRequester(key, focusRequester)
+    }
     val tagModifier = if (testTag != null) Modifier.testTag(testTag) else Modifier
     Box(
         modifier = Modifier
