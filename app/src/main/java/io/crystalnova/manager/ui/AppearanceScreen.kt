@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -418,10 +417,11 @@ fun SectionScope.adjustRow(
     val focusRequester = remember { FocusRequester() }
     // Register with the focus dispatcher so the D-pad boundary handler
     // (and the scaffold's initial-focus restore) can move focus here
-    // directly by key, exactly like a standard control row.
-    LaunchedEffect(key) {
-        dispatcher.registerFocusRequester(key, focusRequester)
-    }
+    // directly by key, exactly like a standard control row. Registered
+    // synchronously during composition (not in LaunchedEffect) so the
+    // handler never races a not-yet-run coroutine for an item that just
+    // scrolled into view.
+    dispatcher.registerFocusRequester(key, focusRequester)
     val tagModifier = if (testTag != null) Modifier.testTag(testTag) else Modifier
     Box(
         modifier = Modifier
