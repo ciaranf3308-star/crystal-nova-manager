@@ -348,13 +348,13 @@ class EsdeImportRunner(
             val games = JSONObject(text).optJSONObject("games") ?: return emptyList()
             games.keys().asSequence().mapNotNull { key ->
                 val o = games.optJSONObject(key) ?: return@mapNotNull null
-                val fileName = o.optString("fileName", "")
-                if (fileName.isEmpty()) return@mapNotNull null
+                // fileName may be absent on old entries: the game still
+                // counts as scanned (unmatched) rather than vanishing.
                 EsdeImport.RomGame(
                     platform = o.optString("platform", ""),
                     gameId = o.optString("gameId", key.substringAfter('/')),
                     title = o.optString("title", key),
-                    fileName = fileName,
+                    fileName = o.optString("fileName", ""),
                 )
             }.toList()
         } catch (_: Exception) {
