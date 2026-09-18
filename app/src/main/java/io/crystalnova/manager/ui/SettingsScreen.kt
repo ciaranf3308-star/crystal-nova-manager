@@ -34,6 +34,7 @@ fun SettingsScreen(
     onOpenEsdeImport: () -> Unit,
     onOpenThemes: () -> Unit,
     onOpenChannel: () -> Unit,
+    onOpenAppearance: () -> Unit,
     onDiagnostics: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -72,7 +73,7 @@ fun SettingsScreen(
             control(
                 key = "settings-row-esde",
                 testTag = "settings-row-esde",
-                label = "ES-DE IMPORT\n${friendlyLocation(esdeLocation)}",
+                label = "ES-DE EXPORT FOLDER\n${friendlyLocation(esdeLocation)}",
                 onClick = onOpenEsde,
             )
             control(
@@ -92,6 +93,12 @@ fun SettingsScreen(
                 testTag = "settings-row-channel",
                 label = "UPDATE CHANNEL\n${channelLabel(updateChannel)}",
                 onClick = onOpenChannel,
+            )
+            control(
+                key = "settings-row-appearance",
+                testTag = "settings-row-appearance",
+                label = "APPEARANCE\nRECOLOR THE CRYSTAL IDENTITY",
+                onClick = onOpenAppearance,
             )
             locationError?.let {
                 section { notice(it, onDismissLocationError) }
@@ -342,7 +349,7 @@ fun EsdeImportScreen(
                     if (esdeLocation is LocationState.AccessLost) Crystal.Bad else Crystal.Ink,
                 )
                 if (esdeLocation is LocationState.NotConfigured) {
-                    DimLine("PICK THE ES-DE EXPORT FOLDER FIRST (SETTINGS → ES-DE IMPORT).")
+                    DimLine("PICK THE ES-DE EXPORT FOLDER FIRST (SETTINGS → ES-DE EXPORT FOLDER).")
                 }
                 if (esdeLocation is LocationState.AccessLost) {
                     DimLine("THE SAVED FOLDER IS NO LONGER READABLE — PICK IT AGAIN.")

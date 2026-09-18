@@ -13,7 +13,7 @@ import org.junit.Test
  * Requirement 2 — the Settings top-level menu fits.
  *
  * Renders the real [SettingsScreen] (top level) in the 1280x960
- * viewport and asserts all six rows plus the footer are inside the
+ * viewport and asserts every row plus the footer are inside the
  * viewport with NO scroll interaction anywhere in the test.
  */
 class NovaSettingsFitsViewportTest : NovaUiTest() {
@@ -41,6 +41,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                 onOpenEsdeImport = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
+                onOpenAppearance = {},
                 onDiagnostics = {},
                 onBack = {},
             )
@@ -53,6 +54,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
         assertNodeInViewport("settings-row-esde-import")
         assertNodeInViewport("settings-row-themes")
         assertNodeInViewport("settings-row-channel")
+        assertNodeInViewport("settings-row-appearance")
         assertNodeInViewport("settings-row-diagnostics")
 
         // Pinned footer: A SELECT · B BACK.

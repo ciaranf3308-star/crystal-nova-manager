@@ -44,6 +44,7 @@ class NovaDpadTraversalTest : NovaUiTest() {
                 onOpenEsdeImport = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
+                onOpenAppearance = {},
                 onDiagnostics = {},
                 onBack = {},
             )
@@ -57,7 +58,38 @@ class NovaDpadTraversalTest : NovaUiTest() {
             "settings-row-esde-import",
             "settings-row-themes",
             "settings-row-channel",
+            "settings-row-appearance",
             "settings-row-diagnostics",
+        )
+        assertDpadTraversalInViewport(
+            rows.map { tag -> { composeTestRule.onNodeWithTag(tag) } },
+        )
+    }
+
+    @Test
+    fun dpadTraversesAppearanceRowsInOrder() {
+        setNovaContent {
+            AppearanceScreen(
+                themeReady = true,
+                lastSyncOk = null,
+                onApplyColors = {},
+                onResetColors = {},
+                onOpenThemes = {},
+                onBack = {},
+            )
+        }
+
+        val rows = listOf(
+            "appearance-slot-background",
+            "appearance-slot-accent",
+            "appearance-slot-cream",
+            "appearance-slot-joystick",
+            "appearance-hue",
+            "appearance-sat",
+            "appearance-bright",
+            "appearance-preset",
+            "appearance-apply",
+            "appearance-reset",
         )
         assertDpadTraversalInViewport(
             rows.map { tag -> { composeTestRule.onNodeWithTag(tag) } },

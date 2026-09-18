@@ -82,7 +82,7 @@ class EsdeImportRunner(
         val exportRoot = openExportRoot()
             ?: return PrescanResult.Failed(
                 "Cannot read the ES-DE export folder — it is not picked, " +
-                    "or the grant was revoked. Settings → ES-DE IMPORT → " +
+                    "or the grant was revoked. Settings → ES-DE EXPORT FOLDER → " +
                     "pick the export folder again.",
             )
 

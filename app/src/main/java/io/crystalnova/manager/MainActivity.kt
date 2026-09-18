@@ -18,6 +18,7 @@ import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.data.compareVersions
 import io.crystalnova.manager.pegasus.EmulatorDetector
 import io.crystalnova.manager.pegasus.LauncherAutoConfig
 import io.crystalnova.manager.pegasus.LauncherPresets
@@ -34,6 +35,8 @@ import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.storage.StorageLocations
+import io.crystalnova.manager.ui.AppearanceScreen
+import io.crystalnova.manager.ui.Crystal
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
 import io.crystalnova.manager.ui.EsdeImportScreen
@@ -41,6 +44,7 @@ import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
 import io.crystalnova.manager.ui.Navigator
+import io.crystalnova.manager.ui.toHex
 import io.crystalnova.manager.ui.PegasusLauncherScreen
 import io.crystalnova.manager.ui.PegasusLaunchersScreen
 import io.crystalnova.manager.ui.PegasusSetupScreen
@@ -117,6 +121,13 @@ class MainActivity : ComponentActivity() {
     private lateinit var locations: StorageLocations
     private lateinit var scraper: ScraperManager
     private lateinit var pegasus: PegasusLibrary
+    private lateinit var prefsStore: KeyValueStore
+    /**
+     * APPEARANCE sync state for the Pegasus theme: null = not applied
+     * this session, true/false = last `crystal-user-colors.json` write
+     * result. A successful write arms the Pegasus restart gate.
+     */
+    private var appearanceSyncOk by mutableStateOf<Boolean?>(null)
     /** v24: BIOS inventory (firmware discovery + PS2 import flow). */
     private lateinit var biosInventory: BiosInventory
     /**
@@ -364,6 +375,10 @@ class MainActivity : ComponentActivity() {
         CrashReporter.install(this)
 
         val prefs = SharedPrefsStore(getSharedPreferences("crystal-nova-manager", MODE_PRIVATE))
+        prefsStore = prefs
+        // APPEARANCE: restore the user's custom palette (if any) before
+        // the first frame — the shipped look is the fallback.
+        Crystal.loadPersistedPalette(prefs)
         val fs = SafThemeFs(this) { prefs.getString(SafThemeStorage.KEY_TREE_URI) }
         storage = SafThemeStorage(fs, prefs)
         locations = StorageLocations(this, prefs)
@@ -585,6 +600,7 @@ class MainActivity : ComponentActivity() {
                     onOpenEsdeImport = { nav.navigate(Dest.SettingsEsdeImport) },
                     onOpenThemes = { nav.navigate(Dest.SettingsThemes) },
                     onOpenChannel = { nav.navigate(Dest.SettingsChannel) },
+                    onOpenAppearance = { nav.navigate(Dest.SettingsAppearance) },
                     onDiagnostics = { openDiagnostics(nav) },
                     onBack = pop,
                 )
@@ -616,7 +632,7 @@ class MainActivity : ComponentActivity() {
                 )
                 is Dest.SettingsEsde -> SettingsLocationScreen(
                     routeKey = "settings-esde",
-                    title = "ES-DE IMPORT",
+                    title = "ES-DE EXPORT FOLDER",
                     location = scraperState.esdeLocation,
                     showBadge = true,
                     onPick = { esdePicker.launch(null) },
@@ -637,6 +653,14 @@ class MainActivity : ComponentActivity() {
                     importResult = scraperState.importResult,
                     onPrescan = { scraper.runEsdeImportPrescan() },
                     onImport = { scraper.runEsdeImport() },
+                    onBack = pop,
+                )
+                is Dest.SettingsAppearance -> AppearanceScreen(
+                    themeReady = themeSupportsUserColors(),
+                    lastSyncOk = appearanceSyncOk,
+                    onApplyColors = { colors -> applyAppearanceColors(colors) },
+                    onResetColors = { resetAppearanceColors() },
+                    onOpenThemes = { nav.navigate(Dest.SettingsThemes) },
                     onBack = pop,
                 )
                 is Dest.SettingsThemes -> SettingsThemesScreen(
@@ -968,6 +992,50 @@ class MainActivity : ComponentActivity() {
 
     private fun isPegasusInstalled(): Boolean =
         packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE) != null
+
+    /**
+     * APPEARANCE: applies the user's four identity colors to the app
+     * (persisted + live), writes `crystal-user-colors.json` for the
+     * Pegasus theme, and arms the Pegasus restart gate so the next
+     * OPEN PEGASUS cold-starts with the new colors. A failed theme
+     * write still keeps the app-side palette — the theme simply keeps
+     * its defaults until the next successful sync.
+     */
+    private fun applyAppearanceColors(colors: Crystal.IdentityColors) {
+        Crystal.applyCustomPalette(prefsStore, colors)
+        val json = locations.userColorsJson(
+            backgroundHex = colors.background.toHex(),
+            accentHex = colors.accent.toHex(),
+            creamHex = colors.cream.toHex(),
+            joystickHex = colors.joystick.toHex(),
+        )
+        val ok = locations.writeUserColors(storage.treeUri, json)
+        appearanceSyncOk = ok
+        if (ok) pegasusRestartGate.pendingBuild = true
+    }
+
+    /**
+     * APPEARANCE: drops the custom palette (app + theme file) and arms
+     * the restart gate so Pegasus returns to its shipped colors.
+     */
+    private fun resetAppearanceColors() {
+        Crystal.resetToDefault(prefsStore)
+        locations.deleteUserColors(storage.treeUri)
+        appearanceSyncOk = null
+        pegasusRestartGate.pendingBuild = true
+    }
+
+    /**
+     * True when the installed Pegasus theme understands
+     * `crystal-user-colors.json` (unknown version counts as too old).
+     */
+    private fun themeSupportsUserColors(): Boolean {
+        val installed = storage.readInstalledVersion()?.version ?: return false
+        return compareVersions(
+            installed,
+            StorageLocations.USER_COLORS_MIN_THEME_VERSION,
+        ) >= 0
+    }
 
     /**
      * v18 reload path. When a fresh BUILD is pending, launches Pegasus

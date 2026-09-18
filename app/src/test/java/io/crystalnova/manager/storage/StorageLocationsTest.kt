@@ -147,6 +147,23 @@ class StorageLocationsTest {
         assertTrue(json.contains("\"mediaRoot\":\"/sd/odd\\\"name\""))
     }
 
+    // ---------- userColorsJson ----------
+
+    @Test
+    fun `userColorsJson has exact format`() {
+        assertEquals(
+            "{\"version\":1,\"background\":\"#0a1929\",\"accent\":\"#7ba7d9\"," +
+                "\"cream\":\"#f0ebdc\",\"joystick\":\"#ffc93c\",\"updated\":1700000000}",
+            locations().userColorsJson("#0a1929", "#7ba7d9", "#f0ebdc", "#ffc93c", 1700000000),
+        )
+    }
+
+    @Test
+    fun `user colors file name and min theme version are stable`() {
+        assertEquals("crystal-user-colors.json", StorageLocations.USER_COLORS_FILE_NAME)
+        assertEquals("2026.09.18.11-user-colors", StorageLocations.USER_COLORS_MIN_THEME_VERSION)
+    }
+
     // ---------- adopt / clear round-trip ----------
 
     @Test

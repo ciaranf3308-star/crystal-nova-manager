@@ -8,7 +8,7 @@ import androidx.compose.runtime.mutableStateListOf
  *
  *   HOME → LIBRARY → SYSTEM(slug) → PROGRESS
  *   HOME → THEME
- *   HOME → SETTINGS → SETTINGS/ROM | SETTINGS/MEDIA | SETTINGS/ESDE | SETTINGS/PROBE | SETTINGS/THEMES | SETTINGS/CHANNEL
+ *   HOME → SETTINGS → SETTINGS/ROM | SETTINGS/MEDIA | SETTINGS/ESDE | SETTINGS/PROBE | SETTINGS/THEMES | SETTINGS/CHANNEL | SETTINGS/APPEARANCE
  *   HOME → PEGASUS SETUP → PEGASUS LAUNCHERS → PEGASUS LAUNCHER(slug)
  *   any → DIAGNOSTICS (overlay destination; B pops back)
  *
@@ -26,10 +26,12 @@ sealed interface Dest {
     data object SettingsRom : Dest
     /** MEDIA LIBRARY child of SETTINGS. */
     data object SettingsMedia : Dest
-    /** ES-DE IMPORT child of SETTINGS (read-only export root). */
+    /** ES-DE EXPORT FOLDER child of SETTINGS (read-only export root). */
     data object SettingsEsde : Dest
     /** ES-DE MEDIA IMPORT child of SETTINGS (copy real art into the library). */
     data object SettingsEsdeImport : Dest
+    /** APPEARANCE child of SETTINGS (recolor the Crystal identity). */
+    data object SettingsAppearance : Dest
     /** THEME STORAGE child of SETTINGS. */
     data object SettingsThemes : Dest
     /** UPDATE CHANNEL child of SETTINGS. */

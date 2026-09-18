@@ -64,6 +64,18 @@ class StorageLocations(
         /** Persisted SAF tree URI of the read-only ES-DE import root. */
         const val KEY_ESDE_TREE_URI = "esde_tree_uri"
         const val BRIDGE_FILE_NAME = "crystal-media-bridge.json"
+        /**
+         * Manager-written palette override the Pegasus theme reads from
+         * the themes root (beside the theme dir, like the media
+         * bridge — a theme update never wipes it).
+         */
+        const val USER_COLORS_FILE_NAME = "crystal-user-colors.json"
+        /**
+         * Minimum theme version that honors [USER_COLORS_FILE_NAME].
+         * The APPEARANCE screen compares the installed theme's
+         * crystal-version.json against this.
+         */
+        const val USER_COLORS_MIN_THEME_VERSION = "2026.09.18.11-user-colors"
 
         /**
          * The persistable grant flags for [adoptTreeUri]. The ES-DE
@@ -138,6 +150,27 @@ class StorageLocations(
      */
     fun bridgeJson(mediaFsPath: String, updatedSeconds: Long = System.currentTimeMillis() / 1000): String =
         "{\"version\":1,\"mediaRoot\":\"${jsonEscape(mediaFsPath)}\"," +
+            "\"updated\":$updatedSeconds}"
+
+    /**
+     * User-colors JSON the Pegasus theme reads from the themes root:
+     * `{"version":1,"background":"#rrggbb","accent":"#rrggbb",
+     * "cream":"#rrggbb","joystick":"#rrggbb","updated":<epochSeconds>}`.
+     * Every color key is optional on the theme side; the theme validates
+     * each against #rrggbb and falls back per-key. Pure — JVM-testable.
+     */
+    fun userColorsJson(
+        backgroundHex: String,
+        accentHex: String,
+        creamHex: String,
+        joystickHex: String,
+        updatedSeconds: Long = System.currentTimeMillis() / 1000,
+    ): String =
+        "{\"version\":1," +
+            "\"background\":\"${jsonEscape(backgroundHex)}\"," +
+            "\"accent\":\"${jsonEscape(accentHex)}\"," +
+            "\"cream\":\"${jsonEscape(creamHex)}\"," +
+            "\"joystick\":\"${jsonEscape(joystickHex)}\"," +
             "\"updated\":$updatedSeconds}"
 
     /** Extracts the (URL-decoded) tree document id, or null when not a tree URI. */
@@ -349,6 +382,52 @@ class StorageLocations(
             fs.rename(tmp, BRIDGE_FILE_NAME)
         } catch (e: Exception) {
             logger(TAG, "bridge write failed", e)
+            false
+        }
+    }
+
+    /**
+     * Writes `crystal-user-colors.json` into the **themes root** (beside
+     * the theme directory — a theme update never wipes it) via SAF with
+     * the same tmp+swap discipline as the media bridge. The Pegasus
+     * theme (≥ [USER_COLORS_MIN_THEME_VERSION]) reads it on startup;
+     * older themes ignore the unknown file. Never throws.
+     */
+    fun writeUserColors(themesTreeUri: String?, json: String): Boolean {
+        return try {
+            val themes = themesTreeUri ?: return false
+            val bytes = json.toByteArray()
+            val fs = SafThemeFs(context!!) { themes }
+            val root = fs.root() ?: return false
+            fs.find(root, "$USER_COLORS_FILE_NAME.tmp")?.let { fs.deleteRecursively(it) }
+            val tmp = fs.createFile(root, "$USER_COLORS_FILE_NAME.tmp")
+            try {
+                fs.openOutput(tmp).use { it.write(bytes) }
+            } catch (e: Exception) {
+                fs.deleteRecursively(tmp)
+                throw e
+            }
+            fs.find(root, USER_COLORS_FILE_NAME)?.let { fs.deleteRecursively(it) }
+            fs.rename(tmp, USER_COLORS_FILE_NAME)
+        } catch (e: Exception) {
+            logger(TAG, "user colors write failed", e)
+            false
+        }
+    }
+
+    /**
+     * Deletes `crystal-user-colors.json` from the themes root (used when
+     * the palette is reset to defaults). Never throws.
+     */
+    fun deleteUserColors(themesTreeUri: String?): Boolean {
+        return try {
+            val themes = themesTreeUri ?: return false
+            val fs = SafThemeFs(context!!) { themes }
+            val root = fs.root() ?: return false
+            fs.find(root, USER_COLORS_FILE_NAME)?.let { fs.deleteRecursively(it) }
+            true
+        } catch (e: Exception) {
+            logger(TAG, "user colors delete failed", e)
             false
         }
     }
