@@ -80,6 +80,39 @@ class BiosInventoryTest {
     }
 
     @Test
+    fun ps2_ready_whenImportConfirmed_withNoBiosFolder() {
+        // The user's BIOS lives in NetherSX2's app-private storage —
+        // Crystal's scan sees nothing (no grant), but the user's
+        // attestation is authoritative: READY, no issue, no banner.
+        val prefs = FakeBiosPrefs()
+        val inv = inventory(prefs = prefs)
+        inv.setPs2ImportConfirmed(true)
+        assertEquals(BiosStatus.READY, inv.ps2Status(5, null))
+        assertNull(inv.ps2Issue(5, null))
+    }
+
+    @Test
+    fun ps2_ready_whenImportConfirmed_withEmptyFolder() {
+        // Same, but the adopted folder exists and holds no PS2 files.
+        val prefs = FakeBiosPrefs()
+        val inv = inventory(prefs = prefs, files = emptyList())
+        inv.setPs2ImportConfirmed(true)
+        assertEquals(BiosStatus.READY, inv.ps2Status(5, emptyList()))
+        assertNull(inv.ps2Issue(5, emptyList()))
+    }
+
+    @Test
+    fun ps2_ready_whenImportConfirmed_withUnverifiedFiles() {
+        // Ancillary-only findings must not override attestation either.
+        val prefs = FakeBiosPrefs()
+        val wrong = BiosFile("scph39001.bin", 12L, "scph39001.bin")
+        val inv = inventory(prefs = prefs, files = listOf(wrong))
+        inv.setPs2ImportConfirmed(true)
+        assertEquals(BiosStatus.READY, inv.ps2Status(5, listOf(wrong)))
+        assertNull(inv.ps2Issue(5, listOf(wrong)))
+    }
+
+    @Test
     fun ps2_unverified_whenSizeMismatch() {
         val wrong = BiosFile("scph39001.bin", 12345L, "scph39001.bin")
         val inv = inventory(files = listOf(wrong))

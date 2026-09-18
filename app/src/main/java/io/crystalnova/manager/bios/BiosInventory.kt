@@ -309,18 +309,27 @@ class BiosInventory(
      * PS2 firmware status. [ps2GameCount] gates everything: with no PS2
      * games, firmware is NOT_REQUIRED and creates no issue.
      *
-     * A main candidate (strong SCPH shape or plausible dump) is
-     * IMPORT_REQUIRED until the NetherSX2 import is attested — the
-     * candidate is never silently auto-trusted. Ancillary artifacts
-     * or insanely-sized BIOS-named files are FOUND_UNVERIFIED, never
-     * MISSING and never READY.
+     * The user's explicit attestation is checked FIRST and is
+     * authoritative on its own: Crystal cannot see into NetherSX2's
+     * app-private storage (scoped storage on Android 11+), so a
+     * user-confirmed working BIOS is READY even when Crystal's own SD
+     * scan found no candidate — the emulator demonstrably launching
+     * games is the ground truth, and a permanently wrong setup
+     * warning is worse than trusting the user's word.
+     *
+     * Without attestation, a main candidate (strong SCPH shape or
+     * plausible dump) is IMPORT_REQUIRED until the NetherSX2 import is
+     * attested — the candidate is never silently auto-trusted.
+     * Ancillary artifacts or insanely-sized BIOS-named files are
+     * FOUND_UNVERIFIED, never MISSING and never READY.
      */
     fun ps2Status(ps2GameCount: Int, files: List<BiosFile>?): BiosStatus {
         if (ps2GameCount <= 0) return BiosStatus.NOT_REQUIRED
+        if (isPs2ImportConfirmed()) return BiosStatus.READY
         if (files == null) return BiosStatus.REQUIRED_MISSING
         val detection = detectPs2(files)
         if (detection.candidates.isNotEmpty()) {
-            return if (isPs2ImportConfirmed()) BiosStatus.READY else BiosStatus.IMPORT_REQUIRED
+            return BiosStatus.IMPORT_REQUIRED
         }
         return if (detection.misSized.isNotEmpty() || detection.ancillary.isNotEmpty())
             BiosStatus.FOUND_UNVERIFIED

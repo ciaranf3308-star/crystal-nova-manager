@@ -176,10 +176,29 @@ fun BiosScreen(
                             "COPY YOUR EMUDECK BIOS FOLDER TO ${expected ?: "SD CARD /bios"}",
                             Crystal.InkDim,
                         )
+                        StatusLine(
+                            "OR — IF NETHERSX2 ALREADY LAUNCHES PS2 GAMES,",
+                            Crystal.InkDim,
+                        )
+                        StatusLine(
+                            "YOUR BIOS IS FINE WHERE IT IS. NO NEED TO",
+                            Crystal.InkDim,
+                        )
+                        StatusLine("COPY OR RE-IMPORT ANYTHING.", Crystal.InkDim)
+                        CrystalButton(
+                            key = "bios-already-works",
+                            testTag = "bios-already-works",
+                            label = "MY PS2 BIOS ALREADY WORKS",
+                            subLabel = "STOPS THE SETUP WARNING",
+                            onClick = onMarkImported,
+                            dispatcher = dispatcher,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                         CrystalButton(
                             key = "bios-ps2-pick",
                             testTag = "bios-ps2-pick",
                             label = "SELECT BIOS FOLDER",
+                            subLabel = "I HAVE A BIOS FILE TO ADD",
                             onClick = onSelectBiosFolder,
                             dispatcher = dispatcher,
                             modifier = Modifier.fillMaxWidth(),
@@ -265,6 +284,20 @@ fun BiosScreen(
                                 Crystal.InkDim,
                             )
                         }
+                        StatusLine(
+                            "IF NETHERSX2 ALREADY LAUNCHES PS2 GAMES,",
+                            Crystal.InkDim,
+                        )
+                        StatusLine("YOUR BIOS IS FINE — NO RE-IMPORT NEEDED.", Crystal.InkDim)
+                        CrystalButton(
+                            key = "bios-already-works",
+                            testTag = "bios-already-works",
+                            label = "MY PS2 BIOS ALREADY WORKS",
+                            subLabel = "STOPS THE SETUP WARNING",
+                            onClick = onMarkImported,
+                            dispatcher = dispatcher,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                     BiosStatus.READY ->
                         StatusLine("PS2 BIOS READY", Crystal.Good)
