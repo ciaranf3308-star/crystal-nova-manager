@@ -56,7 +56,7 @@ object EsdeProbe {
         coverFiles: (systemDir: String) -> List<String>,
         createdSeconds: Long = System.currentTimeMillis() / 1000,
     ): Pick? {
-        val root = sdMediaRoot.trimEnd('/')
+        val root = sdMediaRoot.trim().trimEnd('/')
         if (root.isEmpty()) return null
         for (system in systemDirs.sorted()) {
             val file = coverFiles(system)
