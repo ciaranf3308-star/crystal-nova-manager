@@ -3,6 +3,7 @@ package io.crystalnova.manager.scraper.esde
 import android.content.Context
 import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
+import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.AssetProvenance
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.ScrapedGame
@@ -334,6 +335,25 @@ class EsdeImportRunner(
                 if (doc != null && doc.isFile) {
                     val rel = "media/$esdeSys/$dir/${doc.name}"
                     return EsdeImport.FoundAsset(slot, rel, doc.name ?: "", doc.length())
+                }
+            }
+        }
+        // Fallback: exact match failed (often region-tag differences like
+        // "Luigi's Mansion (Europe)" vs "Luigi's Mansion"). Try comparing
+        // normalized basenames with tags stripped.
+        val normBase = TitleNormalizer.normalize(base)
+        if (normBase.isNotEmpty() && normBase != baseLower) {
+            for (dir in dirs) {
+                val prefix = "media/$esdeSys/$dir/"
+                for ((key, doc) in exportIndex) {
+                    if (!key.startsWith(prefix) || !doc.isFile) continue
+                    val ext = key.substringAfterLast('.', "")
+                    if (ext !in EsdeImport.IMAGE_EXTENSIONS) continue
+                    val fileBase = key.removePrefix(prefix).substringBeforeLast('.')
+                    if (TitleNormalizer.normalize(fileBase) == normBase) {
+                        val rel = "media/$esdeSys/$dir/${doc.name}"
+                        return EsdeImport.FoundAsset(slot, rel, doc.name ?: "", doc.length())
+                    }
                 }
             }
         }
