@@ -1,6 +1,7 @@
 package io.crystalnova.manager.ui
 
 import android.os.SystemClock
+import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
@@ -10,7 +11,9 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -20,6 +23,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -286,10 +292,10 @@ fun HomeScreen(
 }
 
 /**
- * The home hero: a clean banner with the state headline and a single
- * light info line on the left, the happy-path action docked on the right.
- * BIOS/launcher detail lives on their own screens now — the hero stays
- * light.
+ * The home hero: stacked CRYSTAL / NOVA branding with a crystalline
+ * gradient, the state headline and light info below, the happy-path
+ * action docked on the right. BIOS/launcher detail lives on their own
+ * screens now — the hero stays light.
  */
 @Composable
 private fun StatusBand(
@@ -301,7 +307,21 @@ private fun StatusBand(
     isPrimaryInitialFocus: Boolean,
 ) {
     val ready = readiness.ready
-    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(
+                Brush.linearGradient(
+                    colors = listOf(
+                        Color(0xFF0A0E27),
+                        Color(0xFF1A1B4B),
+                        Color(0xFF2D1B4E),
+                    ),
+                ),
+            )
+            .padding(20.dp),
+    ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(16.dp),
@@ -311,12 +331,33 @@ private fun StatusBand(
                 modifier = Modifier.weight(1f),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                // Stacked CRYSTAL / NOVA hero branding.
+                BasicText(
+                    text = "CRYSTAL",
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 48.sp,
+                        letterSpacing = 4.sp,
+                        color = Color(0xFF7DD3FC),
+                    ),
+                )
+                BasicText(
+                    text = "NOVA",
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 48.sp,
+                        letterSpacing = 12.sp,
+                        color = Color(0xFFF0ABFC),
+                    ),
+                )
                 BasicText(
                     text = if (ready) "READY TO PLAY" else "FINISH SETUP",
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 32.sp,
+                        fontSize = 20.sp,
                         color = if (ready) Crystal.Good else Crystal.Joystick,
                     ),
                 )
