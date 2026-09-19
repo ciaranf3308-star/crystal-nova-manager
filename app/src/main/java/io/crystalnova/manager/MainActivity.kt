@@ -20,17 +20,6 @@ import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.data.compareVersions
 import io.crystalnova.manager.pegasus.EmulatorDetector
-import io.crystalnova.manager.pegasus.LauncherAutoConfig
-import io.crystalnova.manager.pegasus.LauncherPresets
-import io.crystalnova.manager.pegasus.LauncherProfile
-import io.crystalnova.manager.pegasus.LauncherSource
-import io.crystalnova.manager.pegasus.LauncherType
-import io.crystalnova.manager.pegasus.MetafileGenerator
-import io.crystalnova.manager.launcher.LauncherExport
-import io.crystalnova.manager.pegasus.PegasusIntents
-import io.crystalnova.manager.pegasus.PegasusLibrary
-import io.crystalnova.manager.pegasus.PegasusRestartGate
-import io.crystalnova.manager.scraper.match.PlatformTable
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
@@ -38,32 +27,29 @@ import io.crystalnova.manager.storage.LocationState
 import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.storage.StorageLocations
 import io.crystalnova.manager.ui.AppearanceScreen
+import io.crystalnova.manager.ui.AssetsScreen
 import io.crystalnova.manager.ui.Crystal
+import io.crystalnova.manager.ui.CrystalPack
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
 import io.crystalnova.manager.ui.EsdeImportScreen
 import io.crystalnova.manager.ui.EsdeManualMatchScreen
-import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
+import io.crystalnova.manager.ui.HomeStatus
+import io.crystalnova.manager.ui.InstalledEmulatorsScreen
 import io.crystalnova.manager.ui.LibraryScreen
 import io.crystalnova.manager.ui.MediaHealthReportScreen
 import io.crystalnova.manager.ui.Navigator
-import io.crystalnova.manager.ui.toHex
-import io.crystalnova.manager.ui.PegasusLauncherScreen
-import io.crystalnova.manager.ui.PegasusLaunchersScreen
-import io.crystalnova.manager.ui.PegasusSetupScreen
 import io.crystalnova.manager.ui.PegasusSystemRow
+import io.crystalnova.manager.ui.toHex
 import io.crystalnova.manager.ui.PlaceholderScreen
-import io.crystalnova.manager.ui.ProgressScreen
-import io.crystalnova.manager.ui.RetroArchOption
 import io.crystalnova.manager.ui.SettingsChannelScreen
 import io.crystalnova.manager.ui.SettingsLocationScreen
 import io.crystalnova.manager.ui.SettingsScreen
 import io.crystalnova.manager.ui.SettingsThemesScreen
-import io.crystalnova.manager.ui.StandaloneOption
-import io.crystalnova.manager.ui.SystemScreen
+import io.crystalnova.manager.ui.SystemHubScreen
 import io.crystalnova.manager.ui.ThemeScreen
-import io.crystalnova.manager.ui.buildHomeReadiness
+import io.crystalnova.manager.ui.buildHomeStatus
 import io.crystalnova.manager.ui.BiosScreen
 import io.crystalnova.manager.ui.BiosScreenState
 import io.crystalnova.manager.ui.BiosStatusRow
@@ -75,14 +61,9 @@ import io.crystalnova.manager.bios.BiosStatus
 import io.crystalnova.manager.diag.CrashReporter
 import io.crystalnova.manager.diag.DiagnosticsInfo
 import io.crystalnova.manager.diag.EmulatorPackageStatus
-import io.crystalnova.manager.diag.PegasusMetafileDiag
-import io.crystalnova.manager.diag.SystemMetafileDiagRow
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
-import io.crystalnova.manager.updater.installedLauncherVersionCode
-import io.crystalnova.manager.updater.ManagerEvent
-import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.UpdateManager
 import kotlinx.coroutines.MainScope
 import kotlinx.coroutines.Dispatchers
@@ -97,7 +78,7 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueS
         prefs.edit().putString(key, value).apply()
     }
     override fun remove(key: String) {
-        prefs.edit().remove(key).apply()
+        prefs.edit().remove(key)
     }
 }
 
@@ -106,31 +87,31 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueS
  * the SAF folder pickers; each [Dest] renders a focused screen from
  * ui/. Controller/system back pops exactly one level from any child
  * destination and only exits from HOME.
+ *
+ * u44 pivot: the Manager is the Nova's companion control centre, not
+ * a frontend builder. iiSU (com.iisulauncher) is the frontend;
+ * Pegasus is legacy/fallback; the Crystal Launcher is frozen. All
+ * Pegasus/launcher-bridge wiring is archived (code kept, UX removed).
  */
 class MainActivity : ComponentActivity() {
 
     companion object {
         /**
-         * Pegasus Frontend's Android package, verified against the official
-         * source: src/app/platform/android/AndroidManifest.xml in
-         * mmatyas/pegasus-frontend declares package="org.pegasus_frontend.android".
-         * We never force-stop it and never assume the launch intent exists —
-         * [isPegasusInstalled] checks at runtime and the UI falls back to
-         * "RESTART PEGASUS TO APPLY" instructions.
+         * iiSU's Android package. We never assume the launch intent
+         * exists — [isIisuInstalled] checks at runtime and the HOME
+         * LAUNCH iiSU button is disabled when it's absent.
          */
-        const val PEGASUS_PACKAGE = "org.pegasus_frontend.android"
+        const val IISU_PACKAGE = "com.iisulauncher"
     }
 
     private lateinit var manager: UpdateManager
     private lateinit var storage: SafThemeStorage
     private lateinit var locations: StorageLocations
     private lateinit var scraper: ScraperManager
-    private lateinit var pegasus: PegasusLibrary
     private lateinit var prefsStore: KeyValueStore
     /**
-     * APPEARANCE sync state for the Pegasus theme: null = not applied
-     * this session, true/false = last `crystal-user-colors.json` write
-     * result. A successful write arms the Pegasus restart gate.
+     * APPEARANCE sync state: null = not applied this session,
+     * true/false = last `crystal-user-colors.json` write result.
      */
     private var appearanceSyncOk by mutableStateOf<Boolean?>(null)
     /** v24: BIOS inventory (firmware discovery + PS2 import flow). */
@@ -157,33 +138,8 @@ class MainActivity : ComponentActivity() {
     private var diagnosticsInfo: DiagnosticsInfo? by mutableStateOf(null)
     /** Last ROM/MEDIA adopt failure, surfaced on the Settings screen. */
     private var locationError: String? by mutableStateOf(null)
-    /** Pegasus setup/inject notices, surfaced on the Pegasus screens. */
-    private var pegasusNotice: String? by mutableStateOf(null)
-    /** True while an explicit INJECT / REFRESH is running. */
-    private var pegasusBusy: Boolean by mutableStateOf(false)
-    /** True while the setup assistant is applying safe launcher defaults. */
-    private var pegasusAutoBusy: Boolean by mutableStateOf(false)
     /** PackageManager-backed detection of known emulator apps. */
     private val emulatorDetector: EmulatorDetector by lazy { EmulatorDetector(this) }
-    /**
-     * Bumped on every launcher-profile change so the Pegasus screens
-     * recompose (profiles live in SharedPreferences, not in a flow).
-     */
-    private var pegasusProfilesRev: Int by mutableStateOf(0)
-    /**
-     * Bumped when the Pegasus config root is (re)picked: the setup
-     * screen reads the persisted URI directly (not a state flow), so
-     * without this the screen would not refresh after selection.
-     */
-    private var pegasusConfigRev: Int by mutableStateOf(0)
-
-    /**
-     * v18 reload path: set after every successful BUILD so the next
-     * OPEN PEGASUS tap restarts Pegasus (verified full-rescan reload,
-     * see [PegasusIntents]). A plain tap with no pending build keeps
-     * the old resume behavior.
-     */
-    private val pegasusRestartGate = PegasusRestartGate()
 
     /**
      * Artwork-studio image picker. The pending (platform, gameId, slot) is
@@ -258,12 +214,7 @@ class MainActivity : ComponentActivity() {
     /**
      * ROM library picker. The SAF grant is taken inside
      * [StorageLocations.adoptTreeUri]; on success the scraper refreshes
-     * so the Library screen flips from the picker prompt to the grid.
-     *
-     * v19: this is also the RE-PICK ROM ROOT repair action on the
-     * Pegasus setup screen — re-picking refreshes the persistable
-     * read+write grant, so the setup screen re-evaluates the metafile
-     * target's writability ([pegasusConfigRev] forces the recompose).
+     * so the ROMS screen flips from the picker prompt to the inventory.
      */
     private val romPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -273,7 +224,6 @@ class MainActivity : ComponentActivity() {
                 )
                 if (ok) {
                     locationError = null
-                    pegasusConfigRev++
                     scraper.refresh()
                     // Adopting a ROM folder discovers the library
                     // immediately — no manual rescan step.
@@ -286,9 +236,9 @@ class MainActivity : ComponentActivity() {
 
     /**
      * MEDIA library picker. Adopting rewrites the theme bridge so
-     * Pegasus finds the media without a reinstall ([StorageLocations]
-     * does that inside adopt); we write the bridge once more for
-     * self-healing, then refresh the scraper.
+     * media stays findable ([StorageLocations] does that inside
+     * adopt); we write the bridge once more for self-healing, then
+     * refresh the scraper.
      */
     private val mediaPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -326,14 +276,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-    /**
-     * v19: the legacy pegasus-frontend config-root picker is RETIRED.
-     * The metafile now lives at the top level of the ROM root (a
-     * registered Pegasus game dir), so there is no separate Pegasus
-     * config grant anymore — [romPicker] below doubles as the
-     * RE-PICK ROM ROOT repair action on the setup screen.
-     */
 
     /**
      * U1.1: the U1 wording led users to pick crystal-nova-pegasus-theme/
@@ -430,10 +372,6 @@ class MainActivity : ComponentActivity() {
             prefs = prefs,
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
-        // The manager drives Crystal Launcher installs/updates too: one
-        // check here so the settings row is live on first paint, without
-        // waiting for the user to open settings.
-        manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
 
         scraper = ScraperManager(
             context = this,
@@ -445,18 +383,10 @@ class MainActivity : ComponentActivity() {
         // Seed the library status block on HOME on first paint.
         scraper.refresh()
 
-        pegasus = PegasusLibrary(this, prefs, locations)
-
         // Appliance behavior: the ROM library discovers itself. On
         // startup, scan the ROM roots when this session has not scanned
         // yet (new ROMs appear, removed games are reconciled out of the
-        // derived index). After every completed scan the Pegasus launch
-        // records regenerate silently, so Crystal/Pegasus always
-        // reflects the library. Manual rebuild stays available under
-        // Diagnostics → RECOVERY.
-        scraper.onLibraryScanCompleted = { games ->
-            if (games.isNotEmpty()) syncPegasusLibrary()
-        }
+        // derived index).
         scope.launch(Dispatchers.IO) {
             scraper.ensureLibraryScan()
         }
@@ -473,9 +403,7 @@ class MainActivity : ComponentActivity() {
             // Idempotent mirror for the back callback above.
             navigator = nav
             val scraperState by scraper.state.collectAsState()
-            val themeState by manager.state.collectAsState()
             val appUpdate by manager.appUpdate.collectAsState()
-            val launcherUpdate by manager.launcherUpdate.collectAsState()
             // v24: the cached BIOS scan state. The recursive SAF scan
             // runs on Dispatchers.IO (BiosInventory.requestScan);
             // Compose reads the cache only — zero recursive SAF
@@ -487,147 +415,89 @@ class MainActivity : ComponentActivity() {
             // persisted in prefs; changing it re-checks for an app update.
             var updateChannel by remember { mutableStateOf(AppUpdateChannel.load(prefs)) }
             val pop: () -> Unit = { nav.onBack() }
+            // iiSU presence comes straight from PackageManager — cheap,
+            // read on every composition so installing iiSU while the
+            // Manager is open flips HOME without a restart.
+            val iisuInstalled = isIisuInstalled()
+            val iisuVersion = iisuVersionName()
 
             when (val dest = nav.current) {
                 is Dest.Home -> {
-                    // Recompute the HOME readiness only when the profiles
-                    // or the scanned systems change: pegasusRows() does
-                    // PackageManager lookups, so it must not run on every
-                    // recomposition (e.g. scan progress ticks). READY is
-                    // derived from the same real persisted state the
-                    // Pegasus setup screen uses — never invented.
-                    @Suppress("UNUSED_VARIABLE")
-                    val homeProfilesRev = pegasusProfilesRev
-                    // v24: firmware issues ride the same readiness model.
-                    // Recomputed when profiles, the scan, BIOS
-                    // attestation, or the cached BIOS scan change. The
-                    // recursive SAF scan runs on Dispatchers.IO and
-                    // HOME reads only the cached result — remember {}
-                    // never does blocking I/O on Main.
-                    @Suppress("UNUSED_VARIABLE")
-                    val homeBiosRev = biosRev
-                    val homeReadiness = remember(homeProfilesRev, homeBiosRev, scraperState.systems, biosScan) {
-                        val rows = pegasusRows()
-                        val ps2Games = rows.firstOrNull { it.slug == "ps2" }?.gameCount ?: 0
-                        val cachedFiles = (biosScan as? BiosScanState.Ready)?.files
-                        val biosIssues = listOfNotNull(
-                            biosInventory.ps2Issue(ps2Games, cachedFiles),
-                        )
-                        // v23: HOME's game count comes from the authoritative
-                        // discovered ROM library (PegasusSystemRow.gameCount
-                        // sums), never from the scraper/artwork index — an
-                        // unscraped 147-ROM library must read "147 GAMES".
-                        buildHomeReadiness(
-                            rows = rows,
-                            pegasusInstalled = isPegasusInstalled(),
+                    val homeStatus: HomeStatus = remember(
+                        scraperState.systems,
+                        scraperState.romLocation,
+                        iisuInstalled,
+                        iisuVersion,
+                    ) {
+                        buildHomeStatus(
+                            systems = scraperState.systems.map { it.label to it.gameCount },
                             romReady = scraperState.romLocation is LocationState.Ready,
-                            biosIssues = biosIssues,
+                            iisuInstalled = iisuInstalled,
+                            iisuVersion = iisuVersion,
+                            // u44: no pack library yet — the catalog and
+                            // pack #1 land in a later update.
+                            packName = null,
+                            packVersion = null,
                         )
-                    }
-                    val themeSubtitle = when (val s = themeState) {
-                        is ManagerState.Ready ->
-                            s.installed?.let { "v${it.version}" } ?: "NOT INSTALLED"
-                        else -> "—"
                     }
                     HomeScreen(
-                        readiness = homeReadiness,
+                        status = homeStatus,
                         appVersion = appVersionLabel,
                         appUpdate = appUpdate,
-                        themeSubtitle = themeSubtitle,
-                        settingsSubtitle = "${updateChannel.name} CHANNEL",
                         onUpdateApp = { onUpdateApp() },
-                        onOpenPegasus = { openPegasus() },
-                        onMakeReady = {
-                            when {
-                                // v24: firmware problems go to the BIOS
-                                // screen first; it links onward to the
-                                // launcher setup when those exist too.
-                                homeReadiness.biosIssues.isNotEmpty() ->
-                                    nav.navigate(Dest.Bios)
-                                scraperState.romLocation is LocationState.Ready ->
-                                    nav.navigate(Dest.PegasusSetup)
-                                else -> {
-                                    scraper.refresh()
-                                    nav.navigate(Dest.Library)
-                                }
-                            }
+                        onLaunchIisu = { openIisu() },
+                        onTheme = { nav.navigate(Dest.Theme) },
+                        onAssets = { nav.navigate(Dest.Assets) },
+                        onRoms = {
+                            scraper.refresh()
+                            nav.navigate(Dest.Library)
                         },
-                        onReviewIssues = {
-                            if (homeReadiness.biosIssues.isNotEmpty()) nav.navigate(Dest.Bios)
-                            else nav.navigate(Dest.PegasusSetup)
-                        },
-                        // u42: keep the library BUILD one tap away when READY.
-                        onRebuildLibrary = { nav.navigate(Dest.PegasusSetup) },
-                    onLibrary = {
-                        scraper.refresh()
-                        nav.navigate(Dest.Library)
-                    },
-                    onTheme = { nav.navigate(Dest.Theme) },
-                    onSettings = { nav.navigate(Dest.Settings) },
-                    onDiagnostics = { openDiagnostics(nav) },
-                    onExit = { finish() },
+                        onSystem = { nav.navigate(Dest.SystemHub) },
+                        onSettings = { nav.navigate(Dest.Settings) },
+                        onDiagnostics = { openDiagnostics(nav) },
+                        onExit = { finish() },
                     )
                 }
                 is Dest.Library -> LibraryScreen(
                     state = scraperState,
                     onPickRomLibrary = { romPicker.launch(null) },
-                    onSelectSystem = { slug, label ->
-                        nav.navigate(Dest.System(slug, label))
-                    },
-                    onDismissNotice = { scraper.dismissNotice() },
-                    onBack = pop,
-                )
-                is Dest.System -> SystemScreen(
-                    slug = dest.slug,
-                    label = dest.label,
-                    state = scraperState,
-                    onScrape = {
-                        // selectPlatform(null) = all systems.
-                        scraper.selectPlatform(dest.slug.ifEmpty { null })
-                        scraper.startScrape()
-                        nav.navigate(Dest.Progress)
-                    },
-                    onRetryIncomplete = {
-                        scraper.selectPlatform(dest.slug.ifEmpty { null })
-                        scraper.retryIncomplete()
-                        nav.navigate(Dest.Progress)
-                    },
-                    onBack = pop,
-                )
-                is Dest.Progress -> ProgressScreen(
-                    state = scraperState,
-                    onCancel = { scraper.cancelScrape() },
-                    onDone = { nav.onBack() },
                     onDismissNotice = { scraper.dismissNotice() },
                     onBack = pop,
                 )
                 is Dest.Theme -> ThemeScreen(
-                    state = themeState,
-                    onEvent = { event ->
-                        if (event === ManagerEvent.OpenPegasus) openPegasus()
-                        else manager.onEvent(event)
+                    // u44: the pack library is an honest empty state —
+                    // the remote catalog and pack #1 land in a later
+                    // update.
+                    packs = crystalPacks(),
+                    onBack = pop,
+                )
+                is Dest.Assets -> AssetsScreen(
+                    onBack = pop,
+                )
+                is Dest.SystemHub -> SystemHubScreen(
+                    onDiagnostics = { openDiagnostics(nav) },
+                    onBios = { nav.navigate(Dest.Bios) },
+                    onInstalledEmulators = { nav.navigate(Dest.InstalledEmulators) },
+                    onBack = pop,
+                )
+                is Dest.InstalledEmulators -> InstalledEmulatorsScreen(
+                    packages = emulatorDetector.detectionReport().map { (pkg, installed) ->
+                        EmulatorPackageStatus(pkg, installed)
                     },
-                    pegasusLaunchable = isPegasusInstalled(),
-                    onPickFolder = { folderPicker.launch(null) },
                     onBack = pop,
                 )
                 is Dest.Settings -> SettingsScreen(
                     romLocation = scraperState.romLocation,
                     mediaLocation = scraperState.mediaLocation,
-                    esdeLocation = scraperState.esdeLocation,
                     themesRootLabel = themesRootLabel(),
                     updateChannel = updateChannel,
                     appVersion = appVersionLabel,
                     appUpdate = appUpdate,
-                    launcherUpdate = launcherUpdate,
-                    launcherInstalled = manager.launcherInstalled,
                     locationError = locError,
                     onDismissLocationError = { locationError = null },
                     onUpdateApp = { onUpdateApp() },
-                    onUpdateLauncher = { onUpdateLauncher() },
                     onOpenRom = { nav.navigate(Dest.SettingsRom) },
                     onOpenMedia = { nav.navigate(Dest.SettingsMedia) },
-                    onOpenEsde = { nav.navigate(Dest.SettingsEsde) },
                     onOpenEsdeImport = { nav.navigate(Dest.SettingsEsdeImport) },
                     onOpenThemes = { nav.navigate(Dest.SettingsThemes) },
                     onOpenChannel = { nav.navigate(Dest.SettingsChannel) },
@@ -661,18 +531,6 @@ class MainActivity : ComponentActivity() {
                     },
                     onBack = pop,
                 )
-                is Dest.SettingsEsde -> SettingsLocationScreen(
-                    routeKey = "settings-esde",
-                    title = "ES-DE EXPORT FOLDER",
-                    location = scraperState.esdeLocation,
-                    showBadge = true,
-                    onPick = { esdePicker.launch(null) },
-                    onClear = {
-                        locations.clearLocation(LocationKind.ESDE)
-                        scraper.refresh()
-                    },
-                    onBack = pop,
-                )
                 is Dest.SettingsEsdeImport -> EsdeImportScreen(
                     esdeLocation = scraperState.esdeLocation,
                     prescanning = scraperState.importPrescanning,
@@ -687,6 +545,10 @@ class MainActivity : ComponentActivity() {
                     healthCheckStatus = scraperState.healthCheckStatus,
                     onPrescan = { scraper.runEsdeImportPrescan() },
                     onImport = { scraper.runEsdeImport() },
+                    // u44: the ES-DE folder picker lives here now that the
+                    // SETTINGS row is gone — the export is this screen's
+                    // only input.
+                    onPickEsdeFolder = { esdePicker.launch(null) },
                     onManualMatch = { nav.navigate(Dest.SettingsEsdeManualMatch) },
                     onHealthCheck = {
                         scraper.runMediaHealthCheck()
@@ -749,10 +611,8 @@ class MainActivity : ComponentActivity() {
                     // cache only, never the SAF tree.
                     @Suppress("UNUSED_VARIABLE")
                     val biosScreenRev = biosRev
-                    @Suppress("UNUSED_VARIABLE")
-                    val biosScreenProfilesRev = pegasusProfilesRev
-                    val rows = pegasusRows()
-                    val ps2Games = rows.firstOrNull { it.slug == "ps2" }?.gameCount ?: 0
+                    val ps2Games =
+                        scraperState.systems.firstOrNull { it.platformSlug == "ps2" }?.gameCount ?: 0
                     val files = (biosScan as? BiosScanState.Ready)?.files
                     val biosScanning = biosScan is BiosScanState.Scanning
                     val ps2Status = biosInventory.ps2Status(ps2Games, files)
@@ -772,9 +632,6 @@ class MainActivity : ComponentActivity() {
                     val statusRows = BiosFirmwareTable.statusScreenPlatforms().map { fw ->
                         BiosStatusRow(fw.label, ps2Status)
                     }
-                    val launcherIssues = rows.filter { it.gameCount > 0 }.any {
-                        it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
-                    }
                     BiosScreen(
                         state = BiosScreenState(
                             rootState = rootState,
@@ -789,7 +646,6 @@ class MainActivity : ComponentActivity() {
                                 detection.misSized.isEmpty() &&
                                 detection.ancillary.isNotEmpty(),
                             ps2GameCount = ps2Games,
-                            hasLauncherIssues = launcherIssues,
                             netherSX2Installed = emulatorDetector.isInstalled(
                                 BiosFirmwareTable.PS2.emulatorPackage.orEmpty(),
                             ),
@@ -811,122 +667,7 @@ class MainActivity : ComponentActivity() {
                             biosNotice = null
                             biosRev++
                         },
-                        onReviewLaunchers = { nav.navigate(Dest.PegasusSetup) },
                         onDismissNotice = { biosNotice = null },
-                        onBack = pop,
-                    )
-                }
-                is Dest.PegasusSetup -> {
-                    // Read the profiles revision so this screen recomposes
-                    // after launcher choices change, and the config revision
-                    // so it recomposes right after the ROM root is picked
-                    // (the persisted URI is read directly, not via a flow).
-                    @Suppress("UNUSED_VARIABLE")
-                    val profilesRev = pegasusProfilesRev
-                    @Suppress("UNUSED_VARIABLE")
-                    val configRev = pegasusConfigRev
-                    val rows = pegasusRows()
-                    // v19: BUILD is gated on the ROM root being WRITABLE —
-                    // the metafile is written to the top level of the ROM
-                    // root (a registered Pegasus game dir). The legacy
-                    // pegasus-frontend config-root flow is retired.
-                    val romWritable = locations.hasWriteAccess(LocationKind.ROM)
-                    val unconfigured = rows
-                        .filter { it.gameCount > 0 && it.launcherStatus == "NOT CONFIGURED" }
-                        .map { it.label.uppercase() }
-                    PegasusSetupScreen(
-                        metafileTarget = pegasus.metafileTargetDisplay(),
-                        romWritable = romWritable,
-                        systems = rows,
-                        injectEnabled = isInjectEnabled(romWritable, pegasusBusy, rows),
-                        injectWarning = unconfigured.takeIf { it.isNotEmpty() }
-                            ?.let { "NO LAUNCHER: ${it.joinToString(", ")} — WILL BE SKIPPED" },
-                        injecting = pegasusBusy,
-                        notice = pegasusNotice,
-                        pegasusInstalled = isPegasusInstalled(),
-                        onRepickRomRoot = { romPicker.launch(null) },
-                        onConfigureLaunchers = { nav.navigate(Dest.PegasusLaunchers) },
-                        onInject = { injectPegasus() },
-                        onDismissNotice = { pegasusNotice = null },
-                        onOpenPegasus = { openPegasus() },
-                        onBack = pop,
-                        autoConfiguring = pegasusAutoBusy,
-                        onAutoConfigure = { autoConfigureLaunchers() },
-                    )
-                }
-                is Dest.PegasusLaunchers -> {
-                    @Suppress("UNUSED_VARIABLE")
-                    val profilesRev = pegasusProfilesRev
-                    PegasusLaunchersScreen(
-                        systems = pegasusRows(),
-                        onSelectSystem = { slug, label ->
-                            nav.navigate(Dest.PegasusLauncher(slug, label))
-                        },
-                        onBack = pop,
-                    )
-                }
-                is Dest.PegasusLauncher -> {
-                    @Suppress("UNUSED_VARIABLE")
-                    val profilesRev = pegasusProfilesRev
-                    val installed = installedEmulatorPackages()
-                    val slug = dest.slug
-                    val explicit = pegasus.profiles.get(slug)
-                    val effective = explicit ?: LauncherPresets.defaultProfile(slug)
-                    val current = effective?.takeIf { it.isConfigured() }
-                    PegasusLauncherScreen(
-                        slug = slug,
-                        label = dest.label,
-                        currentStatus = current?.displayLabel() ?: "NOT CONFIGURED",
-                        isDefault = explicit == null,
-                        defaultProfile = LauncherPresets.defaultProfile(slug)
-                            ?.takeIf { it.isConfigured() },
-                        retroArchOptions = LauncherPresets.retroArchPackages.map { (pkg, tag) ->
-                            RetroArchOption(
-                                packageName = pkg,
-                                tag = tag,
-                                cores = LauncherPresets.retroArchCores(slug),
-                                installed = pkg in installed,
-                            )
-                        },
-                        standaloneOptions = LauncherPresets.standaloneFor(slug).map { profile ->
-                            StandaloneOption(
-                                profile = profile,
-                                installed = profile.packageName in installed,
-                            )
-                        },
-                        customCommand = explicit
-                            ?.takeIf { it.type == LauncherType.CUSTOM }
-                            ?.command.orEmpty(),
-                        notice = pegasusNotice,
-                        onUseDefault = {
-                            LauncherPresets.defaultProfile(slug)?.let { pegasus.profiles.set(slug, it) }
-                            pegasusNotice = null
-                            pegasusProfilesRev++
-                        },
-                        onSelectRetroArch = { pkg, core ->
-                            pegasus.profiles.set(slug, LauncherPresets.retroArch(pkg, core))
-                            pegasusNotice = null
-                            pegasusProfilesRev++
-                        },
-                        onSelectStandalone = { profile ->
-                            pegasus.profiles.set(slug, profile)
-                            pegasusNotice = null
-                            pegasusProfilesRev++
-                        },
-                        onSaveCustom = { command ->
-                            pegasus.profiles.set(
-                                slug,
-                                LauncherProfile(type = LauncherType.CUSTOM, command = command),
-                            )
-                            pegasusNotice = "CUSTOM COMMAND SAVED"
-                            pegasusProfilesRev++
-                        },
-                        onClear = {
-                            pegasus.profiles.clear(slug)
-                            pegasusNotice = null
-                            pegasusProfilesRev++
-                        },
-                        onDismissNotice = { pegasusNotice = null },
                         onBack = pop,
                     )
                 }
@@ -984,12 +725,18 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * The Crystal iiSU pack library (u44). Empty until the remote
+     * catalog and pack #1 land — HOME and THEME read this and say so
+     * honestly instead of inventing packs.
+     */
+    private fun crystalPacks(): List<CrystalPack> = emptyList()
+
+    /**
      * Assembles the hidden Diagnostics screen payload. Runs on open and
      * on REFRESH; the screen itself never touches storage or network.
      */
     private fun buildDiagnostics(): DiagnosticsInfo = DiagnosticsInfo(
         managerVersion = "v${BuildConfig.VERSION_NAME} (code ${BuildConfig.VERSION_CODE})",
-        managerState = manager.state.value,
         appUpdate = manager.appUpdate.value,
         themesRoot = storage.treeUri,
         scraper = scraper.diagnosticsSnapshot(),
@@ -997,31 +744,8 @@ class MainActivity : ComponentActivity() {
         emulatorPackages = emulatorDetector.detectionReport().map { (pkg, installed) ->
             EmulatorPackageStatus(pkg, installed)
         },
-        // v20: the Pegasus panel reports the canonical per-system layout —
-        // for every system folder written by the last verified BUILD:
-        // ROM folder, metadata present yes/no, byte count, generated
-        // game count — plus the aggregate and the last game_dirs.txt
-        // merge outcome.
-        pegasusMetafile = runCatching {
-            val report = pegasus.systemMetafileReport()
-            val romUri = locations.romTreeUri()
-            PegasusMetafileDiag(
-                romRootPath = romUri?.let { locations.displayPath(it) } ?: "NOT SELECTED",
-                romWritable = locations.hasWriteAccess(LocationKind.ROM),
-                fileName = MetafileGenerator.FILE_NAME,
-                systems = report.systems.map { row ->
-                    SystemMetafileDiagRow(
-                        folder = row.folder,
-                        present = row.present,
-                        bytes = row.bytes,
-                        games = row.games,
-                    )
-                },
-                aggregate = report.aggregate,
-                gameDirsStatus = report.gameDirs.display(),
-                lastInjected = pegasus.lastInjectSummary(),
-            )
-        }.getOrNull(),
+        // u44: no pack library yet — placeholder until the catalog lands.
+        installedPacks = emptyList(),
     )
 
     /**
@@ -1039,36 +763,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Crystal Launcher install/update row. Same tap machine as the
-     * manager's own update: Available → download, Downloaded → system
-     * installer, Idle/Failed → check again. The install handoff is the
-     * same ApkInstaller — it works for any APK, not just our own.
-     */
-    private fun onUpdateLauncher() {
-        when (val s = manager.launcherUpdate.value) {
-            is AppUpdateState.Available -> manager.downloadLauncherUpdate()
-            is AppUpdateState.Downloaded -> installLauncherApk(s.file)
-            is AppUpdateState.Idle -> manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
-            is AppUpdateState.Failed -> manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
-            else -> { /* Checking / Downloading / Installing: busy */ }
-        }
-    }
-
-    private fun installLauncherApk(apk: File) {
-        when (val result = ApkInstaller(this).install(apk)) {
-            ApkInstaller.Result.Started -> manager.noteLauncherInstallStarted()
-            ApkInstaller.Result.NeedsPermission -> {
-                startActivity(ApkInstaller.unknownSourcesIntent(packageName))
-                manager.noteLauncherNeedsInstallPermission(
-                    "ALLOW \"INSTALL UNKNOWN APPS\" FOR CRYSTAL NOVA, " +
-                        "THEN TAP AGAIN",
-                )
-            }
-            is ApkInstaller.Result.Failed -> manager.noteLauncherUpdateFailed(result.message)
-        }
-    }
-
     private fun installApk(apk: File) {
         when (val result = ApkInstaller(this).install(apk)) {
             ApkInstaller.Result.Started -> manager.noteAppInstallStarted()
@@ -1083,16 +777,43 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun isPegasusInstalled(): Boolean =
-        packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE) != null
+    /** True when iiSU's launch intent resolves — the only install check. */
+    private fun isIisuInstalled(): Boolean =
+        packageManager.getLaunchIntentForPackage(IISU_PACKAGE) != null
+
+    /** iiSU's versionName, or null when it's not installed. */
+    private fun iisuVersionName(): String? = runCatching {
+        val info = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            packageManager.getPackageInfo(
+                IISU_PACKAGE,
+                android.content.pm.PackageManager.PackageInfoFlags.of(0),
+            )
+        } else {
+            @Suppress("DEPRECATION")
+            packageManager.getPackageInfo(IISU_PACKAGE, 0)
+        }
+        info.versionName
+    }.getOrNull()
+
+    /**
+     * HOME's LAUNCH iiSU action. The button is disabled when iiSU is
+     * not installed, so a null intent here is a no-op by construction.
+     */
+    private fun openIisu() {
+        try {
+            packageManager.getLaunchIntentForPackage(IISU_PACKAGE)?.let(::startActivity)
+        } catch (_: Exception) {
+            // iiSU vanished between the check and the tap — HOME
+            // recomputes on resume and the button disables itself.
+        }
+    }
 
     /**
      * APPEARANCE: applies the user's four identity colors to the app
-     * (persisted + live), writes `crystal-user-colors.json` for the
-     * Pegasus theme, and arms the Pegasus restart gate so the next
-     * OPEN PEGASUS cold-starts with the new colors. A failed theme
-     * write still keeps the app-side palette — the theme simply keeps
-     * its defaults until the next successful sync.
+     * (persisted + live) and writes `crystal-user-colors.json` for the
+     * legacy Pegasus theme. A failed theme write still keeps the
+     * app-side palette — the theme simply keeps its defaults until the
+     * next successful sync.
      */
     private fun applyAppearanceColors(colors: Crystal.IdentityColors) {
         Crystal.applyCustomPalette(prefsStore, colors)
@@ -1102,20 +823,16 @@ class MainActivity : ComponentActivity() {
             creamHex = colors.cream.toHex(),
             joystickHex = colors.joystick.toHex(),
         )
-        val ok = locations.writeUserColors(storage.treeUri, json)
-        appearanceSyncOk = ok
-        if (ok) pegasusRestartGate.pendingBuild = true
+        appearanceSyncOk = locations.writeUserColors(storage.treeUri, json)
     }
 
     /**
-     * APPEARANCE: drops the custom palette (app + theme file) and arms
-     * the restart gate so Pegasus returns to its shipped colors.
+     * APPEARANCE: drops the custom palette (app + theme file).
      */
     private fun resetAppearanceColors() {
         Crystal.resetToDefault(prefsStore)
         locations.deleteUserColors(storage.treeUri)
         appearanceSyncOk = null
-        pegasusRestartGate.pendingBuild = true
     }
 
     /**
@@ -1128,31 +845,6 @@ class MainActivity : ComponentActivity() {
             installed,
             StorageLocations.USER_COLORS_MIN_THEME_VERSION,
         ) >= 0
-    }
-
-    /**
-     * v18 reload path. When a fresh BUILD is pending, launches Pegasus
-     * with the verified restart intent (explicit component +
-     * NEW_TASK|CLEAR_TASK, see [PegasusIntents]) so Pegasus cold-starts
-     * and rescans the library — and clears the pending state. A plain
-     * tap with no pending build keeps the old resume behavior (never
-     * kills the user's session unnecessarily). Guarded: Pegasus may
-     * not be installed, so a failed launch is a no-op, exactly like
-     * the old path.
-     */
-    private fun openPegasus() {
-        val restart = pegasusRestartGate.consumeRestart()
-        val intent = if (restart) {
-            PegasusIntents.restartIntent()
-        } else {
-            packageManager.getLaunchIntentForPackage(PEGASUS_PACKAGE)
-        }
-        try {
-            intent?.let(::startActivity)
-        } catch (_: Exception) {
-            // Pegasus not installed (or launch refused): the setup
-            // screen already shows the PEGASUS NOT INSTALLED line.
-        }
     }
 
     /**
@@ -1174,174 +866,6 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    /**
-     * Emulator packages from [LauncherPresets.knownEmulatorPackages]
-     * that are installed. Delegates to [EmulatorDetector]; the
-     * manifest <queries> block keeps these visible on Android 11+ —
-     * anything not visible reads as missing, never as installed.
-     */
-    private fun installedEmulatorPackages(): Set<String> =
-        emulatorDetector.installedPackages()
-
-    /**
-     * One row per recognized system: game count from the last library
-     * scan, launcher status from the stored profile or the curated
-     * default ("NOT CONFIGURED" when neither exists), and whether the
-     * named emulator app is installed (CUSTOM needs no app). The
-     * effective profile and its USER/AUTO source ride along so the
-     * launchers screen can render compact rows without re-deriving.
-     */
-    private fun pegasusRows(): List<PegasusSystemRow> {
-        val installed = installedEmulatorPackages()
-        val counts = scraper.state.value.systems.associate { it.platformSlug to it.gameCount }
-        return PlatformTable.all().map { platform ->
-            val explicit = pegasus.profiles.get(platform.slug)
-            val effective = explicit ?: LauncherPresets.defaultProfile(platform.slug)
-            val configured = effective?.takeIf { it.isConfigured() }
-            PegasusSystemRow(
-                slug = platform.slug,
-                label = platform.displayName,
-                gameCount = counts[platform.slug] ?: 0,
-                launcherStatus = configured?.displayLabel() ?: "NOT CONFIGURED",
-                launcherInstalled = configured?.let {
-                    it.type == LauncherType.CUSTOM || it.packageName in installed
-                } ?: true,
-                isDefault = explicit == null,
-                profile = configured,
-                source = if (explicit != null) {
-                    pegasus.profiles.getSource(platform.slug)
-                } else {
-                    LauncherSource.USER
-                },
-            )
-        }
-    }
-
-    /**
-     * The setup assistant: applies safe launcher defaults for systems
-     * with games. Explicit USER choices are never overwritten; systems
-     * with no safe installed launcher stay NEEDS ATTENTION. Runs off
-     * the main thread; the summary lands in [pegasusNotice].
-     */
-    private fun autoConfigureLaunchers() {
-        if (pegasusAutoBusy) return
-        pegasusAutoBusy = true
-        pegasusNotice = null
-        scope.launch(Dispatchers.IO) {
-            val installed = installedEmulatorPackages()
-            val slugsWithGames = scraper.state.value.systems
-                .filter { it.gameCount > 0 }
-                .map { it.platformSlug }
-            val outcome = LauncherAutoConfig.apply(pegasus.profiles, slugsWithGames, installed)
-            withContext(Dispatchers.Main) {
-                pegasusAutoBusy = false
-                pegasusProfilesRev++
-                pegasusNotice = outcome.summary()
-            }
-        }
-    }
-
-    /**
-     * Explicit INJECT / BUILD LIBRARY. Runs off the main
-     * thread; the result (counts, skipped systems, or a failure
-     * message) lands in [pegasusNotice]. Never runs automatically.
-     *
-     * v18: a verified build arms the restart gate — the next OPEN
-     * PEGASUS tap restarts Pegasus so it cold-starts and rescans the
-     * new library (see [PegasusIntents]).
-     */
-    private fun injectPegasus() {
-        if (pegasusBusy) return
-        pegasusBusy = true
-        pegasusNotice = null
-        scope.launch(Dispatchers.IO) {
-            val outcome = pegasus.inject()
-            withContext(Dispatchers.Main) {
-                pegasusBusy = false
-                pegasusNotice = when (outcome) {
-                    is PegasusLibrary.InjectOutcome.Ok -> {
-                        pegasusRestartGate.pendingBuild = true
-                        exportLauncherBridge()
-                        buildString {
-                            append("LIBRARY BUILT · ${outcome.metafiles} SYSTEM METAFILES · ${outcome.games} GAMES")
-                            if (outcome.skippedNoLauncher.isNotEmpty()) {
-                                append(" — SKIPPED — NO LAUNCHER: ")
-                                append(outcome.skippedNoLauncher.joinToString(", ").uppercase())
-                            }
-                            if (outcome.unknownFolders.isNotEmpty()) {
-                                append(" — IGNORED FOLDERS (NOT RECOGNIZED): ")
-                                append(outcome.unknownFolders.joinToString(", ").uppercase())
-                            }
-                            append(" · OPEN PEGASUS TO RESTART & RELOAD")
-                        }.toString()
-                    }
-                    is PegasusLibrary.InjectOutcome.Failed -> outcome.message
-                }
-            }
-        }
-    }
-
-    /**
-     * Phase 1 launcher bridge: refreshes `crystal-nova-data/config.json`
-     * and `launcher/profiles.json` after every successful BUILD so the
-     * Crystal Launcher always reads fresh data. Fire-and-forget on IO;
-     * a failed export is logged, never surfaced — BUILD results and the
-     * Pegasus flow are unchanged when the launcher files can't be written.
-     */
-    private fun exportLauncherBridge() {
-        scope.launch(Dispatchers.IO) {
-            val result = try {
-                scraper.exportLauncherBridge()
-            } catch (e: Exception) {
-                LauncherExport.ExportResult.Failed(e.message ?: e.javaClass.simpleName)
-            }
-            if (result !is LauncherExport.ExportResult.Ok) {
-                android.util.Log.i("CrystalNova", "launcher bridge export: $result")
-            }
-        }
-    }
-
-    /**
-     * Silent Pegasus library sync: regenerates the launch records
-     * (per-system `crystal-nova.metadata.pegasus.txt`) after an
-     * automatic library scan, so Crystal/Pegasus always reflects the
-     * current ROMs without a manual BUILD step. Success arms the
-     * restart gate exactly like the manual INJECT; expected
-     * not-configured states (no launcher yet, nothing injectable)
-     * stay silent — the manual INJECT on Pegasus Setup remains the
-     * visible repair path. Unexpected failures are logged, not
-     * surfaced, to keep startup quiet.
-     */
-    private fun syncPegasusLibrary() {
-        scope.launch(Dispatchers.Main) {
-            if (pegasusBusy) return@launch
-            pegasusBusy = true
-            val outcome = withContext(Dispatchers.IO) {
-                try {
-                    pegasus.inject()
-                } catch (e: Exception) {
-                    android.util.Log.w("CrystalNova", "silent Pegasus sync failed", e)
-                    null
-                }
-            }
-            when (outcome) {
-                is PegasusLibrary.InjectOutcome.Ok -> {
-                    pegasusRestartGate.pendingBuild = true
-                    exportLauncherBridge()
-                }
-                is PegasusLibrary.InjectOutcome.Failed ->
-                    // "NO LAUNCHER" / "NOTHING TO INJECT" are normal
-                    // pre-configuration states, not errors.
-                    android.util.Log.i(
-                        "CrystalNova",
-                        "silent Pegasus sync: ${outcome.message}",
-                    )
-                null -> Unit
-            }
-            pegasusBusy = false
-        }
-    }
-
     override fun onResume() {
         super.onResume()
         // The system package installer gives no callback: if we are
@@ -1350,16 +874,6 @@ class MainActivity : ComponentActivity() {
         // happened (a completed install kills this process). Recover
         // to a retryable state instead of stranding the UI.
         manager.noteAppInstallAborted()
-        // Same for the launcher flow — but only re-check after an actual
-        // installer round-trip. A completed launcher install does NOT
-        // kill our process (unlike our own update), so without this the
-        // row would stay stale; re-checking on every resume would flash
-        // CHECKING… constantly.
-        val wasInstallingLauncher = manager.launcherUpdate.value is AppUpdateState.Installing
-        manager.noteLauncherInstallAborted()
-        if (wasInstallingLauncher) {
-            manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
-        }
     }
 
     override fun onDestroy() {
@@ -1369,12 +883,9 @@ class MainActivity : ComponentActivity() {
 }
 
 /**
- * INJECT availability for Pegasus Setup. Enabled when the ROM root is
- * writable (v20: one metadata file is written per populated system
- * folder), nothing is already running, and at least one populated system
- * has a configured launcher. Populated-but-unconfigured systems are
- * skipped and reported by the injection itself (see
- * InjectOutcome.Ok.skippedNoLauncher) — they never block it.
+ * INJECT availability for the archived Pegasus Setup screen. Kept for
+ * the [InjectEnabledTest] contract; the screen itself is unreferenced
+ * since u44 (Pegasus is legacy/fallback).
  */
 internal fun isInjectEnabled(
     romWritable: Boolean,

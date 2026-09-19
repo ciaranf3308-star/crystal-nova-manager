@@ -3,8 +3,6 @@ package io.crystalnova.manager.diag
 import io.crystalnova.manager.scraper.work.ScrapeProgress
 import io.crystalnova.manager.scraper.work.ScraperDiagnostics
 import io.crystalnova.manager.updater.AppUpdateState
-import io.crystalnova.manager.updater.ManagerState
-import io.crystalnova.manager.updater.VersionDisplay
 
 /**
  * Everything the hidden Diagnostics screen needs, assembled once when
@@ -15,7 +13,6 @@ import io.crystalnova.manager.updater.VersionDisplay
  */
 data class DiagnosticsInfo(
     val managerVersion: String,
-    val managerState: ManagerState,
     val appUpdate: AppUpdateState,
     val themesRoot: String?,
     val scraper: ScraperDiagnostics,
@@ -23,53 +20,17 @@ data class DiagnosticsInfo(
     val lastCrashTrace: String? = null,
     /** Every known emulator candidate package with its install state. */
     val emulatorPackages: List<EmulatorPackageStatus> = emptyList(),
-    /** v19: the Manager-owned game-dir metafile in the ROM root. */
-    val pegasusMetafile: PegasusMetafileDiag? = null,
+    /**
+     * Installed Crystal iiSU packs (display names). Empty until the
+     * pack library lands — the screen says so honestly.
+     */
+    val installedPacks: List<String> = emptyList(),
 )
 
 /** One known emulator candidate and whether PackageManager sees it. */
 data class EmulatorPackageStatus(
     val packageName: String,
     val installed: Boolean,
-)
-
-/**
- * v19: the Manager-owned game-dir metafile at the TOP LEVEL of the ROM
- * root (`crystal-nova.metadata.pegasus.txt` — the name matches the
- * `*.metadata.pegasus.txt` game-dir scanner pattern). v20: one file per
- * populated system folder, each holding only that system's collection.
- * Plain data; the Diagnostics screen only renders it.
- */
-data class SystemMetafileDiagRow(
-    /** System folder relative to the ROM root, e.g. "gba". */
-    val folder: String,
-    /** Whether the Manager-owned metafile could be read back. */
-    val present: Boolean,
-    /** Its byte size, null when unreadable. */
-    val bytes: Long?,
-    /** Games emitted into this file at the last verified BUILD. */
-    val games: Int,
-)
-
-data class PegasusMetafileDiag(
-    /** Friendly display path of the ROM root, or NOT SELECTED. */
-    val romRootPath: String,
-    /** Whether the persisted ROM-root grant carries read+write. */
-    val romWritable: Boolean,
-    /** The Manager-owned metafile name, e.g. `crystal-nova.metadata.pegasus.txt`. */
-    val fileName: String,
-    /** One row per system folder written by the last verified BUILD. */
-    val systems: List<SystemMetafileDiagRow>,
-    /** Aggregate from live presence, e.g. "13 SYSTEM METAFILES · 147 GAMES". */
-    val aggregate: String,
-    /**
-     * Last game_dirs.txt merge outcome. Writing that file only
-     * registers paths — it does NOT grant Pegasus filesystem
-     * permission; Pegasus still needs its own storage access.
-     */
-    val gameDirsStatus: String,
-    /** "n SYSTEM METAFILES · m GAMES" from the last verified inject, or "NONE". */
-    val lastInjected: String,
 )
 
 /** One-line summary of the manager self-update state. */
@@ -84,39 +45,6 @@ internal fun appUpdateSummary(u: AppUpdateState): String = when (u) {
     is AppUpdateState.Downloaded -> "READY TO INSTALL"
     is AppUpdateState.Installing -> "INSTALLING…"
     is AppUpdateState.Failed -> "FAILED — ${u.message}"
-}
-
-internal fun versionText(v: VersionDisplay?): String =
-    v?.let { "v${it.version} · ${it.shortCommit}" } ?: "—"
-
-internal fun themeInstalledSummary(s: ManagerState): String = when (s) {
-    is ManagerState.Ready -> s.installed?.let { "v${it.version} · ${it.shortCommit}" }
-        ?: "NO VERSION MARKER (legacy install)"
-    is ManagerState.NeedsFolder -> "— (no themes folder)"
-    is ManagerState.UpdateDone -> "v${s.version.version} · ${s.version.shortCommit} (just updated)"
-    is ManagerState.UpdateFailed -> "— (update failed: ${s.message})"
-    is ManagerState.RollbackDone -> s.version?.let { "v${it.version} · ${it.shortCommit} (rolled back)" }
-        ?: "— (rolled back)"
-    is ManagerState.RollbackFailed -> "— (rollback failed: ${s.message})"
-    is ManagerState.Updating -> "— (updating…)"
-    is ManagerState.RollingBack -> "— (rolling back…)"
-}
-
-internal fun themeLatestSummary(s: ManagerState): String = when (s) {
-    is ManagerState.Ready -> versionText(s.latest)
-    else -> "—"
-}
-
-internal fun themeBackupSummary(s: ManagerState): String = when (s) {
-    is ManagerState.Ready -> s.backup?.let { "v${it.version} · ${it.shortCommit}" } ?: "NONE"
-    else -> "—"
-}
-
-internal fun updateNoticeOf(s: ManagerState): String? = when (s) {
-    is ManagerState.Ready -> s.notice
-    is ManagerState.UpdateFailed -> s.message
-    is ManagerState.RollbackFailed -> s.message
-    else -> null
 }
 
 /** Health of the scraper index.json, without any UI types. */

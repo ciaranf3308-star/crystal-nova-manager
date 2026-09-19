@@ -37,7 +37,6 @@ data class BiosScreenState(
     /** True when FOUND_UNVERIFIED comes from ancillary files only. */
     val ps2AncillaryOnly: Boolean = false,
     val ps2GameCount: Int,
-    val hasLauncherIssues: Boolean,
     val netherSX2Installed: Boolean,
     val notice: String? = null,
     /** True while the recursive BIOS scan is running on Dispatchers.IO. */
@@ -85,7 +84,6 @@ fun BiosScreen(
     onSelectBiosFolder: () -> Unit,
     onOpenNetherSX2: () -> Unit,
     onMarkImported: () -> Unit,
-    onReviewLaunchers: () -> Unit,
     onDismissNotice: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
@@ -306,17 +304,6 @@ fun BiosScreen(
                         StatusLine("PS2 BIOS READY", Crystal.Good)
                     BiosStatus.NOT_REQUIRED -> Unit
                 }
-            }
-
-            if (state.hasLauncherIssues) {
-                CrystalButton(
-                    key = "bios-review-launchers",
-                    testTag = "bios-review-launchers",
-                    label = "REVIEW LAUNCHER ISSUES",
-                    onClick = onReviewLaunchers,
-                    dispatcher = dispatcher,
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
         }
     }
