@@ -5,6 +5,7 @@ import android.net.Uri
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.scraper.model.AssetProvenance
 import io.crystalnova.manager.scraper.model.AssetSlot
+import io.crystalnova.manager.scraper.model.ScrapedGame
 import io.crystalnova.manager.scraper.model.SourceType
 import io.crystalnova.manager.scraper.scan.RomEntry
 import io.crystalnova.manager.scraper.store.ScraperJson
@@ -209,7 +210,15 @@ class EsdeImportRunner(
                 val key = "${sp.game.platform}/${sp.game.gameId}"
                 val manifest = manifests.getOrPut(key) {
                     storage.loadManifest(sp.game.platform, sp.game.gameId)
-                        ?: throw IllegalStateException("No manifest for ${sp.game.title}")
+                        // ES-DE import: the game was never scraped, so no
+                        // manifest exists. Create a minimal one rather than
+                        // failing — the artwork is what matters.
+                        ?: ScrapedGame(
+                            platform = sp.game.platform,
+                            gameId = sp.game.gameId,
+                            romRelativePath = "",
+                            title = sp.game.title,
+                        )
                 }
                 val provenance = AssetProvenance(
                     sourceType = SourceType.REAL,
