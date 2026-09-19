@@ -210,6 +210,7 @@ fun HomeScreen(
                 onOpenPegasus = onOpenPegasus,
                 onMakeReady = onMakeReady,
                 onReviewIssues = onReviewIssues,
+                onRebuildLibrary = onRebuildLibrary,
                 dispatcher = dispatcher,
                 isPrimaryInitialFocus = isInitialFocus("home-primary"),
             )
@@ -310,6 +311,7 @@ private fun StatusBand(
     onOpenPegasus: () -> Unit,
     onMakeReady: () -> Unit,
     onReviewIssues: () -> Unit,
+    onRebuildLibrary: () -> Unit,
     dispatcher: FocusDispatcher,
     isPrimaryInitialFocus: Boolean,
 ) {
