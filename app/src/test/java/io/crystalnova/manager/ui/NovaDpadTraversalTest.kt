@@ -56,6 +56,7 @@ class NovaDpadTraversalTest : NovaUiTest() {
 
         val rows = listOf(
             "settings-update-app",
+            "settings-update-launcher",
             "settings-row-rom",
             "settings-row-media",
             "settings-row-esde",

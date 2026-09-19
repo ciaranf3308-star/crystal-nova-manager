@@ -426,6 +426,7 @@ class ControllerListContent(
         modifier: Modifier = Modifier,
         testTag: String? = null,
         subLabel: String? = null,
+        compact: Boolean = false,
     ) {
         section(key = key) {
             control(
@@ -438,6 +439,7 @@ class ControllerListContent(
                 modifier = modifier,
                 testTag = testTag,
                 subLabel = subLabel,
+                compact = compact,
             )
         }
     }
@@ -467,6 +469,7 @@ class SectionScope(
         modifier: Modifier = Modifier,
         testTag: String? = null,
         subLabel: String? = null,
+        compact: Boolean = false,
     ) {
         if (key != null) keyToIndex[key] = itemIndex
         CrystalButton(
@@ -482,6 +485,7 @@ class SectionScope(
             scrollIndex = itemIndex,
             testTag = testTag,
             subLabel = subLabel,
+            compact = compact,
         )
     }
 

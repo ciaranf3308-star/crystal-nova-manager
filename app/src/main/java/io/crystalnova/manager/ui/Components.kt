@@ -157,6 +157,13 @@ fun CrystalButton(
      * button exactly as before.
      */
     subLabel: String? = null,
+    /**
+     * Denser row for long menus that must fit the 960px viewport
+     * without scrolling (Settings top level): tighter vertical padding
+     * and a slightly smaller label. Everywhere else keeps the classic
+     * comfortable row.
+     */
+    compact: Boolean = false,
 ) {
     var focused by remember { mutableStateOf(false) }
     val focusRequester = remember { FocusRequester() }
@@ -210,15 +217,19 @@ fun CrystalButton(
                 RoundedCornerShape(2.dp),
             )
             .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 6.dp, horizontal = 14.dp),
+            .padding(
+                vertical = if (compact) 4.dp else 6.dp,
+                horizontal = 14.dp,
+            ),
     ) {
+        val labelSize = if (compact) 16.sp else Crystal.ButtonSize
         if (subLabel == null) {
             BasicText(
                 text = label,
                 style = TextStyle(
                     fontFamily = Crystal.Mono,
                     fontWeight = FontWeight.Bold,
-                    fontSize = Crystal.ButtonSize,
+                    fontSize = labelSize,
                     color = fg,
                     textAlign = TextAlign.Center,
                 ),
@@ -230,7 +241,7 @@ fun CrystalButton(
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontWeight = FontWeight.Bold,
-                        fontSize = Crystal.ButtonSize,
+                        fontSize = labelSize,
                         color = fg,
                         textAlign = TextAlign.Center,
                     ),

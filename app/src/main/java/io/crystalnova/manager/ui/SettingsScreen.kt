@@ -56,12 +56,14 @@ fun SettingsScreen(
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
             // Ten rows must fit the 960px viewport without scrolling
-            // (NovaSettingsFitsViewportTest); tighter than the default.
-            verticalArrangement = Arrangement.spacedBy(6.dp),
+            // (NovaSettingsFitsViewportTest): compact rows and tighter
+            // than the default arrangement.
+            verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
             control(
                 key = "settings-update-app",
                 testTag = "settings-update-app",
+                compact = true,
                 label = updateManagerLabel(appVersion, appUpdate),
                 onClick = onUpdateApp,
                 enabled = updateActionEnabled(appUpdate),
@@ -69,6 +71,7 @@ fun SettingsScreen(
             control(
                 key = "settings-update-launcher",
                 testTag = "settings-update-launcher",
+                compact = true,
                 label = updateLauncherLabel(launcherInstalled, launcherUpdate),
                 onClick = onUpdateLauncher,
                 enabled = updateActionEnabled(launcherUpdate),
@@ -76,42 +79,49 @@ fun SettingsScreen(
             control(
                 key = "settings-row-rom",
                 testTag = "settings-row-rom",
+                compact = true,
                 label = "ROM LIBRARY\n${friendlyLocation(romLocation)}",
                 onClick = onOpenRom,
             )
             control(
                 key = "settings-row-media",
                 testTag = "settings-row-media",
+                compact = true,
                 label = "MEDIA LIBRARY\n${friendlyLocation(mediaLocation)}${mediaBadge(mediaLocation)}",
                 onClick = onOpenMedia,
             )
             control(
                 key = "settings-row-esde",
                 testTag = "settings-row-esde",
+                compact = true,
                 label = "ES-DE EXPORT FOLDER\n${friendlyLocation(esdeLocation)}",
                 onClick = onOpenEsde,
             )
             control(
                 key = "settings-row-esde-import",
                 testTag = "settings-row-esde-import",
+                compact = true,
                 label = "ES-DE MEDIA IMPORT\nCOPY REAL ART INTO THE CRYSTAL LIBRARY",
                 onClick = onOpenEsdeImport,
             )
             control(
                 key = "settings-row-themes",
                 testTag = "settings-row-themes",
+                compact = true,
                 label = "THEME STORAGE\n$themesRootLabel",
                 onClick = onOpenThemes,
             )
             control(
                 key = "settings-row-channel",
                 testTag = "settings-row-channel",
+                compact = true,
                 label = "UPDATE CHANNEL\n${channelLabel(updateChannel)}",
                 onClick = onOpenChannel,
             )
             control(
                 key = "settings-row-appearance",
                 testTag = "settings-row-appearance",
+                compact = true,
                 label = "APPEARANCE\nRECOLOR THE CRYSTAL IDENTITY",
                 onClick = onOpenAppearance,
             )
@@ -121,6 +131,7 @@ fun SettingsScreen(
             control(
                 key = "settings-row-diagnostics",
                 testTag = "settings-row-diagnostics",
+                compact = true,
                 label = "DIAGNOSTICS",
                 onClick = onDiagnostics,
             )
