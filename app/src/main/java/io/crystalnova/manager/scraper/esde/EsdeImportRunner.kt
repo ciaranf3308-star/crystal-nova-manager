@@ -116,28 +116,28 @@ class EsdeImportRunner(
         val gamelistCache = mutableMapOf<String, Map<String, EsdeImport.GamelistMedia>?>()
 
         for (game in games) {
-            val esdeSys = EsdeImport.esdeSystemDir(game.platform)
+            val esdeSysDirs = EsdeImport.esdeSystemDirs(game.platform)
             val base = EsdeImport.romBasename(game.fileName)
             val foundBySlot = mutableMapOf<AssetSlot, EsdeImport.FoundAsset>()
 
             // Primary: ES-DE names media after the ROM basename.
             if (base.isNotEmpty()) {
                 for ((slot, dirs) in EsdeImport.SLOT_DIRS) {
-                    val found = findPrimary(exportIndex, esdeSys, dirs, base, slot)
+                    val found = findPrimary(exportIndex, esdeSysDirs, dirs, base, slot)
                     if (found != null) foundBySlot[slot] = found
                 }
             }
 
             // Fallback: gamelist.xml may name media explicitly.
             if (foundBySlot.isEmpty() && base.isNotEmpty()) {
-                val mediaByRom = gamelistCache.getOrPut(esdeSys) {
-                    loadGamelist(exportIndex, esdeSys)
+                val mediaByRom = gamelistCache.getOrPut(game.platform) {
+                    loadGamelists(exportIndex, esdeSysDirs)
                 } ?: emptyMap()
                 val gm = mediaByRom[base.lowercase()]
                 if (gm != null) {
-                    findGamelistAsset(exportIndex, esdeSys, AssetSlot.BOX_FRONT, gm.thumbnail)
+                    findGamelistAsset(exportIndex, esdeSysDirs, AssetSlot.BOX_FRONT, gm.thumbnail)
                         ?.let { foundBySlot[AssetSlot.BOX_FRONT] = it }
-                    findGamelistAsset(exportIndex, esdeSys, AssetSlot.SCREENSHOT, gm.image)
+                    findGamelistAsset(exportIndex, esdeSysDirs, AssetSlot.SCREENSHOT, gm.image)
                         ?.let { foundBySlot[AssetSlot.SCREENSHOT] = it }
                 }
             }
@@ -250,12 +250,14 @@ class EsdeImportRunner(
     }
 
     /**
-     * Reverse of EsdeImport.esdeSystemDir(): maps an ES-DE system folder
-     * back to the Crystal platform slug.
+     * Reverse of EsdeImport.esdeSystemDirs(): maps an ES-DE system folder
+     * back to the Crystal platform slug, so the manual-matching UI can
+     * pair `megadrive/` media with `genesis` games.
      */
     private fun platformForEsdeSystem(esdeSystem: String): String = when (esdeSystem) {
         "gc" -> "gamecube"
         "3ds" -> "n3ds"
+        "megadrive" -> "genesis"
         else -> esdeSystem
     }
 
@@ -402,7 +404,25 @@ class EsdeImportRunner(
         }
     }
 
+    /**
+     * Searches every ES-DE folder candidate for the platform, in priority
+     * order; the first hit wins. This is what makes `megadrive/` media
+     * visible to `genesis` ROMs (and keeps `gc` working for `gamecube`).
+     */
     private fun findPrimary(
+        exportIndex: Map<String, DocumentFile>,
+        esdeSysDirs: List<String>,
+        dirs: List<String>,
+        base: String,
+        slot: AssetSlot,
+    ): EsdeImport.FoundAsset? {
+        for (esdeSys in esdeSysDirs) {
+            findPrimaryInDir(exportIndex, esdeSys, dirs, base, slot)?.let { return it }
+        }
+        return null
+    }
+
+    private fun findPrimaryInDir(
         exportIndex: Map<String, DocumentFile>,
         esdeSys: String,
         dirs: List<String>,
@@ -492,6 +512,23 @@ class EsdeImportRunner(
         return prev[b.length]
     }
 
+    /**
+     * Loads gamelist.xml from every candidate folder and merges them;
+     * earlier folders win per ROM entry.
+     */
+    private fun loadGamelists(
+        exportIndex: Map<String, DocumentFile>,
+        esdeSysDirs: List<String>,
+    ): Map<String, EsdeImport.GamelistMedia>? {
+        var merged: MutableMap<String, EsdeImport.GamelistMedia>? = null
+        for (esdeSys in esdeSysDirs) {
+            val one = loadGamelist(exportIndex, esdeSys) ?: continue
+            if (merged == null) merged = LinkedHashMap()
+            for ((k, v) in one) merged.putIfAbsent(k, v)
+        }
+        return merged
+    }
+
     private fun loadGamelist(
         exportIndex: Map<String, DocumentFile>,
         esdeSys: String,
@@ -508,12 +545,12 @@ class EsdeImportRunner(
 
     private fun findGamelistAsset(
         exportIndex: Map<String, DocumentFile>,
-        esdeSys: String,
+        esdeSysDirs: List<String>,
         slot: AssetSlot,
         ref: String?,
     ): EsdeImport.FoundAsset? {
         if (ref.isNullOrBlank()) return null
-        for (candidate in EsdeImport.resolveGamelistMediaCandidates(esdeSys, ref)) {
+        for (candidate in EsdeImport.resolveGamelistMediaCandidates(esdeSysDirs, ref)) {
             val doc = exportIndex[candidate.lowercase()]
             if (doc != null && doc.isFile) {
                 return EsdeImport.FoundAsset(slot, candidate, doc.name ?: "", doc.length())

@@ -43,6 +43,25 @@ class EsdeImportTest {
         assertEquals("gba", EsdeImport.esdeSystemDir("gba"))
     }
 
+    @Test fun `esdeSystemDirs covers every ES-DE folder name a system can live under`() {
+        // Sega Genesis: ES-DE's canonical folder is `megadrive`; ours is `genesis`.
+        assertEquals(listOf("genesis", "megadrive"), EsdeImport.esdeSystemDirs("genesis"))
+        assertEquals(listOf("gc"), EsdeImport.esdeSystemDirs("gamecube"))
+        assertEquals(listOf("3ds"), EsdeImport.esdeSystemDirs("n3ds"))
+        assertEquals(listOf("ps2"), EsdeImport.esdeSystemDirs("ps2"))
+        // Primary (backwards-compatible) is always the first candidate.
+        assertEquals(EsdeImport.esdeSystemDirs("genesis").first(), EsdeImport.esdeSystemDir("genesis"))
+    }
+
+    @Test fun `gamelist candidates span every candidate folder`() {
+        val cands = EsdeImport.resolveGamelistMediaCandidates(
+            listOf("genesis", "megadrive"), "covers/Sonic.png")
+        assertTrue(cands.any { it == "media/genesis/covers/Sonic.png" })
+        assertTrue(cands.any { it == "media/megadrive/covers/Sonic.png" })
+        assertTrue(cands.any { it == "gamelists/genesis/covers/Sonic.png" })
+        assertTrue(cands.any { it == "gamelists/megadrive/covers/Sonic.png" })
+    }
+
     @Test fun `exactly the five approved slots are imported`() {
         assertEquals(
             setOf(

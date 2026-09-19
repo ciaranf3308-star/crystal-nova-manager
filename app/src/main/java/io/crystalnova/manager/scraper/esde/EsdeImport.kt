@@ -41,12 +41,23 @@ object EsdeImport {
         AssetSlot.SCREENSHOT to listOf("screenshots"),
     )
 
-    /** Crystal platform slug -> ES-DE system folder name (fallback: the slug itself). */
-    fun esdeSystemDir(platformSlug: String): String = when (platformSlug) {
-        "gamecube" -> "gc"
-        "n3ds" -> "3ds"
-        else -> platformSlug
+    /**
+     * ES-DE system folder candidates for a Crystal platform slug, in
+     * priority order. ES-DE's canonical folder names don't always match
+     * ours: GameCube lives under `gc`, 3DS under `3ds`, and Sega Genesis
+     * under `megadrive` (we use `genesis`). The importer searches every
+     * candidate; the first hit wins, so a mixed export (both `genesis/`
+     * and `megadrive/`) still resolves.
+     */
+    fun esdeSystemDirs(platformSlug: String): List<String> = when (platformSlug) {
+        "genesis" -> listOf("genesis", "megadrive")
+        "gamecube" -> listOf("gc")
+        "n3ds" -> listOf("3ds")
+        else -> listOf(platformSlug)
     }
+
+    /** Backwards-compatible: the primary ES-DE folder for a platform slug. */
+    fun esdeSystemDir(platformSlug: String): String = esdeSystemDirs(platformSlug).first()
 
     /** One game from the authoritative ROM library (the ROM scan). */
     data class RomGame(
@@ -294,19 +305,25 @@ object EsdeImport {
      * the first one that exists. Null entries and `..` escapes above the
      * export root are never returned.
      */
-    fun resolveGamelistMediaCandidates(esdeSystemDir: String, ref: String): List<String> {
+    fun resolveGamelistMediaCandidates(esdeSystemDirs: List<String>, ref: String): List<String> {
         var r = ref.trim().replace('\\', '/')
         if (r.isEmpty()) return emptyList()
         val raws = LinkedHashSet<String>()
         // 1. Export-root-relative, e.g. media/ps2/covers/x.png
         raws.add(r)
-        // 2. Relative to the system's media folder, e.g. covers/x.png
-        if (!r.startsWith("media/")) raws.add("media/$esdeSystemDir/$r")
-        // 3. Relative to the gamelist's own directory (gamelists/<sys>/),
-        //    e.g. ../media/covers/x.png
-        raws.add("gamelists/$esdeSystemDir/$r")
+        for (esdeSystemDir in esdeSystemDirs) {
+            // 2. Relative to the system's media folder, e.g. covers/x.png
+            if (!r.startsWith("media/")) raws.add("media/$esdeSystemDir/$r")
+            // 3. Relative to the gamelist's own directory (gamelists/<sys>/),
+            //    e.g. ../media/covers/x.png
+            raws.add("gamelists/$esdeSystemDir/$r")
+        }
         return raws.mapNotNull(::normalizeExportPath).distinct()
     }
+
+    /** Backwards-compatible single-folder resolution. */
+    fun resolveGamelistMediaCandidates(esdeSystemDir: String, ref: String): List<String> =
+        resolveGamelistMediaCandidates(listOf(esdeSystemDir), ref)
 
     /** Lexically normalizes an export-relative path; null when it escapes the root. */
     private fun normalizeExportPath(path: String): String? {
@@ -327,4 +344,8 @@ object EsdeImport {
     /** Backwards-compatible single resolution: the first candidate. */
     fun resolveGamelistMedia(esdeSystemDir: String, ref: String): String? =
         resolveGamelistMediaCandidates(esdeSystemDir, ref).firstOrNull()
+
+    /** Multi-folder resolution: the first candidate across all folders. */
+    fun resolveGamelistMedia(esdeSystemDirs: List<String>, ref: String): String? =
+        resolveGamelistMediaCandidates(esdeSystemDirs, ref).firstOrNull()
 }
