@@ -17,8 +17,12 @@ import androidx.compose.runtime.setValue
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.AppUpdateChannel
+import io.crystalnova.manager.data.InstalledPack
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.data.PackEntry
+import io.crystalnova.manager.data.PackLibrary
 import io.crystalnova.manager.data.compareVersions
+import io.crystalnova.manager.ui.ManualImport
 import io.crystalnova.manager.pegasus.EmulatorDetector
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.storage.LocationKind
@@ -29,8 +33,8 @@ import io.crystalnova.manager.storage.StorageLocations
 import io.crystalnova.manager.ui.AppearanceScreen
 import io.crystalnova.manager.ui.AssetsScreen
 import io.crystalnova.manager.ui.Crystal
-import io.crystalnova.manager.ui.CrystalPack
 import io.crystalnova.manager.ui.Dest
+import io.crystalnova.manager.ui.decodePreviewImage
 import io.crystalnova.manager.ui.DiagnosticsScreen
 import io.crystalnova.manager.ui.EsdeImportScreen
 import io.crystalnova.manager.ui.EsdeManualMatchScreen
@@ -124,6 +128,14 @@ class MainActivity : ComponentActivity() {
     private var biosRev: Int by mutableStateOf(0)
     /** Last BIOS folder adopt failure, surfaced on the BIOS screen. */
     private var biosNotice: String? by mutableStateOf(null)
+    /** u45: the Crystal iiSU pack library (remote catalog + downloads). */
+    private lateinit var packLibrary: PackLibrary
+    /** Lazily-loaded pack preview bitmaps, keyed by pack id. */
+    private var packPreviews by mutableStateOf(mapOf<String, androidx.compose.ui.graphics.ImageBitmap>())
+    /** Manual-import guidance shown when iiSU does not take the share. */
+    private var manualImport: ManualImport? by mutableStateOf(null)
+    /** Notice inside the manual-import panel (e.g. no file manager). */
+    private var manualImportNotice: String? by mutableStateOf(null)
     private val scope = MainScope()
 
     /** Human-readable build tag, e.g. "1.2.3-u2 (14)". The versionName
@@ -373,6 +385,15 @@ class MainActivity : ComponentActivity() {
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
 
+        // u45: the Crystal iiSU pack library. The catalog is published
+        // by the pack pipeline, not by the manager CI — until it
+        // exists the pack screen reports that honestly.
+        packLibrary = PackLibrary(
+            workDir = File(cacheDir, "packs").apply { mkdirs() },
+            scope = scope,
+            prefs = prefs,
+        )
+
         scraper = ScraperManager(
             context = this,
             prefs = prefs,
@@ -423,21 +444,24 @@ class MainActivity : ComponentActivity() {
 
             when (val dest = nav.current) {
                 is Dest.Home -> {
+                    val installedPack: InstalledPack? = packLibrary.installedPack()
                     val homeStatus: HomeStatus = remember(
                         scraperState.systems,
                         scraperState.romLocation,
                         iisuInstalled,
                         iisuVersion,
+                        installedPack,
                     ) {
                         buildHomeStatus(
                             systems = scraperState.systems.map { it.label to it.gameCount },
                             romReady = scraperState.romLocation is LocationState.Ready,
                             iisuInstalled = iisuInstalled,
                             iisuVersion = iisuVersion,
-                            // u44: no pack library yet — the catalog and
-                            // pack #1 land in a later update.
-                            packName = null,
-                            packVersion = null,
+                            // u45: the installed pack is real now —
+                            // persisted when the user hands a pack ZIP
+                            // to iiSU; null keeps the honest "none".
+                            packName = installedPack?.name,
+                            packVersion = installedPack?.version,
                         )
                     }
                     HomeScreen(
@@ -464,13 +488,28 @@ class MainActivity : ComponentActivity() {
                     onDismissNotice = { scraper.dismissNotice() },
                     onBack = pop,
                 )
-                is Dest.Theme -> ThemeScreen(
-                    // u44: the pack library is an honest empty state —
-                    // the remote catalog and pack #1 land in a later
-                    // update.
-                    packs = crystalPacks(),
-                    onBack = pop,
-                )
+                is Dest.Theme -> {
+                    val packCatalog by packLibrary.catalog.collectAsState()
+                    val packDownload by packLibrary.download.collectAsState()
+                    ThemeScreen(
+                        catalogState = packCatalog,
+                        downloadState = packDownload,
+                        installed = packLibrary.installedPack(),
+                        previewOf = { packPreviews[it] },
+                        onPreviewNeeded = { requestPackPreview(it) },
+                        manualImport = manualImport,
+                        manualImportNotice = manualImportNotice,
+                        onRefresh = { packLibrary.refresh() },
+                        onDownload = { packLibrary.downloadPack(it) },
+                        onInstallToIisu = { pack, zip -> sharePackToIisu(pack, zip) },
+                        onOpenFileManager = { openPackInFileManager() },
+                        onDismissManualImport = {
+                            manualImport = null
+                            manualImportNotice = null
+                        },
+                        onBack = pop,
+                    )
+                }
                 is Dest.Assets -> AssetsScreen(
                     onBack = pop,
                 )
@@ -725,11 +764,85 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * The Crystal iiSU pack library (u44). Empty until the remote
-     * catalog and pack #1 land — HOME and THEME read this and say so
-     * honestly instead of inventing packs.
+     * Hands a downloaded pack ZIP to iiSU. Prefers a direct share to
+     * iiSU itself; when iiSU does not resolve the share (unconfirmed
+     * on current iiSU builds) the screen shows manual-import guidance
+     * instead. Never touches iiSU's private storage.
      */
-    private fun crystalPacks(): List<CrystalPack> = emptyList()
+    private fun sharePackToIisu(pack: PackEntry, zip: File) {
+        if (!zip.isFile || zip.length() == 0L) {
+            packLibrary.clearDownload()
+            return
+        }
+        try {
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                zip,
+            )
+            val send = Intent(Intent.ACTION_SEND).apply {
+                type = "application/zip"
+                putExtra(Intent.EXTRA_STREAM, uri)
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                clipData = android.content.ClipData.newRawUri("pack", uri)
+            }
+            val resolvesIisu = packageManager
+                .queryIntentActivities(send, 0)
+                .any { it.activityInfo.packageName == IISU_PACKAGE }
+            if (resolvesIisu) {
+                send.setPackage(IISU_PACKAGE)
+                grantUriPermission(
+                    IISU_PACKAGE,
+                    uri,
+                    Intent.FLAG_GRANT_READ_URI_PERMISSION,
+                )
+                startActivity(send)
+                // Handoff, not proof of import: the pack card keeps a
+                // re-share action so a failed import is recoverable.
+                packLibrary.noteInstalled(pack)
+            } else {
+                manualImportNotice = null
+                manualImport = ManualImport(pack = pack, zipName = zip.name)
+            }
+        } catch (_: Exception) {
+            manualImportNotice = null
+            manualImport = ManualImport(pack = pack, zipName = zip.name)
+        }
+    }
+
+    /** Opens the pack ZIP in a file manager from the manual-import panel. */
+    private fun openPackInFileManager() {
+        val zipName = manualImport?.zipName ?: return
+        try {
+            val zip = File(File(cacheDir, "packs"), zipName)
+            val uri = androidx.core.content.FileProvider.getUriForFile(
+                this,
+                "$packageName.fileprovider",
+                zip,
+            )
+            val view = Intent(Intent.ACTION_VIEW).apply {
+                setDataAndType(uri, "application/zip")
+                addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
+            startActivity(Intent.createChooser(view, "Open pack ZIP"))
+        } catch (_: Exception) {
+            manualImportNotice = "NO FILE MANAGER FOUND — IMPORT " +
+                "THE ZIP FROM iiSU'S OWN THEMES SCREEN"
+        }
+    }
+
+    /** Lazily fetches and decodes one pack preview image. */
+    private fun requestPackPreview(pack: PackEntry) {
+        if (packPreviews.containsKey(pack.id)) return
+        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            val bitmap = packLibrary.previewBytes(pack)
+                ?.let(::decodePreviewImage)
+            if (bitmap != null) {
+                packPreviews = packPreviews + (pack.id to bitmap)
+            }
+        }
+    }
 
     /**
      * Assembles the hidden Diagnostics screen payload. Runs on open and
@@ -744,8 +857,10 @@ class MainActivity : ComponentActivity() {
         emulatorPackages = emulatorDetector.detectionReport().map { (pkg, installed) ->
             EmulatorPackageStatus(pkg, installed)
         },
-        // u44: no pack library yet — placeholder until the catalog lands.
-        installedPacks = emptyList(),
+        // u45: the installed pack is real now (persisted at share time).
+        installedPacks = packLibrary.installedPack()
+            ?.let { listOf("${it.name} v${it.version ?: "?"}") }
+            ?: emptyList(),
     )
 
     /**
