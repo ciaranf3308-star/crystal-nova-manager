@@ -55,7 +55,7 @@ class LauncherUpdateTest {
     private fun fakeChecker(
         manifest: DevUpdateManifest?,
         downloadBytes: ByteArray = "apk".toByteArray(),
-    ) = object : LauncherUpdateChecker(FakeHttpClient(), FakeHttpClient()) {
+    ) = object : LauncherUpdateChecker() {
         override fun check(installedVersionCode: Int?): DevUpdateManifest? = manifest
         override fun download(
             manifest: DevUpdateManifest,
