@@ -62,6 +62,14 @@ fun ThemeScreen(
     modifier: Modifier = Modifier,
 ) {
     val packs = (catalogState as? PackCatalogState.Ready)?.packs.orEmpty()
+    // Kick off lazy preview loads from the composable context: the
+    // per-pack sections below are plain ControllerList DSL helpers, not
+    // composables, so the effect cannot live inside them.
+    packs.forEach { pack ->
+        if (previewOf(pack.id) == null && pack.previewUrl != null) {
+            LaunchedEffect(pack.id) { onPreviewNeeded(pack) }
+        }
+    }
     ScreenScaffold(
         routeKey = "theme",
         title = "THEME",
@@ -108,7 +116,7 @@ fun ThemeScreen(
                     is PackCatalogState.Unavailable -> section {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                                StatusLine("PACK LIBRARY UNAVAILABLE", Crystal.Warn)
+                                StatusLine("PACK LIBRARY UNAVAILABLE", Crystal.Bad)
                                 DimLine(catalogState.message.uppercase())
                                 DimLine(
                                     "THE PACK CATALOG IS PUBLISHED SEPARATELY " +
@@ -151,7 +159,6 @@ fun ThemeScreen(
                                         ?.takeIf { it.id == pack.id }
                                         ?.version,
                                     preview = previewOf(pack.id),
-                                    onPreviewNeeded = { onPreviewNeeded(pack) },
                                     onDownload = { onDownload(pack) },
                                     onInstallToIisu = onInstallToIisu,
                                 )
@@ -198,7 +205,7 @@ private fun ControllerListContent.manualImportSection(
                 DimLine("2 · GO TO APPEARANCE > iiSU THEMES")
                 DimLine("3 · IMPORT THIS ZIP: ${manualImport.zipName}".uppercase())
                 if (notice != null) {
-                    StatusLine(notice.uppercase(), Crystal.Warn)
+                    StatusLine(notice.uppercase(), Crystal.Bad)
                 }
             }
         }
@@ -223,13 +230,9 @@ private fun ControllerListContent.packSection(
     installed: Boolean,
     installedVersion: String?,
     preview: ImageBitmap?,
-    onPreviewNeeded: () -> Unit,
     onDownload: () -> Unit,
     onInstallToIisu: (PackEntry, File) -> Unit,
 ) {
-    if (preview == null && pack.previewUrl != null) {
-        LaunchedEffect(pack.id) { onPreviewNeeded() }
-    }
     section {
         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -312,7 +315,7 @@ private fun ControllerListContent.packSection(
             section {
                 StatusLine(
                     "DOWNLOAD FAILED: ${downloadState.message}".uppercase(),
-                    Crystal.Warn,
+                    Crystal.Bad,
                 )
             }
             control(

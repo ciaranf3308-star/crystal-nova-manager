@@ -81,16 +81,25 @@ internal sealed interface JsonVal {
     data object Null : JsonVal
 }
 
-internal fun parseJson(text: String): JsonVal? {
-    val s = text.trim()
-    var i = 0
-    val n = s.length
+// parseValue and parseObject/parseArray are mutually recursive, which
+// Kotlin local functions cannot express (no forward references), so the
+// parser is a small private class instead of nested local functions.
+private class JsonParser(text: String) {
+    private val s = text.trim()
+    private var i = 0
+    private val n = s.length
 
-    fun ws() {
+    fun parse(): JsonVal? {
+        val root = parseValue() ?: return null
+        ws()
+        return if (i == n) root else null
+    }
+
+    private fun ws() {
         while (i < n && s[i].isWhitespace()) i++
     }
 
-    fun parseString(): String? {
+    private fun parseString(): String? {
         if (i >= n || s[i] != '"') return null
         i++
         val sb = StringBuilder()
@@ -132,7 +141,7 @@ internal fun parseJson(text: String): JsonVal? {
         return null
     }
 
-    fun parseValue(): JsonVal? {
+    private fun parseValue(): JsonVal? {
         ws()
         if (i >= n) return null
         return when (val c = s[i]) {
@@ -156,7 +165,7 @@ internal fun parseJson(text: String): JsonVal? {
         }
     }
 
-    fun parseNumber(): JsonVal? {
+    private fun parseNumber(): JsonVal? {
         val start = i
         if (i < n && s[i] == '-') i++
         if (i >= n) return null
@@ -179,7 +188,7 @@ internal fun parseJson(text: String): JsonVal? {
         return JsonVal.Num(s.substring(start, i))
     }
 
-    fun parseArray(): JsonVal? {
+    private fun parseArray(): JsonVal? {
         i++ // [
         val items = mutableListOf<JsonVal>()
         ws()
@@ -206,7 +215,7 @@ internal fun parseJson(text: String): JsonVal? {
         }
     }
 
-    fun parseObject(): JsonVal? {
+    private fun parseObject(): JsonVal? {
         i++ // {
         val map = LinkedHashMap<String, JsonVal>()
         ws()
@@ -237,11 +246,9 @@ internal fun parseJson(text: String): JsonVal? {
             }
         }
     }
-
-    val root = parseValue() ?: return null
-    ws()
-    return if (i == n) root else null
 }
+
+internal fun parseJson(text: String): JsonVal? = JsonParser(text).parse()
 
 // ------------------------------------------------------------------
 // Catalog model parsing — defensive: any malformed or incomplete
