@@ -80,6 +80,7 @@ import io.crystalnova.manager.diag.SystemMetafileDiagRow
 import io.crystalnova.manager.scraper.ScraperManager
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
+import io.crystalnova.manager.updater.installedLauncherVersionCode
 import io.crystalnova.manager.updater.ManagerEvent
 import io.crystalnova.manager.updater.ManagerState
 import io.crystalnova.manager.updater.UpdateManager
@@ -429,6 +430,10 @@ class MainActivity : ComponentActivity() {
             prefs = prefs,
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
+        // The manager drives Crystal Launcher installs/updates too: one
+        // check here so the settings row is live on first paint, without
+        // waiting for the user to open settings.
+        manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
 
         scraper = ScraperManager(
             context = this,
@@ -470,6 +475,7 @@ class MainActivity : ComponentActivity() {
             val scraperState by scraper.state.collectAsState()
             val themeState by manager.state.collectAsState()
             val appUpdate by manager.appUpdate.collectAsState()
+            val launcherUpdate by manager.launcherUpdate.collectAsState()
             // v24: the cached BIOS scan state. The recursive SAF scan
             // runs on Dispatchers.IO (BiosInventory.requestScan);
             // Compose reads the cache only — zero recursive SAF
@@ -613,9 +619,12 @@ class MainActivity : ComponentActivity() {
                     updateChannel = updateChannel,
                     appVersion = appVersionLabel,
                     appUpdate = appUpdate,
+                    launcherUpdate = launcherUpdate,
+                    launcherInstalled = manager.launcherInstalled,
                     locationError = locError,
                     onDismissLocationError = { locationError = null },
                     onUpdateApp = { onUpdateApp() },
+                    onUpdateLauncher = { onUpdateLauncher() },
                     onOpenRom = { nav.navigate(Dest.SettingsRom) },
                     onOpenMedia = { nav.navigate(Dest.SettingsMedia) },
                     onOpenEsde = { nav.navigate(Dest.SettingsEsde) },
@@ -1030,6 +1039,36 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    /**
+     * Crystal Launcher install/update row. Same tap machine as the
+     * manager's own update: Available → download, Downloaded → system
+     * installer, Idle/Failed → check again. The install handoff is the
+     * same ApkInstaller — it works for any APK, not just our own.
+     */
+    private fun onUpdateLauncher() {
+        when (val s = manager.launcherUpdate.value) {
+            is AppUpdateState.Available -> manager.downloadLauncherUpdate()
+            is AppUpdateState.Downloaded -> installLauncherApk(s.file)
+            is AppUpdateState.Idle -> manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
+            is AppUpdateState.Failed -> manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
+            else -> { /* Checking / Downloading / Installing: busy */ }
+        }
+    }
+
+    private fun installLauncherApk(apk: File) {
+        when (val result = ApkInstaller(this).install(apk)) {
+            ApkInstaller.Result.Started -> manager.noteLauncherInstallStarted()
+            ApkInstaller.Result.NeedsPermission -> {
+                startActivity(ApkInstaller.unknownSourcesIntent(packageName))
+                manager.noteLauncherNeedsInstallPermission(
+                    "ALLOW \"INSTALL UNKNOWN APPS\" FOR CRYSTAL NOVA, " +
+                        "THEN TAP AGAIN",
+                )
+            }
+            is ApkInstaller.Result.Failed -> manager.noteLauncherUpdateFailed(result.message)
+        }
+    }
+
     private fun installApk(apk: File) {
         when (val result = ApkInstaller(this).install(apk)) {
             ApkInstaller.Result.Started -> manager.noteAppInstallStarted()
@@ -1311,6 +1350,16 @@ class MainActivity : ComponentActivity() {
         // happened (a completed install kills this process). Recover
         // to a retryable state instead of stranding the UI.
         manager.noteAppInstallAborted()
+        // Same for the launcher flow — but only re-check after an actual
+        // installer round-trip. A completed launcher install does NOT
+        // kill our process (unlike our own update), so without this the
+        // row would stay stale; re-checking on every resume would flash
+        // CHECKING… constantly.
+        val wasInstallingLauncher = manager.launcherUpdate.value is AppUpdateState.Installing
+        manager.noteLauncherInstallAborted()
+        if (wasInstallingLauncher) {
+            manager.checkLauncherUpdate(installedLauncherVersionCode(packageManager))
+        }
     }
 
     override fun onDestroy() {

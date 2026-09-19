@@ -32,9 +32,12 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                 updateChannel = AppUpdateChannel.STABLE,
                 appVersion = "1.0.2",
                 appUpdate = AppUpdateState.Idle(),
+                launcherUpdate = AppUpdateState.Idle(),
+                launcherInstalled = true,
                 locationError = null,
                 onDismissLocationError = {},
                 onUpdateApp = {},
+                onUpdateLauncher = {},
                 onOpenRom = {},
                 onOpenMedia = {},
                 onOpenEsde = {},
@@ -48,6 +51,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
         }
 
         assertNodeInViewport("settings-update-app")
+        assertNodeInViewport("settings-update-launcher")
         assertNodeInViewport("settings-row-rom")
         assertNodeInViewport("settings-row-media")
         assertNodeInViewport("settings-row-esde")

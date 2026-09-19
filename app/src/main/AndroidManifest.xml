@@ -22,6 +22,7 @@
          checks so the UI can show honest INSTALLED / NOT INSTALLED
          states. No data is read from these apps. -->
     <queries>
+        <package android:name="io.crystalnova.launcher" />
         <package android:name="org.pegasus_frontend.android" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="com.retroarch" />

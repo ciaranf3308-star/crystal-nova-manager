@@ -28,6 +28,9 @@ object GitHubEndpoints {
     /** The manager's own repository — used only by the self-updater. */
     const val MANAGER_REPO = "crystal-nova-manager"
 
+    /** The Crystal Launcher's repository — used only by the launcher updater. */
+    const val LAUNCHER_REPO = "crystal-launcher"
+
     private val ALLOWED_HOSTS = setOf(
         "api.github.com",
         "raw.githubusercontent.com",
@@ -87,7 +90,9 @@ object GitHubEndpoints {
             val inThemeRepo = "/$OWNER/$REPO" in u.path
             val inManagerRepo =
                 host in MANAGER_REPO_HOSTS && "/$OWNER/$MANAGER_REPO" in u.path
-            if (!inThemeRepo && !inManagerRepo) {
+            val inLauncherRepo =
+                host in MANAGER_REPO_HOSTS && "/$OWNER/$LAUNCHER_REPO" in u.path
+            if (!inThemeRepo && !inManagerRepo && !inLauncherRepo) {
                 throw SecurityException("URL escapes $OWNER repositories: ${u.path}")
             }
         }

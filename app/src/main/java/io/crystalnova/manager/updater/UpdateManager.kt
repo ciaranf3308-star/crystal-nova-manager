@@ -44,6 +44,7 @@ class UpdateManager(
     private val prefs: KeyValueStore? = null,
     private val selfUpdate: SelfUpdateChecker = SelfUpdateChecker(),
     private val devUpdate: DevUpdateChecker = DevUpdateChecker(),
+    private val launcherUpdateChecker: LauncherUpdateChecker = LauncherUpdateChecker(),
 ) {
     private val _state = MutableStateFlow<ManagerState>(ManagerState.NeedsFolder())
     val state: StateFlow<ManagerState> = _state
@@ -56,8 +57,17 @@ class UpdateManager(
     private val _appUpdate = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle())
     val appUpdate: StateFlow<AppUpdateState> = _appUpdate
 
+    /**
+     * Crystal Launcher install/update state. A separate flow on purpose:
+     * the launcher is a different APK from a different repo, checked
+     * against the installed launcher versionCode (null = not installed).
+     */
+    private val _launcherUpdate = MutableStateFlow<AppUpdateState>(AppUpdateState.Idle())
+    val launcherUpdate: StateFlow<AppUpdateState> = _launcherUpdate
+
     private var job: Job? = null
     private var appUpdateJob: Job? = null
+    private var launcherUpdateJob: Job? = null
 
     /** The release the app-update flow is currently working with. */
     private var pendingSelfUpdate: SelfUpdateInfo? = null
@@ -69,6 +79,13 @@ class UpdateManager(
      * against it before the installer sees the APK.
      */
     private var pendingDevManifest: DevUpdateManifest? = null
+
+    /** The launcher manifest the launcher-update flow is working with. */
+    private var pendingLauncherManifest: DevUpdateManifest? = null
+
+    /** Set by the last launcher check; drives the not-installed label. */
+    var launcherInstalled: Boolean = false
+        private set
 
     /** Reads the persisted app update channel; unset means DEV. */
     private fun appUpdateChannel(): AppUpdateChannel =
@@ -474,6 +491,141 @@ class UpdateManager(
 
     fun noteAppUpdateFailed(message: String) {
         _appUpdate.value = AppUpdateState.Failed(message)
+    }
+
+    // ------------------------------------------------------------------
+    // Crystal Launcher install / update. Mirrors the app-update flow
+    // above: check → download (SHA-256-verified) → hand to the system
+    // installer. The launcher is a separate APK, so it gets its own
+    // state flow, job, and pending manifest.
+    // ------------------------------------------------------------------
+
+    /**
+     * Checks the launcher's dev-latest manifest. [installedVersionCode]
+     * is null when the launcher isn't installed — then the manifest is
+     * returned as an install offer, not an update.
+     */
+    fun checkLauncherUpdate(installedVersionCode: Int?) {
+        if (_launcherUpdate.value is AppUpdateState.Downloading ||
+            _launcherUpdate.value is AppUpdateState.Installing
+        ) {
+            return
+        }
+        launcherInstalled = installedVersionCode != null
+        launcherUpdateJob?.cancel()
+        _launcherUpdate.value = AppUpdateState.Checking
+        launcherUpdateJob = scope.launch {
+            val result = withContext(ioDispatcher) {
+                runCatching {
+                    val manifest = launcherUpdateChecker.check(installedVersionCode)
+                    if (manifest == null) {
+                        pendingLauncherManifest = null
+                        null
+                    } else {
+                        pendingLauncherManifest = manifest
+                        SelfUpdateInfo(
+                            version = "${manifest.versionName} (${manifest.versionCode})",
+                            tag = "dev-latest",
+                            apkUrl = manifest.apkUrl,
+                        )
+                    }
+                }
+            }
+            result
+                .onSuccess { info ->
+                    _launcherUpdate.value = if (info == null) {
+                        AppUpdateState.Idle()
+                    } else {
+                        AppUpdateState.Available(info)
+                    }
+                }
+                .onFailure {
+                    _launcherUpdate.value = AppUpdateState.Idle(lastCheckFailed = true)
+                }
+        }
+    }
+
+    /** Downloads the available launcher build into app-private cache. */
+    fun downloadLauncherUpdate() {
+        val available = _launcherUpdate.value as? AppUpdateState.Available ?: return
+        launcherUpdateJob?.cancel()
+        launcherUpdateJob = scope.launch {
+            _launcherUpdate.value = AppUpdateState.Downloading()
+            val info: SelfUpdateInfo = available.info
+            val manifest = pendingLauncherManifest
+            // Cache key includes the versionCode: several launcher beta
+            // builds share one versionName while the code moves — keying
+            // by name alone would reuse a stale APK forever.
+            val destName = "launcher-update-${manifest?.versionCode ?: info.version}.apk"
+            val dest = File(workDir, destName)
+            withContext(ioDispatcher) {
+                workDir.listFiles()
+                    ?.filter { it.name.startsWith("launcher-update-") && it != dest }
+                    ?.forEach { it.delete() }
+            }
+            if (dest.isFile && dest.length() > 0) {
+                _launcherUpdate.value = AppUpdateState.Downloaded(dest)
+                return@launch
+            }
+            val result = withContext(ioDispatcher) {
+                runCatching {
+                    if (manifest != null) {
+                        launcherUpdateChecker.download(manifest, dest) { done, total ->
+                            _launcherUpdate.value = AppUpdateState.Downloading(done, total)
+                        }
+                    } else {
+                        throw IOException("Launcher manifest missing for download")
+                    }
+                }
+            }
+            result
+                .onSuccess {
+                    _launcherUpdate.value = AppUpdateState.Downloaded(dest)
+                }
+                .onFailure {
+                    withContext(ioDispatcher) { dest.delete() }
+                    val cause = it.message?.takeIf { m -> m.isNotBlank() } ?: "UNKNOWN ERROR"
+                    _launcherUpdate.value = AppUpdateState.Failed("DOWNLOAD FAILED: $cause")
+                }
+        }
+    }
+
+    /** The launcher APK was handed to Android's system installer. */
+    fun noteLauncherInstallStarted() {
+        launcherUpdateJob?.cancel()
+        _launcherUpdate.value = AppUpdateState.Installing
+    }
+
+    /**
+     * Resume while still Installing means the user backed out of the
+     * system prompt (a completed install doesn't kill our process, but
+     * it does change the installed version — the activity re-checks on
+     * resume, which flips this to Idle/current or a fresh Available).
+     */
+    fun noteLauncherInstallAborted() {
+        if (_launcherUpdate.value !is AppUpdateState.Installing) return
+        val cached = workDir.listFiles()
+            ?.filter { it.name.startsWith("launcher-update-") && it.isFile && it.length() > 0 }
+            ?.maxByOrNull { it.lastModified() }
+        _launcherUpdate.value =
+            if (cached != null) AppUpdateState.Downloaded(cached)
+            else AppUpdateState.Idle()
+    }
+
+    fun noteLauncherNeedsInstallPermission(notice: String) {
+        val info = pendingLauncherManifest?.let {
+            SelfUpdateInfo(
+                version = "${it.versionName} (${it.versionCode})",
+                tag = "dev-latest",
+                apkUrl = it.apkUrl,
+            )
+        } ?: return
+        launcherUpdateJob?.cancel()
+        _launcherUpdate.value = AppUpdateState.Available(info, notice)
+    }
+
+    fun noteLauncherUpdateFailed(message: String) {
+        _launcherUpdate.value = AppUpdateState.Failed(message)
     }
 
     /**

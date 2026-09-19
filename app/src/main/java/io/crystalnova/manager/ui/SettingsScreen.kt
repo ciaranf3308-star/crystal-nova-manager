@@ -27,9 +27,12 @@ fun SettingsScreen(
     updateChannel: AppUpdateChannel,
     appVersion: String,
     appUpdate: AppUpdateState,
+    launcherUpdate: AppUpdateState,
+    launcherInstalled: Boolean,
     locationError: String?,
     onDismissLocationError: () -> Unit,
     onUpdateApp: () -> Unit,
+    onUpdateLauncher: () -> Unit,
     onOpenRom: () -> Unit,
     onOpenMedia: () -> Unit,
     onOpenEsde: () -> Unit,
@@ -52,7 +55,7 @@ fun SettingsScreen(
             state = listState,
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
-            // Nine rows must fit the 960px viewport without scrolling
+            // Ten rows must fit the 960px viewport without scrolling
             // (NovaSettingsFitsViewportTest); tighter than the default.
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
@@ -62,6 +65,13 @@ fun SettingsScreen(
                 label = updateManagerLabel(appVersion, appUpdate),
                 onClick = onUpdateApp,
                 enabled = updateActionEnabled(appUpdate),
+            )
+            control(
+                key = "settings-update-launcher",
+                testTag = "settings-update-launcher",
+                label = updateLauncherLabel(launcherInstalled, launcherUpdate),
+                onClick = onUpdateLauncher,
+                enabled = updateActionEnabled(launcherUpdate),
             )
             control(
                 key = "settings-row-rom",
@@ -283,6 +293,46 @@ private fun updateManagerLabel(appVersion: String, update: AppUpdateState): Stri
         is AppUpdateState.Failed ->
             "UPDATE MANAGER\nCHECK FAILED — RETRY"
     }
+
+/** The Crystal Launcher install/update state as a two-line row label. */
+private fun updateLauncherLabel(installed: Boolean, update: AppUpdateState): String {
+    if (!installed) {
+        return when (update) {
+            is AppUpdateState.Available ->
+                "INSTALL LAUNCHER\nv${update.info.version} — INSTALL NOW"
+            is AppUpdateState.Downloading -> {
+                val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
+                "INSTALL LAUNCHER\nDOWNLOADING$pct"
+            }
+            is AppUpdateState.Downloaded ->
+                "INSTALL LAUNCHER\nREADY — INSTALL NOW"
+            is AppUpdateState.Installing ->
+                "INSTALL LAUNCHER\nINSTALLING — FOLLOW THE SYSTEM PROMPT"
+            is AppUpdateState.Failed ->
+                "INSTALL LAUNCHER\nFAILED — RETRY"
+            else ->
+                "INSTALL LAUNCHER\nNOT INSTALLED — CHECK / INSTALL"
+        }
+    }
+    return when (update) {
+        is AppUpdateState.Idle ->
+            "UPDATE LAUNCHER\nUP TO DATE — CHECK AGAIN"
+        is AppUpdateState.Checking ->
+            "UPDATE LAUNCHER\nCHECKING…"
+        is AppUpdateState.Available ->
+            "UPDATE LAUNCHER\nv${update.info.version} AVAILABLE — UPDATE NOW"
+        is AppUpdateState.Downloading -> {
+            val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
+            "UPDATE LAUNCHER\nDOWNLOADING$pct"
+        }
+        is AppUpdateState.Downloaded ->
+            "UPDATE LAUNCHER\nREADY — INSTALL NOW"
+        is AppUpdateState.Installing ->
+            "UPDATE LAUNCHER\nINSTALLING — FOLLOW THE SYSTEM PROMPT"
+        is AppUpdateState.Failed ->
+            "UPDATE LAUNCHER\nCHECK FAILED — RETRY"
+    }
+}
 
 /** Tapping the row does nothing meaningful while the updater is busy. */
 private fun updateActionEnabled(update: AppUpdateState): Boolean =
