@@ -12,34 +12,45 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.scraper.esde.EsdeImport
+import io.crystalnova.manager.scraper.model.AssetProvenance
+import io.crystalnova.manager.scraper.model.AssetSlot
+import io.crystalnova.manager.scraper.model.SourceType
 
 /**
- * Manual media matching: pairs unmatched ROM games with unmatched ES-DE
- * media groups, console by console.
+ * Game artwork studio: pick any game in the library, see exactly which
+ * artwork slots are filled and by what, then per slot either pick your
+ * own image, clear the slot, or match an unmatched ES-DE media group.
+ *
+ * User-picked images are saved with USER provenance: they always win and
+ * imports never overwrite them.
  *
  * Controller-friendly wizard:
  *  1. Pick a platform (chip row)
- *  2. Pick an unmatched game (list)
- *  3. Pick an unmatched media group (list)
- *  4. Confirm -> files are copied, index updated, lists refresh
+ *  2. Pick a game (full library, not just unmatched)
+ *  3. Per slot: PICK IMAGE / CLEAR; or MATCH an ES-DE media group
  */
 @Composable
 fun EsdeManualMatchScreen(
     importPlan: EsdeImport.ImportPlan?,
     manualMatchResult: String?,
+    selectedGame: EsdeImport.RomGame?,
+    artworkSlots: Map<AssetSlot, AssetProvenance?>?,
+    artworkResult: String?,
+    onSelectGame: (EsdeImport.RomGame?) -> Unit,
     onApplyMatch: (game: EsdeImport.RomGame, media: EsdeImport.UnmatchedMediaGroup) -> Unit,
+    onPickImage: (platform: String, gameId: String, slot: AssetSlot) -> Unit,
+    onClearSlot: (platform: String, gameId: String, slot: AssetSlot) -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     var selectedPlatform by remember { mutableStateOf<String?>(null) }
-    var selectedGame by remember { mutableStateOf<EsdeImport.RomGame?>(null) }
 
-    val unmatchedGames = importPlan?.unmatchedGames ?: emptyList()
+    val allGames = importPlan?.games ?: emptyList()
     val unmatchedMedia = importPlan?.unmatchedMediaGroups ?: emptyList()
 
-    // Platforms that have unmatched games, sorted.
-    val platforms = remember(unmatchedGames) {
-        unmatchedGames.map { it.platform }.distinct().sorted()
+    // Every platform in the library, sorted — not just unmatched ones.
+    val platforms = remember(allGames) {
+        allGames.map { it.platform }.distinct().sorted()
     }
 
     // Auto-select the first platform if none selected.
@@ -47,8 +58,8 @@ fun EsdeManualMatchScreen(
         selectedPlatform = platforms.first()
     }
 
-    val gamesForPlatform = remember(unmatchedGames, selectedPlatform) {
-        unmatchedGames.filter { it.platform == selectedPlatform }.sortedBy { it.title.lowercase() }
+    val gamesForPlatform = remember(allGames, selectedPlatform) {
+        allGames.filter { it.platform == selectedPlatform }.sortedBy { it.title.lowercase() }
     }
     val mediaForPlatform = remember(unmatchedMedia, selectedPlatform) {
         unmatchedMedia.filter { it.platform == selectedPlatform }
@@ -56,9 +67,9 @@ fun EsdeManualMatchScreen(
 
     ScreenScaffold(
         routeKey = "settings-esde-manual-match",
-        title = "MANUAL MEDIA MATCH",
+        title = "GAME ARTWORK",
         onBack = {
-            if (selectedGame != null) selectedGame = null else onBack()
+            if (selectedGame != null) onSelectGame(null) else onBack()
         },
         modifier = modifier,
         fallbackFocusKey = "esde-manual-match-back",
@@ -70,26 +81,17 @@ fun EsdeManualMatchScreen(
         ) {
             if (importPlan == null) {
                 section {
-                    DimLine("RUN PRE-SCAN FIRST TO FIND UNMATCHED GAMES AND MEDIA.")
+                    DimLine("RUN PRE-SCAN FIRST TO LOAD YOUR LIBRARY.")
                 }
                 return@ControllerList
             }
 
-            if (unmatchedGames.isEmpty()) {
-                section {
-                    StatusLine("ALL GAMES MATCHED — NOTHING TO DO MANUALLY.")
-                }
-                return@ControllerList
-            }
-
-            // ---- Step 1: platform chips ----
             if (selectedGame == null) {
                 section {
                     StatusLine("STEP 1: PICK A CONSOLE (${platforms.size})")
                 }
-                // Platform chips as a wrapped row of controls.
                 platforms.forEach { platform ->
-                    val count = unmatchedGames.count { it.platform == platform }
+                    val count = allGames.count { it.platform == platform }
                     control(
                         key = "esde-manual-platform-$platform",
                         testTag = "esde-manual-platform-$platform",
@@ -99,11 +101,11 @@ fun EsdeManualMatchScreen(
                 }
 
                 section {
-                    StatusLine("STEP 2: PICK A GAME WITHOUT MEDIA (${gamesForPlatform.size})")
+                    StatusLine("STEP 2: PICK A GAME (${gamesForPlatform.size})")
                 }
                 if (gamesForPlatform.isEmpty()) {
                     section {
-                        DimLine("NO UNMATCHED GAMES FOR THIS CONSOLE.")
+                        DimLine("NO GAMES FOR THIS CONSOLE.")
                     }
                 } else {
                     gamesForPlatform.forEach { game ->
@@ -111,45 +113,86 @@ fun EsdeManualMatchScreen(
                             key = "esde-manual-game-${game.platform}-${game.gameId}",
                             testTag = "esde-manual-game-${game.gameId}",
                             label = game.title,
-                            onClick = { selectedGame = game },
+                            onClick = { onSelectGame(game) },
                         )
                     }
                 }
             } else {
-                // ---- Step 2: pick media for the selected game ----
-                val game = selectedGame!!
+                val game = selectedGame
+                val slots = artworkSlots
+                val filled = slots?.values?.count { it != null } ?: 0
                 section {
-                    StatusLine("MATCHING: ${game.title}")
-                    DimLine("PICK THE MEDIA GROUP FOR THIS GAME (${mediaForPlatform.size} AVAILABLE)")
+                    StatusLine("GAME: ${game.title}")
+                    DimLine(
+                        if (slots == null) "LOADING ARTWORK…"
+                        else "ARTWORK: $filled / ${AssetSlot.values().size} SLOTS FILLED"
+                    )
                 }
-                if (mediaForPlatform.isEmpty()) {
-                    section {
-                        DimLine("NO UNMATCHED MEDIA FOR ${game.platform.uppercase()}.")
+
+                if (slots != null) {
+                    AssetSlot.values().forEach { slot ->
+                        val prov = slots[slot]
+                        val status = when {
+                            prov == null -> "EMPTY"
+                            prov.sourceType == SourceType.USER -> "SET — YOURS"
+                            prov.sourceType == SourceType.GENERATED -> "SET — GENERATED"
+                            else -> "SET — IMPORTED"
+                        }
+                        control(
+                            key = "esde-art-pick-${game.gameId}-${slot.name}",
+                            testTag = "esde-art-pick-${game.gameId}-${slot.name}",
+                            label = "▸ ${slotLabel(slot)}: $status — PICK IMAGE…",
+                            onClick = { onPickImage(game.platform, game.gameId, slot) },
+                        )
+                        if (prov != null) {
+                            control(
+                                key = "esde-art-clear-${game.gameId}-${slot.name}",
+                                testTag = "esde-art-clear-${game.gameId}-${slot.name}",
+                                label = "  CLEAR ${slotLabel(slot)}",
+                                onClick = { onClearSlot(game.platform, game.gameId, slot) },
+                            )
+                        }
                     }
-                } else {
+                }
+
+                if (mediaForPlatform.isNotEmpty()) {
+                    section {
+                        StatusLine("MATCH ES-DE MEDIA (${mediaForPlatform.size} UNMATCHED GROUPS)")
+                        DimLine("APPLIES THE WHOLE GROUP AT ONCE")
+                    }
                     mediaForPlatform.forEach { mediaGroup ->
-                        val slotCount = mediaGroup.files.size
                         control(
                             key = "esde-manual-media-${mediaGroup.key}",
                             testTag = "esde-manual-media-${mediaGroup.key}",
-                            label = "${mediaGroup.displayName} ($slotCount files)",
+                            label = "${mediaGroup.displayName} (${mediaGroup.files.size} files)",
                             onClick = { onApplyMatch(game, mediaGroup) },
                         )
                     }
                 }
+
                 control(
                     key = "esde-manual-back-to-games",
                     testTag = "esde-manual-back-to-games",
                     label = "← BACK TO GAMES",
-                    onClick = { selectedGame = null },
+                    onClick = { onSelectGame(null) },
                 )
             }
 
-            manualMatchResult?.let { result ->
+            (artworkResult ?: manualMatchResult)?.let { result ->
                 section {
                     StatusLine(result)
                 }
             }
         }
     }
+}
+
+private fun slotLabel(slot: AssetSlot): String = when (slot) {
+    AssetSlot.BOX_FRONT -> "BOX FRONT"
+    AssetSlot.BOX_SPINE -> "SPINE"
+    AssetSlot.BOX_BACK -> "BOX BACK"
+    AssetSlot.PHYSICAL_MEDIA -> "DISC / CART"
+    AssetSlot.FULL_COVER -> "FULL COVER"
+    AssetSlot.CLEAR_LOGO -> "LOGO"
+    AssetSlot.SCREENSHOT -> "SCREENSHOT"
 }

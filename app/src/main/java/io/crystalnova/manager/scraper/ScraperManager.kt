@@ -1,14 +1,20 @@
 package io.crystalnova.manager.scraper
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.net.Uri
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.scraper.esde.EsdeImport
 import io.crystalnova.manager.scraper.esde.EsdeImportRunner
 import io.crystalnova.manager.scraper.esde.MediaHealthCheck
 import io.crystalnova.manager.scraper.esde.MediaHealthCheckRunner
 import io.crystalnova.manager.scraper.match.TitleNormalizer
+import io.crystalnova.manager.scraper.model.AssetProvenance
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.Completeness
+import io.crystalnova.manager.scraper.model.ScrapedGame
+import io.crystalnova.manager.scraper.model.SourceType
 import io.crystalnova.manager.scraper.provider.LibretroProvider
 import io.crystalnova.manager.scraper.provider.PegasusFileMetadataProvider
 import io.crystalnova.manager.scraper.scan.DiscoveredSystem
@@ -19,6 +25,7 @@ import io.crystalnova.manager.scraper.scan.SystemSnapshot
 import io.crystalnova.manager.scraper.scan.restoredSystems
 import io.crystalnova.manager.scraper.store.MediaCache
 import io.crystalnova.manager.scraper.store.ScraperHttpClient
+import io.crystalnova.manager.scraper.store.ScraperJson
 import io.crystalnova.manager.scraper.store.ScraperStorage
 import io.crystalnova.manager.scraper.work.IndexEntry
 import io.crystalnova.manager.scraper.work.AssetPresence
@@ -47,6 +54,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
+import java.io.ByteArrayOutputStream
 import java.io.File
 
 /** UI state for the SCRAPER section. */
@@ -73,6 +81,12 @@ data class ScraperUiState(
     val importResult: String? = null,
     /** Result of the last manual match; null when never run. */
     val manualMatchResult: String? = null,
+    /** Game selected in the artwork studio; null when none. */
+    val artworkGame: EsdeImport.RomGame? = null,
+    /** Current slot -> provenance for [artworkGame]; null while loading. */
+    val artworkSlots: Map<AssetSlot, AssetProvenance?>? = null,
+    /** Result of the last custom-artwork/clear action; null when never run. */
+    val artworkResult: String? = null,
     /** True while the media health check is running. */
     val healthCheckRunning: Boolean = false,
     /** Human-readable health-check phase; null when idle. */
@@ -125,6 +139,8 @@ class ScraperManager(
         /** Media revocation notice — mirrors the ROM wording. */
         const val MEDIA_ACCESS_LOST_NOTICE = "MEDIA FOLDER ACCESS LOST — PLEASE RESELECT"
         const val GAMES_ACCESS_LOST_NOTICE = "FOLDER ACCESS LOST — PLEASE RESELECT"
+        /** Custom artwork is downscaled so the long edge is at most this. */
+        const val MAX_ARTWORK_DIM = 1024
     }
 
     private val locations: StorageLocations = storageLocations ?: StorageLocations(context, prefs)
@@ -388,9 +404,177 @@ class ScraperManager(
                 importRunning = false, importProgress = null,
                 manualMatchResult = resultText,
             )
+            // Refresh the artwork studio's slot view if a game is selected.
+            refreshArtworkSlots()
             // Re-run prescan to refresh unmatched lists.
             runEsdeImportPrescan()
         }
+    }
+
+    // ------------------------------------------------------------------
+    // Artwork studio: per-game, per-slot customization.
+    // ------------------------------------------------------------------
+
+    /**
+     * Selects a game in the artwork studio and loads its current per-slot
+     * provenance. Passing null clears the selection. Never throws.
+     */
+    fun selectArtworkGame(game: EsdeImport.RomGame?) {
+        _state.value = _state.value.copy(
+            artworkGame = game, artworkSlots = null, artworkResult = null,
+        )
+        refreshArtworkSlots()
+    }
+
+    /** Reloads [artworkSlots] for the currently selected game. Never throws. */
+    private fun refreshArtworkSlots() {
+        val game = _state.value.artworkGame ?: return
+        scope.launch(ioDispatcher) {
+            if (_state.value.artworkGame != game) return@launch
+            val slots = try {
+                val manifest = storage().loadManifest(game.platform, game.gameId)
+                AssetSlot.values().associateWith { manifest?.assets?.get(it) }
+            } catch (_: Exception) { null }
+            if (_state.value.artworkGame == game) {
+                _state.value = _state.value.copy(artworkSlots = slots)
+            }
+        }
+    }
+
+    /**
+     * Applies a user-picked image to one slot. The image is transcoded to
+     * PNG (the theme reads `<slot>.png`) and saved with [SourceType.USER]
+     * provenance, which always wins and is never auto-overwritten by
+     * imports. Never throws.
+     */
+    fun applyCustomArtwork(platform: String, gameId: String, slot: AssetSlot, uri: Uri) {
+        if (_state.value.importRunning || _state.value.importPrescanning) return
+        _state.value = _state.value.copy(
+            importRunning = true, importProgress = "SAVING ARTWORK…", artworkResult = null,
+        )
+        scope.launch(ioDispatcher) {
+            val resultText = try {
+                val png = transcodeToPng(uri)
+                    ?: throw IllegalArgumentException("could not read that file as an image")
+                val st = storage()
+                val manifest = st.loadManifest(platform, gameId)
+                    ?: ScrapedGame(
+                        platform = platform, gameId = gameId,
+                        romRelativePath = "", title = gameId,
+                    )
+                val provenance = AssetProvenance(
+                    sourceType = SourceType.USER,
+                    provider = "user",
+                    localPath = st.assetPath(platform, gameId, slot),
+                )
+                when (val r = st.saveAsset(
+                    platform, gameId, slot, provenance, png, manifest.assets[slot],
+                )) {
+                    is ScraperStorage.SaveResult.Saved -> {
+                        val updated = manifest.assets.toMutableMap()
+                        updated[slot] = provenance
+                        val newManifest = manifest.copy(assets = updated)
+                        if (!st.saveManifest(newManifest)) {
+                            throw IllegalStateException("manifest write failed")
+                        }
+                        refreshIndexEntry(st, newManifest)
+                        "SAVED\n${slot.name} updated. Your artwork always wins — imports will never overwrite it."
+                    }
+                    is ScraperStorage.SaveResult.Kept ->
+                        "KEPT EXISTING\n${r.reason}"
+                    is ScraperStorage.SaveResult.Failed ->
+                        throw IllegalStateException(r.reason)
+                }
+            } catch (e: Exception) {
+                "SAVE FAILED\n\n${e.message ?: e.javaClass.simpleName}"
+            }
+            _state.value = _state.value.copy(
+                importRunning = false, importProgress = null, artworkResult = resultText,
+            )
+            refreshArtworkSlots()
+        }
+    }
+
+    /**
+     * Clears one artwork slot: deletes the file and drops it from the
+     * manifest and index. The next ES-DE import may fill the slot again.
+     * Never throws.
+     */
+    fun clearArtworkSlot(platform: String, gameId: String, slot: AssetSlot) {
+        if (_state.value.importRunning || _state.value.importPrescanning) return
+        _state.value = _state.value.copy(
+            importRunning = true, importProgress = "CLEARING ARTWORK…", artworkResult = null,
+        )
+        scope.launch(ioDispatcher) {
+            val resultText = try {
+                val st = storage()
+                val manifest = st.loadManifest(platform, gameId)
+                    ?: throw IllegalStateException("no manifest for this game")
+                if (!st.deleteAsset(platform, gameId, slot)) {
+                    throw IllegalStateException("could not delete the file")
+                }
+                val updated = manifest.assets.toMutableMap()
+                updated.remove(slot)
+                val newManifest = manifest.copy(assets = updated)
+                if (!st.saveManifest(newManifest)) {
+                    throw IllegalStateException("manifest write failed")
+                }
+                refreshIndexEntry(st, newManifest)
+                "CLEARED\n${slot.name} removed. The next import can fill it again."
+            } catch (e: Exception) {
+                "CLEAR FAILED\n\n${e.message ?: e.javaClass.simpleName}"
+            }
+            _state.value = _state.value.copy(
+                importRunning = false, importProgress = null, artworkResult = resultText,
+            )
+            refreshArtworkSlots()
+        }
+    }
+
+    /**
+     * Reads an image from a SAF [Uri], downscales it to [MAX_ARTWORK_DIM],
+     * and returns PNG bytes — or null when it isn't a readable image.
+     * Never throws.
+     */
+    private fun transcodeToPng(uri: Uri): ByteArray? {
+        return try {
+            val bytes = context.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                ?: return null
+            if (bytes.size > 32 * 1024 * 1024) return null
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+            if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+            var sample = 1
+            while (bounds.outWidth / sample > MAX_ARTWORK_DIM ||
+                bounds.outHeight / sample > MAX_ARTWORK_DIM
+            ) {
+                sample *= 2
+            }
+            val opts = BitmapFactory.Options().apply { inSampleSize = sample }
+            val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts) ?: return null
+            try {
+                val out = ByteArrayOutputStream()
+                if (!bmp.compress(Bitmap.CompressFormat.PNG, 100, out)) null
+                else out.toByteArray()
+            } finally {
+                bmp.recycle()
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    /**
+     * Rewrites one game's index.json entry through the same serializer the
+     * scraper uses, so the theme picks up artwork changes immediately.
+     */
+    private fun refreshIndexEntry(st: ScraperStorage, game: ScrapedGame) {
+        val text = st.loadIndexJson() ?: throw IllegalStateException("index.json unreadable")
+        val root = JSONObject(text)
+        val games = root.optJSONObject("games") ?: JSONObject()
+        games.put("${game.platform}/${game.gameId}", ScraperJson.indexEntryToJson(game))
+        root.put("games", games)
+        if (!st.saveIndexJson(root.toString())) throw IllegalStateException("index.json write failed")
     }
 
     private fun buildImportResultText(result: EsdeImportRunner.ImportResult): String = buildString {

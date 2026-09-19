@@ -396,11 +396,12 @@ fun EsdeImportScreen(
                 onClick = onImport,
                 enabled = canImport,
             )
-            if (importPlanReady && unmatchedCount > 0) {
+            if (importPlanReady) {
                 control(
                     key = "settings-esde-import-manual",
                     testTag = "settings-esde-import-manual",
-                    label = "MANUAL MATCH ($unmatchedCount UNMATCHED)",
+                    label = if (unmatchedCount > 0) "GAME ARTWORK ($unmatchedCount UNMATCHED)"
+                    else "GAME ARTWORK",
                     onClick = onManualMatch,
                     enabled = !prescanning && !importRunning,
                 )

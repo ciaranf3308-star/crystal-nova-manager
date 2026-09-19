@@ -30,6 +30,7 @@ import io.crystalnova.manager.pegasus.PegasusIntents
 import io.crystalnova.manager.pegasus.PegasusLibrary
 import io.crystalnova.manager.pegasus.PegasusRestartGate
 import io.crystalnova.manager.scraper.match.PlatformTable
+import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.storage.LocationKind
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.LocationState
@@ -181,6 +182,22 @@ class MainActivity : ComponentActivity() {
      * the old resume behavior.
      */
     private val pegasusRestartGate = PegasusRestartGate()
+
+    /**
+     * Artwork-studio image picker. The pending (platform, gameId, slot) is
+     * captured when the user taps PICK IMAGE; the returned Uri goes
+     * straight to the scraper, which transcodes and saves it as
+     * user-owned artwork.
+     */
+    private var pendingArtworkPick: Triple<String, String, AssetSlot>? = null
+    private val artworkImagePicker =
+        registerForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+            val pending = pendingArtworkPick
+            pendingArtworkPick = null
+            if (uri != null && pending != null) {
+                scraper.applyCustomArtwork(pending.first, pending.second, pending.third, uri)
+            }
+        }
 
     /**
      * Themes-root picker. Keeps the U1.1 normalize + guidance behavior:
@@ -675,7 +692,18 @@ class MainActivity : ComponentActivity() {
                 is Dest.SettingsEsdeManualMatch -> EsdeManualMatchScreen(
                     importPlan = scraperState.importPlan,
                     manualMatchResult = scraperState.manualMatchResult,
+                    selectedGame = scraperState.artworkGame,
+                    artworkSlots = scraperState.artworkSlots,
+                    artworkResult = scraperState.artworkResult,
+                    onSelectGame = { game -> scraper.selectArtworkGame(game) },
                     onApplyMatch = { game, media -> scraper.applyManualMatch(game, media) },
+                    onPickImage = { platform, gameId, slot ->
+                        pendingArtworkPick = Triple(platform, gameId, slot)
+                        artworkImagePicker.launch("image/*")
+                    },
+                    onClearSlot = { platform, gameId, slot ->
+                        scraper.clearArtworkSlot(platform, gameId, slot)
+                    },
                     onBack = pop,
                 )
                 is Dest.SettingsAppearance -> AppearanceScreen(

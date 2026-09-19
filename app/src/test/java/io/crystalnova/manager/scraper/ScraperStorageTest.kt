@@ -61,6 +61,23 @@ class ScraperStorageTest {
         assertArrayEquals(byteArrayOf(1, 2, 3), s.readBytes("games/gba/slug/front.png"))
     }
 
+    @Test fun `deleteAsset removes the slot file`() {
+        val s = storage()
+        s.saveAsset("gba", "slug", AssetSlot.BOX_FRONT, prov(SourceType.USER), byteArrayOf(9), null)
+        assertTrue(s.assetPresent("gba", "slug", AssetSlot.BOX_FRONT))
+        assertTrue(s.deleteAsset("gba", "slug", AssetSlot.BOX_FRONT))
+        assertFalse(s.assetPresent("gba", "slug", AssetSlot.BOX_FRONT))
+        // Other slots are untouched.
+        s.saveAsset("gba", "slug", AssetSlot.CLEAR_LOGO, prov(SourceType.USER), byteArrayOf(7), null)
+        assertTrue(s.deleteAsset("gba", "slug", AssetSlot.CLEAR_LOGO))
+        assertFalse(s.deleteAsset("gba", "slug", AssetSlot.CLEAR_LOGO))
+    }
+
+    @Test fun `deleteAsset returns false when nothing is there`() {
+        val s = storage()
+        assertFalse(s.deleteAsset("gba", "no-such-game", AssetSlot.BOX_FRONT))
+    }
+
     @Test fun `manifest round-trips with provenance`() {
         val s = storage()
         val game = ScrapedGame(

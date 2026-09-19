@@ -238,6 +238,24 @@ class ScraperStorage(
     }
 
     /**
+     * Deletes one asset slot file. Never throws; returns false when the
+     * file wasn't there or couldn't be removed. Used by the artwork
+     * studio's per-slot CLEAR — the manifest/index update is the caller's
+     * job, mirroring how saveAsset leaves manifest bookkeeping to its
+     * caller.
+     */
+    fun deleteAsset(platform: String, gameId: String, slot: AssetSlot): Boolean {
+        return try {
+            val dir = gameDir(platform, gameId) ?: return false
+            val node = fs.find(dir, slot.fileName) ?: return false
+            fs.deleteRecursively(node)
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            false
+        }
+    }
+
+    /**
      * Raw bytes of index.json, or null when absent/unreadable. Prefer this
      * over [loadIndexJson] when the bytes themselves matter (quarantining a
      * malformed index): a String round-trip through UTF-8 would replace
