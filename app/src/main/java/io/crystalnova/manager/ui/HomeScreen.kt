@@ -286,10 +286,10 @@ fun HomeScreen(
 }
 
 /**
- * The status band: a compact panel with the state headline and honest
- * status lines on the left, the happy-path action docked on the right.
- * Same strings, same actions, same tags as the old hero — roughly a
- * third of the height, content-sized, top-anchored.
+ * The home hero: a clean banner with the state headline and a single
+ * light info line on the left, the happy-path action docked on the right.
+ * BIOS/launcher detail lives on their own screens now — the hero stays
+ * light.
  */
 @Composable
 private fun StatusBand(
@@ -320,35 +320,7 @@ private fun StatusBand(
                         color = if (ready) Crystal.Good else Crystal.Joystick,
                     ),
                 )
-                BasicText(
-                    text = homeStatsLine(readiness),
-                    style = TextStyle(
-                        fontFamily = Crystal.Mono,
-                        fontSize = Crystal.SectionSize,
-                        color = Crystal.Ink,
-                    ),
-                )
-                if (readiness.systemCount > 0) {
-                    BasicText(
-                        text = homeLauncherLine(readiness),
-                        style = TextStyle(
-                            fontFamily = Crystal.Mono,
-                            fontSize = Crystal.SectionSize,
-                            color = if (readiness.launcherIssueCount == 0) Crystal.Ink else Crystal.Joystick,
-                        ),
-                    )
-                }
-                // v24: firmware issues ride the same needs-attention color.
-                if (readiness.biosIssues.isNotEmpty()) {
-                    BasicText(
-                        text = homeBiosLine(readiness),
-                        style = TextStyle(
-                            fontFamily = Crystal.Mono,
-                            fontSize = Crystal.SectionSize,
-                            color = Crystal.Joystick,
-                        ),
-                    )
-                }
+                // Light info: just the library summary, nothing else.
                 BasicText(
                     text = homeLibraryLine(readiness),
                     style = TextStyle(
