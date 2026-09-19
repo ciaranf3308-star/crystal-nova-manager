@@ -26,6 +26,7 @@ import io.crystalnova.manager.pegasus.LauncherProfile
 import io.crystalnova.manager.pegasus.LauncherSource
 import io.crystalnova.manager.pegasus.LauncherType
 import io.crystalnova.manager.pegasus.MetafileGenerator
+import io.crystalnova.manager.launcher.LauncherExport
 import io.crystalnova.manager.pegasus.PegasusIntents
 import io.crystalnova.manager.pegasus.PegasusLibrary
 import io.crystalnova.manager.pegasus.PegasusRestartGate
@@ -1219,6 +1220,7 @@ class MainActivity : ComponentActivity() {
                 pegasusNotice = when (outcome) {
                     is PegasusLibrary.InjectOutcome.Ok -> {
                         pegasusRestartGate.pendingBuild = true
+                        exportLauncherBridge()
                         buildString {
                             append("LIBRARY BUILT · ${outcome.metafiles} SYSTEM METAFILES · ${outcome.games} GAMES")
                             if (outcome.skippedNoLauncher.isNotEmpty()) {
@@ -1234,6 +1236,26 @@ class MainActivity : ComponentActivity() {
                     }
                     is PegasusLibrary.InjectOutcome.Failed -> outcome.message
                 }
+            }
+        }
+    }
+
+    /**
+     * Phase 1 launcher bridge: refreshes `crystal-nova-data/config.json`
+     * and `launcher/profiles.json` after every successful BUILD so the
+     * Crystal Launcher always reads fresh data. Fire-and-forget on IO;
+     * a failed export is logged, never surfaced — BUILD results and the
+     * Pegasus flow are unchanged when the launcher files can't be written.
+     */
+    private fun exportLauncherBridge() {
+        scope.launch(Dispatchers.IO) {
+            val result = try {
+                scraper.exportLauncherBridge()
+            } catch (e: Exception) {
+                LauncherExport.ExportResult.Failed(e.message ?: e.javaClass.simpleName)
+            }
+            if (result !is LauncherExport.ExportResult.Ok) {
+                android.util.Log.i("CrystalNova", "launcher bridge export: $result")
             }
         }
     }
@@ -1262,8 +1284,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             when (outcome) {
-                is PegasusLibrary.InjectOutcome.Ok ->
+                is PegasusLibrary.InjectOutcome.Ok -> {
                     pegasusRestartGate.pendingBuild = true
+                    exportLauncherBridge()
+                }
                 is PegasusLibrary.InjectOutcome.Failed ->
                     // "NO LAUNCHER" / "NOTHING TO INJECT" are normal
                     // pre-configuration states, not errors.

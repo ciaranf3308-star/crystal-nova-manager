@@ -5,6 +5,8 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.launcher.LauncherExport
+import io.crystalnova.manager.pegasus.LauncherProfileStore
 import io.crystalnova.manager.scraper.esde.EsdeImport
 import io.crystalnova.manager.scraper.esde.EsdeImportRunner
 import io.crystalnova.manager.scraper.esde.MediaHealthCheck
@@ -575,6 +577,44 @@ class ScraperManager(
         games.put("${game.platform}/${game.gameId}", ScraperJson.indexEntryToJson(game))
         root.put("games", games)
         if (!st.saveIndexJson(root.toString())) throw IllegalStateException("index.json write failed")
+    }
+
+    /**
+     * Phase 1 launcher bridge: writes `config.json` and
+     * `launcher/profiles.json` into crystal-nova-data/ (contract §§3,7).
+     * Called after every successful BUILD. Additive and never throws —
+     * a failed export is reported, never propagated, so BUILD behavior
+     * is unchanged when the launcher files cannot be written.
+     */
+    fun exportLauncherBridge(): LauncherExport.ExportResult {
+        return try {
+            val dataRoot = LauncherExport.resolveDataRoot(
+                locations.mediaTreeUri(),
+                themesTreeUri(),
+                locations::canonicalPath,
+            ) ?: return LauncherExport.ExportResult.Skipped("data root unavailable")
+            val romRoot = locations.romTreeUri()?.let(locations::canonicalPath)
+                ?: return LauncherExport.ExportResult.Skipped("rom root unavailable")
+            val store = storage()
+            val configJson = LauncherExport.buildConfigJson(
+                romRoot = romRoot,
+                dataRoot = dataRoot,
+                updatedEpochSeconds = System.currentTimeMillis() / 1000,
+            )
+            if (!store.saveLauncherConfigJson(configJson)) {
+                return LauncherExport.ExportResult.Failed("config.json write failed")
+            }
+            val profiles = LauncherExport.collectProfiles(LauncherProfileStore(prefs))
+            val profilesJson = LauncherExport.buildProfilesJson(profiles)
+            if (!store.saveLauncherProfilesJson(profilesJson)) {
+                return LauncherExport.ExportResult.Failed("launcher/profiles.json write failed")
+            }
+            LauncherExport.ExportResult.Ok(
+                listOf(LauncherExport.CONFIG_NAME, "${LauncherExport.LAUNCHER_DIR}/${LauncherExport.PROFILES_NAME}"),
+            )
+        } catch (e: Exception) {
+            LauncherExport.ExportResult.Failed(e.message ?: e.javaClass.simpleName)
+        }
     }
 
     private fun buildImportResultText(result: EsdeImportRunner.ImportResult): String = buildString {

@@ -301,6 +301,41 @@ class ScraperStorage(
         }
     }
 
+    /**
+     * Phase 1 launcher bridge: writes `config.json` at the data root
+     * (contract §3). Filenames are owned by LauncherExport (the contract
+     * owner); they are inlined here to keep the storage layer free of a
+     * dependency on the launcher bridge module. Additive; never throws.
+     */
+    fun saveLauncherConfigJson(json: String): Boolean {
+        val root = dataRoot() ?: return false
+        return try {
+            writeAtomically(root, "config.json", json.toByteArray())
+            true
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            false
+        }
+    }
+
+    /**
+     * Phase 1 launcher bridge: writes `launcher/profiles.json`
+     * (contract §7), creating the `launcher/` dir. The launcher keeps
+     * its own cache elsewhere and must ignore everything else here.
+     * Additive; never throws.
+     */
+    fun saveLauncherProfilesJson(json: String): Boolean {
+        val root = dataRoot() ?: return false
+        val dir = ensureDir(root, "launcher") ?: return false
+        return try {
+            writeAtomically(dir, "profiles.json", json.toByteArray())
+            true
+        } catch (e: Exception) {
+            rethrowIfRevoked(e)
+            false
+        }
+    }
+
     /** Result of the pre-scrape writability probe against the data root. */
     sealed interface ProbeResult {
         data object Writable : ProbeResult
