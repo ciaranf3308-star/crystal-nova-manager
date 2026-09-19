@@ -22,20 +22,15 @@ import io.crystalnova.manager.updater.AppUpdateState
 fun SettingsScreen(
     romLocation: LocationState,
     mediaLocation: LocationState,
-    esdeLocation: LocationState,
     themesRootLabel: String,
     updateChannel: AppUpdateChannel,
     appVersion: String,
     appUpdate: AppUpdateState,
-    launcherUpdate: AppUpdateState,
-    launcherInstalled: Boolean,
     locationError: String?,
     onDismissLocationError: () -> Unit,
     onUpdateApp: () -> Unit,
-    onUpdateLauncher: () -> Unit,
     onOpenRom: () -> Unit,
     onOpenMedia: () -> Unit,
-    onOpenEsde: () -> Unit,
     onOpenEsdeImport: () -> Unit,
     onOpenThemes: () -> Unit,
     onOpenChannel: () -> Unit,
@@ -55,7 +50,7 @@ fun SettingsScreen(
             state = listState,
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
-            // Ten rows must fit the 960px viewport without scrolling
+            // Eight rows must fit the 960px viewport without scrolling
             // (NovaSettingsFitsViewportTest): compact rows and tighter
             // than the default arrangement.
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -67,14 +62,6 @@ fun SettingsScreen(
                 label = updateManagerLabel(appVersion, appUpdate),
                 onClick = onUpdateApp,
                 enabled = updateActionEnabled(appUpdate),
-            )
-            control(
-                key = "settings-update-launcher",
-                testTag = "settings-update-launcher",
-                compact = true,
-                label = updateLauncherLabel(launcherInstalled, launcherUpdate),
-                onClick = onUpdateLauncher,
-                enabled = updateActionEnabled(launcherUpdate),
             )
             control(
                 key = "settings-row-rom",
@@ -89,13 +76,6 @@ fun SettingsScreen(
                 compact = true,
                 label = "MEDIA LIBRARY\n${friendlyLocation(mediaLocation)}${mediaBadge(mediaLocation)}",
                 onClick = onOpenMedia,
-            )
-            control(
-                key = "settings-row-esde",
-                testTag = "settings-row-esde",
-                compact = true,
-                label = "ES-DE EXPORT FOLDER\n${friendlyLocation(esdeLocation)}",
-                onClick = onOpenEsde,
             )
             control(
                 key = "settings-row-esde-import",
@@ -305,46 +285,6 @@ private fun updateManagerLabel(appVersion: String, update: AppUpdateState): Stri
             "UPDATE MANAGER\nCHECK FAILED — RETRY"
     }
 
-/** The Crystal Launcher install/update state as a two-line row label. */
-private fun updateLauncherLabel(installed: Boolean, update: AppUpdateState): String {
-    if (!installed) {
-        return when (update) {
-            is AppUpdateState.Available ->
-                "INSTALL LAUNCHER\nv${update.info.version} — INSTALL NOW"
-            is AppUpdateState.Downloading -> {
-                val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
-                "INSTALL LAUNCHER\nDOWNLOADING$pct"
-            }
-            is AppUpdateState.Downloaded ->
-                "INSTALL LAUNCHER\nREADY — INSTALL NOW"
-            is AppUpdateState.Installing ->
-                "INSTALL LAUNCHER\nINSTALLING — FOLLOW THE SYSTEM PROMPT"
-            is AppUpdateState.Failed ->
-                "INSTALL LAUNCHER\nFAILED — RETRY"
-            else ->
-                "INSTALL LAUNCHER\nNOT INSTALLED — CHECK / INSTALL"
-        }
-    }
-    return when (update) {
-        is AppUpdateState.Idle ->
-            "UPDATE LAUNCHER\nUP TO DATE — CHECK AGAIN"
-        is AppUpdateState.Checking ->
-            "UPDATE LAUNCHER\nCHECKING…"
-        is AppUpdateState.Available ->
-            "UPDATE LAUNCHER\nv${update.info.version} AVAILABLE — UPDATE NOW"
-        is AppUpdateState.Downloading -> {
-            val pct = update.progress?.let { " — ${(it * 100).toInt()}%" } ?: ""
-            "UPDATE LAUNCHER\nDOWNLOADING$pct"
-        }
-        is AppUpdateState.Downloaded ->
-            "UPDATE LAUNCHER\nREADY — INSTALL NOW"
-        is AppUpdateState.Installing ->
-            "UPDATE LAUNCHER\nINSTALLING — FOLLOW THE SYSTEM PROMPT"
-        is AppUpdateState.Failed ->
-            "UPDATE LAUNCHER\nCHECK FAILED — RETRY"
-    }
-}
-
 /** Tapping the row does nothing meaningful while the updater is busy. */
 private fun updateActionEnabled(update: AppUpdateState): Boolean =
     update !is AppUpdateState.Checking &&
@@ -395,6 +335,7 @@ fun EsdeImportScreen(
     healthCheckStatus: String?,
     onPrescan: () -> Unit,
     onImport: () -> Unit,
+    onPickEsdeFolder: () -> Unit,
     onManualMatch: () -> Unit,
     onHealthCheck: () -> Unit,
     onBack: () -> Unit,
@@ -420,12 +361,21 @@ fun EsdeImportScreen(
                     if (esdeLocation is LocationState.AccessLost) Crystal.Bad else Crystal.Ink,
                 )
                 if (esdeLocation is LocationState.NotConfigured) {
-                    DimLine("PICK THE ES-DE EXPORT FOLDER FIRST (SETTINGS → ES-DE EXPORT FOLDER).")
+                    DimLine("PICK THE ES-DE EXPORT FOLDER BELOW FIRST.")
                 }
                 if (esdeLocation is LocationState.AccessLost) {
                     DimLine("THE SAVED FOLDER IS NO LONGER READABLE — PICK IT AGAIN.")
                 }
             }
+            // u44: the ES-DE folder picker moved here from SETTINGS — the
+            // export is the import screen's only input, so it belongs here.
+            control(
+                key = "settings-esde-import-pick-folder",
+                testTag = "settings-esde-import-pick-folder",
+                label = if (esdeLocation is LocationState.NotConfigured) "SELECT ES-DE FOLDER"
+                else "CHANGE ES-DE FOLDER",
+                onClick = onPickEsdeFolder,
+            )
             control(
                 key = "settings-esde-import-prescan",
                 testTag = "settings-esde-import-prescan",

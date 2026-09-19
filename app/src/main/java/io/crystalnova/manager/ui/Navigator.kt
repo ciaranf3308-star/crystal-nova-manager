@@ -3,31 +3,43 @@ package io.crystalnova.manager.ui
 import androidx.compose.runtime.mutableStateListOf
 
 /**
- * App destinations. The manager is a small set of focused screens on a
- * simple back stack:
+ * App destinations. The manager is the Nova's companion control
+ * centre — not a frontend builder (u44 pivot: iiSU is the frontend,
+ * Pegasus is legacy/fallback, the Crystal Launcher is frozen):
  *
- *   HOME → LIBRARY → SYSTEM(slug) → PROGRESS
- *   HOME → THEME
- *   HOME → SETTINGS → SETTINGS/ROM | SETTINGS/MEDIA | SETTINGS/ESDE | SETTINGS/PROBE | SETTINGS/THEMES | SETTINGS/CHANNEL | SETTINGS/APPEARANCE
- *   HOME → PEGASUS SETUP → PEGASUS LAUNCHERS → PEGASUS LAUNCHER(slug)
+ *   HOME → THEME (Crystal iiSU pack manager)
+ *   HOME → ASSETS (artwork library placeholder)
+ *   HOME → LIBRARY (thin on-demand ROM inventory)
+ *   HOME → SYSTEM → { DIAGNOSTICS, BIOS, INSTALLED EMULATORS }
+ *   HOME → SETTINGS → SETTINGS/ROM | SETTINGS/MEDIA | SETTINGS/ESDE-IMPORT |
+ *           SETTINGS/THEMES | SETTINGS/CHANNEL | SETTINGS/APPEARANCE
  *   any → DIAGNOSTICS (overlay destination; B pops back)
  *
  * Controller B pops exactly one level from any child destination and
  * never exits; only B on HOME exits the app.
+ *
+ * Archived (u44): Pegasus setup/launchers (Dest.PegasusSetup,
+ * Dest.PegasusLaunchers, Dest.PegasusLauncher) and the scraper
+ * provider UI (Dest.System, Dest.Progress). The screens stay in the
+ * codebase, unreferenced, until the new direction is proven.
  */
 sealed interface Dest {
     data object Home : Dest
+    /** ROMS: thin on-demand ROM inventory (no scraping, no metadata). */
     data object Library : Dest
-    data class System(val slug: String, val label: String) : Dest
-    data object Progress : Dest
+    /** THEME: the Crystal iiSU pack manager. */
     data object Theme : Dest
+    /** ASSETS: Crystal artwork library (placeholder until the catalog lands). */
+    data object Assets : Dest
+    /** SYSTEM: device-management hub (diagnostics, BIOS, emulators). */
+    data object SystemHub : Dest
+    /** SYSTEM → read-only installed-emulator inventory. */
+    data object InstalledEmulators : Dest
     data object Settings : Dest
     /** ROM LIBRARY child of SETTINGS. */
     data object SettingsRom : Dest
     /** MEDIA LIBRARY child of SETTINGS. */
     data object SettingsMedia : Dest
-    /** ES-DE EXPORT FOLDER child of SETTINGS (read-only export root). */
-    data object SettingsEsde : Dest
     /** ES-DE MEDIA IMPORT child of SETTINGS (copy real art into the library). */
     data object SettingsEsdeImport : Dest
     /** MANUAL MEDIA MATCH child of ES-DE IMPORT (pair unmatched games with media). */
@@ -41,9 +53,6 @@ sealed interface Dest {
     /** UPDATE CHANNEL child of SETTINGS. */
     data object SettingsChannel : Dest
     data object Diagnostics : Dest
-    data object PegasusSetup : Dest
-    data object PegasusLaunchers : Dest
-    data class PegasusLauncher(val slug: String, val label: String) : Dest
     /** v24: BIOS / firmware setup. */
     data object Bios : Dest
 }

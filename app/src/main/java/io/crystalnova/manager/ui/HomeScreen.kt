@@ -32,140 +32,103 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import io.crystalnova.manager.bios.BiosIssue
 import io.crystalnova.manager.updater.AppUpdateState
 
 /**
- * Appliance-ready HOME state (v23), derived from real persisted
- * production state only: the scanned library, the stored per-system
- * launcher profiles, the Pegasus install check, and (v24) the BIOS
- * inventory.
+ * HOME state for the control-centre era (u44 pivot). The Manager no
+ * longer builds a frontend — iiSU is the frontend, Pegasus is
+ * legacy/fallback, the Crystal Launcher is frozen — so HOME reports
+ * the companion state that matters:
  *
- * READY is never invented: it requires a ROM folder that reads, games
- * scanned, Pegasus installed, every launcher configured with its
- * emulator present, and no blocking firmware issues. Artwork
- * completeness never blocks READY — a game launches with or without
- * its box art. Other platforms' firmware is out of scope for v24 and
- * never blocks READY either; only
- * genuinely required firmware for systems with games present (PS2)
- * can add an issue.
+ * - iiSU installed/version (PackageManager, never invented)
+ * - the active Crystal iiSU pack (placeholder: none installed yet)
+ * - the thin ROM inventory (from the discovered library, never the
+ *   scraper/artwork index)
  */
-data class HomeReadiness(
+data class HomeStatus(
     val systemCount: Int,
     val totalGames: Int,
-    val configuredCount: Int,
-    val issueCount: Int,
-    val pegasusInstalled: Boolean,
     val romReady: Boolean,
-    /** v24: firmware problems (PS2 only) feeding the same issue model. */
-    val biosIssues: List<BiosIssue> = emptyList(),
-    /**
-     * v24: launcher issues only (excludes BIOS issues). The launcher
-     * hero line describes launcher state; BIOS problems get their own
-     * line via [homeBiosLine] — the two must never be conflated.
-     */
-    val launcherIssueCount: Int = 0,
-) {
-    val ready: Boolean
-        get() = romReady && pegasusInstalled && systemCount > 0 && issueCount == 0
-}
+    val iisuInstalled: Boolean,
+    /** iiSU versionName, e.g. "0.0.7.4" — null when not installed. */
+    val iisuVersion: String?,
+    /** Active Crystal pack name — null until the pack library lands. */
+    val packName: String?,
+    /** Active Crystal pack version — null until the pack library lands. */
+    val packVersion: String?,
+)
 
 /**
- * Builds HOME's readiness from the authoritative discovered ROM library
- * ([PegasusSystemRow.gameCount] sums), the Pegasus install check, the
- * ROM-location state, and the BIOS inventory issues.
- *
- * The scraper/artwork index is deliberately NOT an input: artwork
- * statistics must never gate or distort HOME's library count (e.g. an
- * unscraped library of 147 ROMs must read "147 GAMES", never "0 GAMES").
- * Artwork statistics live on the LIBRARY / ARTWORK screens only.
+ * Builds HOME's status from the discovered ROM library counts, the
+ * iiSU package check, and the (currently empty) installed-pack list.
+ * Everything is derived from real device state — never invented.
  */
-fun buildHomeReadiness(
-    rows: List<PegasusSystemRow>,
-    pegasusInstalled: Boolean,
+fun buildHomeStatus(
+    systems: List<Pair<String, Int>>,
     romReady: Boolean,
-    biosIssues: List<BiosIssue> = emptyList(),
-): HomeReadiness {
-    val withGames = rows.filter { it.gameCount > 0 }
-    val launcherIssues = withGames.count {
-        it.launcherStatus == "NOT CONFIGURED" || !it.launcherInstalled
-    }
-    return HomeReadiness(
-        systemCount = withGames.size,
-        totalGames = withGames.sumOf { it.gameCount },
-        configuredCount = withGames.size - launcherIssues,
-        issueCount = launcherIssues + biosIssues.size,
-        launcherIssueCount = launcherIssues,
-        pegasusInstalled = pegasusInstalled,
-        romReady = romReady,
-        biosIssues = biosIssues,
-    )
-}
+    iisuInstalled: Boolean,
+    iisuVersion: String?,
+    packName: String? = null,
+    packVersion: String? = null,
+): HomeStatus = HomeStatus(
+    systemCount = systems.size,
+    totalGames = systems.sumOf { it.second },
+    romReady = romReady,
+    iisuInstalled = iisuInstalled,
+    iisuVersion = iisuVersion,
+    packName = packName,
+    packVersion = packVersion,
+)
 
 /**
- * The exact HOME hero strings, as rendered by HomeScreen. Extracted so the
- * wiring tests pin what the user actually reads — the composition below
- * must call these rather than re-templating.
+ * The exact HOME status strings, as rendered by HomeScreen. Extracted
+ * so the wiring tests pin what the user actually reads — the
+ * composition below must call these rather than re-templating.
  */
-fun homeStatsLine(r: HomeReadiness) = "${r.systemCount} SYSTEMS · ${r.totalGames} GAMES"
-
-fun homeLauncherLine(r: HomeReadiness): String = if (r.launcherIssueCount == 0) {
-    "${r.configuredCount} LAUNCHERS CONFIGURED"
-} else {
-    val needs = if (r.launcherIssueCount == 1) "NEEDS" else "NEED"
-    "${r.configuredCount} CONFIGURED · ${r.launcherIssueCount} $needs ATTENTION"
+fun homeIisuLine(s: HomeStatus): String = when {
+    s.iisuInstalled && s.iisuVersion != null -> "iiSU v${s.iisuVersion} · INSTALLED"
+    s.iisuInstalled -> "iiSU · INSTALLED"
+    else -> "iiSU NOT INSTALLED"
 }
 
-fun homeLibraryLine(r: HomeReadiness): String = when {
-    !r.romReady -> "NO LIBRARY — PICK YOUR ROMS FOLDER"
-    !r.pegasusInstalled -> "PEGASUS NOT INSTALLED"
-    r.systemCount > 0 -> "LIBRARY BUILT"
+fun homePackLine(s: HomeStatus): String =
+    if (s.packName != null) "CRYSTAL PACK: ${s.packName.uppercase()} v${s.packVersion ?: "?"}"
+    else "CRYSTAL PACK: NONE INSTALLED"
+
+fun homeRomsLine(s: HomeStatus): String = when {
+    !s.romReady -> "NO LIBRARY — PICK YOUR ROMS FOLDER"
+    s.systemCount > 0 -> "${s.systemCount} SYSTEMS · ${s.totalGames} GAMES"
     else -> "LIBRARY EMPTY — SCAN YOUR ROMS"
 }
-
-/**
- * v24: the firmware issue line, e.g. `PS2 · BIOS REQUIRED`. Empty when
- * no firmware problem blocks READY.
- */
-fun homeBiosLine(r: HomeReadiness): String =
-    r.biosIssues.joinToString(" / ") { "${it.platformLabel} · ${it.headline}" }
 
 /**
  * HOME: a fixed single-screen appliance dashboard — NO scrolling.
  * Everything visible at once on the 1280×960 Nova viewport:
  *
  * - header: CRYSTAL NOVA + version (5-tap opens DIAGNOSTICS)
- * - status band: a compact panel with the one state that matters
- *   (READY TO PLAY vs FINISH SETUP), the honest system/launcher/
- *   library lines, and the happy-path action docked beside them
- *   (OPEN PEGASUS when ready, MAKE READY (+ REVIEW ISSUES) otherwise).
- *   The old centered hero owned ~70% of the screen and pushed the
- *   action buttons off the bottom — the band is content-sized and
- *   top-anchored instead.
+ * - status band: CRYSTAL/NOVA branding plus the three honest lines
+ *   (iiSU status, Crystal pack, ROM inventory) on the left; the
+ *   LAUNCH iiSU action docked on the right (disabled when iiSU is
+ *   not installed).
  * - manager-app update banner when an update is available (never buried)
- * - consolidated actions: LIBRARY / ARTWORK, THEME, SETTINGS — every
- *   destination visible at once in one row, no expander, no hidden taps
+ * - consolidated actions: THEME / ASSETS / ROMS / SYSTEM / SETTINGS —
+ *   every destination visible at once in one row, no expander, no
+ *   hidden taps
  * - pinned footer: A SELECT · B EXIT (from the scaffold)
  *
- * Everyday use never needs Diagnostics (still 5-tap hidden). The setup
- * screen stays one tap away via REBUILD LIBRARY even when READY, so a
- * fresh library BUILD (which the Crystal Launcher needs after every
- * Manager update) is never out of reach.
+ * Everyday use never needs Diagnostics (still 5-tap hidden).
  */
 @Composable
 fun HomeScreen(
-    readiness: HomeReadiness,
+    status: HomeStatus,
     appVersion: String,
     appUpdate: AppUpdateState,
-    themeSubtitle: String,
-    settingsSubtitle: String,
     onUpdateApp: () -> Unit,
-    onOpenPegasus: () -> Unit,
-    onMakeReady: () -> Unit,
-    onReviewIssues: () -> Unit,
-    onRebuildLibrary: () -> Unit,
-    onLibrary: () -> Unit,
+    onLaunchIisu: () -> Unit,
     onTheme: () -> Unit,
+    onAssets: () -> Unit,
+    onRoms: () -> Unit,
+    onSystem: () -> Unit,
     onSettings: () -> Unit,
     onDiagnostics: () -> Unit,
     onExit: () -> Unit,
@@ -178,7 +141,7 @@ fun HomeScreen(
         modifier = modifier,
         isHome = true,
         showMasthead = false,
-        fallbackFocusKey = if (appUpdate is AppUpdateState.Available) "home-update-app" else "home-primary",
+        fallbackFocusKey = if (appUpdate is AppUpdateState.Available) "home-update-app" else "home-launch-iisu",
     ) {
         Column(
             modifier = Modifier
@@ -202,20 +165,16 @@ fun HomeScreen(
                 )
                 VersionTapLabel(appVersion = appVersion, onDiagnostics = onDiagnostics)
             }
-            // The status band: state + honest lines on the left, the
-            // happy-path action docked on the right. Content-sized and
+            // The status band: branding + the three honest lines on the
+            // left, LAUNCH iiSU docked on the right. Content-sized and
             // top-anchored — it never steals the screen from the actions.
             StatusBand(
-                readiness = readiness,
-                onOpenPegasus = onOpenPegasus,
-                onMakeReady = onMakeReady,
-                onReviewIssues = onReviewIssues,
-                onRebuildLibrary = onRebuildLibrary,
+                status = status,
+                onLaunchIisu = onLaunchIisu,
                 dispatcher = dispatcher,
-                isPrimaryInitialFocus = isInitialFocus("home-primary"),
+                isLaunchInitialFocus = isInitialFocus("home-launch-iisu"),
             )
             // Manager-app self-update: surfaced HERE, never buried.
-            // (The theme updater lives on the THEME screen only.)
             when (val u = appUpdate) {
                 is AppUpdateState.Available -> UpdateBanner(
                     text = "MANAGER v${u.info.version} AVAILABLE",
@@ -259,36 +218,55 @@ fun HomeScreen(
             }
             // Consolidated actions: every destination visible at once in
             // one row of chunky tiles — no expander, no hidden taps.
-            // Nothing removed: LIBRARY / ARTWORK, THEME, SETTINGS.
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
                 CrystalButton(
-                    key = "home-library",
-                    testTag = "home-library",
-                    label = "LIBRARY / ARTWORK",
-                    subLabel = homeStatsLine(readiness),
-                    onClick = onLibrary,
-                    dispatcher = dispatcher,
-                    requestInitialFocus = isInitialFocus("home-library"),
-                    modifier = Modifier.weight(1f).height(128.dp),
-                )
-                CrystalButton(
                     key = "home-theme",
                     testTag = "home-theme",
                     label = "THEME",
-                    subLabel = themeSubtitle,
+                    subLabel = "CRYSTAL iiSU PACKS",
                     onClick = onTheme,
                     dispatcher = dispatcher,
                     requestInitialFocus = isInitialFocus("home-theme"),
                     modifier = Modifier.weight(1f).height(128.dp),
                 )
                 CrystalButton(
+                    key = "home-assets",
+                    testTag = "home-assets",
+                    label = "ASSETS",
+                    subLabel = "ARTWORK LIBRARY",
+                    onClick = onAssets,
+                    dispatcher = dispatcher,
+                    requestInitialFocus = isInitialFocus("home-assets"),
+                    modifier = Modifier.weight(1f).height(128.dp),
+                )
+                CrystalButton(
+                    key = "home-roms",
+                    testTag = "home-roms",
+                    label = "ROMS",
+                    subLabel = homeRomsLine(status),
+                    onClick = onRoms,
+                    dispatcher = dispatcher,
+                    requestInitialFocus = isInitialFocus("home-roms"),
+                    modifier = Modifier.weight(1f).height(128.dp),
+                )
+                CrystalButton(
+                    key = "home-system",
+                    testTag = "home-system",
+                    label = "SYSTEM",
+                    subLabel = "DEVICE MANAGEMENT",
+                    onClick = onSystem,
+                    dispatcher = dispatcher,
+                    requestInitialFocus = isInitialFocus("home-system"),
+                    modifier = Modifier.weight(1f).height(128.dp),
+                )
+                CrystalButton(
                     key = "home-settings",
                     testTag = "home-settings",
                     label = "SETTINGS",
-                    subLabel = settingsSubtitle,
+                    subLabel = "MANAGER",
                     onClick = onSettings,
                     dispatcher = dispatcher,
                     requestInitialFocus = isInitialFocus("home-settings"),
@@ -301,21 +279,17 @@ fun HomeScreen(
 
 /**
  * The home hero: stacked CRYSTAL / NOVA branding with a crystalline
- * gradient, the state headline and light info below, the happy-path
- * action docked on the right. BIOS/launcher detail lives on their own
- * screens now — the hero stays light.
+ * gradient, the three honest status lines below, and LAUNCH iiSU
+ * docked on the right. The Manager is a companion control centre —
+ * it never launches games itself.
  */
 @Composable
 private fun StatusBand(
-    readiness: HomeReadiness,
-    onOpenPegasus: () -> Unit,
-    onMakeReady: () -> Unit,
-    onReviewIssues: () -> Unit,
-    onRebuildLibrary: () -> Unit,
+    status: HomeStatus,
+    onLaunchIisu: () -> Unit,
     dispatcher: FocusDispatcher,
-    isPrimaryInitialFocus: Boolean,
+    isLaunchInitialFocus: Boolean,
 ) {
-    val ready = readiness.ready
     Box(
         modifier = Modifier
             .fillMaxWidth()
@@ -361,18 +335,26 @@ private fun StatusBand(
                         color = Color(0xFF7DD3FC),
                     ),
                 )
+                // The three honest lines: iiSU, pack, ROM inventory.
                 BasicText(
-                    text = if (ready) "READY TO PLAY" else "FINISH SETUP",
+                    text = homeIisuLine(status),
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontWeight = FontWeight.Bold,
                         fontSize = 20.sp,
-                        color = if (ready) Crystal.Good else Crystal.Joystick,
+                        color = if (status.iisuInstalled) Crystal.Good else Crystal.Joystick,
                     ),
                 )
-                // Light info: just the library summary, nothing else.
                 BasicText(
-                    text = homeLibraryLine(readiness),
+                    text = homePackLine(status),
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontSize = Crystal.BodySize,
+                        color = Crystal.InkDim,
+                    ),
+                )
+                BasicText(
+                    text = homeRomsLine(status),
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontSize = Crystal.BodySize,
@@ -384,50 +366,25 @@ private fun StatusBand(
                 modifier = Modifier.width(340.dp),
                 verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                if (ready) {
-                    CrystalButton(
-                        key = "home-primary",
-                        testTag = "home-primary",
-                        label = "OPEN PEGASUS",
-                        onClick = onOpenPegasus,
-                        dispatcher = dispatcher,
-                        enabled = readiness.pegasusInstalled,
-                        requestInitialFocus = isPrimaryInitialFocus,
-                        modifier = Modifier.height(84.dp),
+                CrystalButton(
+                    key = "home-launch-iisu",
+                    testTag = "home-launch-iisu",
+                    label = "LAUNCH iiSU",
+                    onClick = onLaunchIisu,
+                    dispatcher = dispatcher,
+                    enabled = status.iisuInstalled,
+                    requestInitialFocus = isLaunchInitialFocus,
+                    modifier = Modifier.height(84.dp),
+                )
+                if (!status.iisuInstalled) {
+                    BasicText(
+                        text = "iiSU IS THE NOVA'S FRONTEND — INSTALL IT TO PLAY.",
+                        style = TextStyle(
+                            fontFamily = Crystal.Mono,
+                            fontSize = Crystal.SmallSize,
+                            color = Crystal.InkDim,
+                        ),
                     )
-                    // u42: the library BUILD must stay reachable when READY —
-                    // the Crystal Launcher needs a fresh BUILD after every
-                    // Manager update, and the setup screen is otherwise
-                    // unreachable once everything reads as ready.
-                    CrystalButton(
-                        key = "home-rebuild",
-                        testTag = "home-rebuild",
-                        label = "REBUILD LIBRARY",
-                        onClick = onRebuildLibrary,
-                        dispatcher = dispatcher,
-                        modifier = Modifier.height(60.dp),
-                    )
-                } else {
-                    CrystalButton(
-                        key = "home-primary",
-                        testTag = "home-primary",
-                        label = "MAKE READY",
-                        onClick = onMakeReady,
-                        dispatcher = dispatcher,
-                        requestInitialFocus = isPrimaryInitialFocus,
-                        modifier = Modifier.height(76.dp),
-                    )
-                    if (readiness.issueCount > 0) {
-                        val s = if (readiness.issueCount == 1) "" else "S"
-                        CrystalButton(
-                            key = "home-review",
-                            testTag = "home-review",
-                            label = "REVIEW ${readiness.issueCount} ISSUE$s",
-                            onClick = onReviewIssues,
-                            dispatcher = dispatcher,
-                            modifier = Modifier.height(60.dp),
-                        )
-                    }
                 }
             }
         }
@@ -456,7 +413,7 @@ private fun UpdateBanner(
                 key = "home-update-app",
                 testTag = "home-update-app",
                 label = buttonLabel,
-                onClick = onClick,
+                onClick = onUpdateApp,
                 dispatcher = dispatcher,
                 requestInitialFocus = isInitialFocus,
             )

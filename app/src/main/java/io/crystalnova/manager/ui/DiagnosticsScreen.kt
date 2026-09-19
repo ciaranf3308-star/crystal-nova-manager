@@ -16,12 +16,7 @@ import io.crystalnova.manager.diag.appUpdateSummary
 import io.crystalnova.manager.diag.indexStatus
 import io.crystalnova.manager.diag.lastRunSummary
 import io.crystalnova.manager.diag.resolverSummary
-import io.crystalnova.manager.diag.themeBackupSummary
-import io.crystalnova.manager.diag.themeInstalledSummary
-import io.crystalnova.manager.diag.themeLatestSummary
-import io.crystalnova.manager.diag.updateNoticeOf
 import io.crystalnova.manager.scraper.work.AssetPresence
-import io.crystalnova.manager.scraper.work.BridgeStatus
 
 /**
  * Hidden diagnostics screen (open via 5 taps on the version label).
@@ -69,13 +64,14 @@ fun DiagnosticsScreen(
             section {
                 CrystalPanel {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        DiagSection("THEME")
-                        val s = info.managerState
-                        DiagRow("INSTALLED", themeInstalledSummary(s), null)
-                        DiagRow("LATEST KNOWN", themeLatestSummary(s), null)
-                        DiagRow("BACKUP", themeBackupSummary(s), null)
-                        DiagRow("UPDATER STATE", s.javaClass.simpleName, null)
-                        updateNoticeOf(s)?.let { DiagRow("NOTICE", it, Crystal.Bad) }
+                        DiagSection("CRYSTAL PACKS")
+                        if (info.installedPacks.isEmpty()) {
+                            DiagRow("INSTALLED", "NONE — PACK LIBRARY LANDS IN A LATER UPDATE", Crystal.InkDim)
+                        } else {
+                            info.installedPacks.forEach { pack ->
+                                DiagRow("PACK", pack, Crystal.Good)
+                            }
+                        }
                     }
                 }
             }
@@ -94,51 +90,6 @@ fun DiagnosticsScreen(
                             if (info.scraper.gamesFolderUri == null) Crystal.Bad else null,
                         )
                         DiagRow("DATA DIR", "crystal-nova-data/ (under themes root)", null)
-                    }
-                }
-            }
-            info.pegasusMetafile?.let { p ->
-                section {
-                    CrystalPanel {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            DiagSection("PEGASUS METAFILES")
-                            DiagRow("ROM ROOT", p.romRootPath, null)
-                            DiagRow(
-                                "ROM WRITABLE",
-                                if (p.romWritable) "YES" else "NO — RE-PICK ROM ROOT",
-                                if (p.romWritable) Crystal.Good else Crystal.Bad,
-                            )
-                            DiagRow("FILE", p.fileName, null)
-                            DiagRow("AGGREGATE", p.aggregate, Crystal.Good)
-                            DiagRow("LAST BUILD", p.lastInjected, null)
-                            if (p.systems.isNotEmpty()) {
-                                DiagSection("SYSTEM FILES")
-                                p.systems.forEach { s ->
-                                    DiagRow(
-                                        s.folder.uppercase(),
-                                        if (s.present) {
-                                            "PRESENT · ${s.bytes ?: 0} BYTES · ${s.games} GAMES"
-                                        } else {
-                                            "NOT FOUND"
-                                        },
-                                        if (s.present) Crystal.Good else Crystal.Bad,
-                                    )
-                                }
-                            }
-                            DiagSection("GAME DIRS REGISTRATION")
-                            DiagRow("GAME_DIRS.TXT", p.gameDirsStatus, null)
-                            MetafileHint("game_dirs.txt only registers paths — it does NOT grant Pegasus storage permission.")
-                        }
-                    }
-                }
-                section {
-                    CrystalPanel {
-                        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                            DiagSection("COLLECTIONS NOT APPEARING?")
-                            MetafileHint("1. ADD THE SYSTEM FOLDERS (gba, psp, …) IN PEGASUS → SETTINGS → \"SET GAME DIRECTORIES\"")
-                            MetafileHint("2. PEGASUS SCANS GAMES ON LAUNCH — LEAVE THAT DEFAULT ON")
-                            MetafileHint("3. PEGASUS NEEDS ITS OWN STORAGE ACCESS — IT ASKS ON FIRST RUN; WITHOUT IT, GAMES ARE SILENTLY SKIPPED")
-                        }
                     }
                 }
             }
@@ -214,12 +165,6 @@ fun DiagnosticsScreen(
                             if (d.mediaAccess) "WRITABLE" else "NOT WRITABLE — RESELECT",
                             if (d.mediaAccess) Crystal.Good else Crystal.Bad,
                         )
-                        val (bridgeText, bridgeColor) = when (d.bridgeStatus) {
-                            BridgeStatus.PRESENT -> "PRESENT" to Crystal.Good
-                            BridgeStatus.NOT_REQUIRED -> "NOT REQUIRED (LEGACY LOOKUP)" to Crystal.InkDim
-                            BridgeStatus.FAILED -> "FAILED — THEME CANNOT FIND MEDIA" to Crystal.Bad
-                        }
-                        DiagRow("BRIDGE", bridgeText, bridgeColor)
                         val rep = d.representative
                         if (rep == null) {
                             DiagRow("REPRESENTATIVE", "NO SCRAPED GAMES IN INDEX", Crystal.InkDim)
