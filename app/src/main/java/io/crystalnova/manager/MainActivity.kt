@@ -44,6 +44,7 @@ import io.crystalnova.manager.ui.EsdeManualMatchScreen
 import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
+import io.crystalnova.manager.ui.MediaHealthReportScreen
 import io.crystalnova.manager.ui.Navigator
 import io.crystalnova.manager.ui.toHex
 import io.crystalnova.manager.ui.PegasusLauncherScreen
