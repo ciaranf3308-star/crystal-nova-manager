@@ -413,7 +413,7 @@ private fun UpdateBanner(
                 key = "home-update-app",
                 testTag = "home-update-app",
                 label = buttonLabel,
-                onClick = onUpdateApp,
+                onClick = onClick,
                 dispatcher = dispatcher,
                 requestInitialFocus = isInitialFocus,
             )
