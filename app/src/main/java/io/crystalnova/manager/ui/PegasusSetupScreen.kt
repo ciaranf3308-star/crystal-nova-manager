@@ -164,7 +164,7 @@ fun PegasusSetupScreen(
             control(
                 key = "pegasus-setup-inject",
                 testTag = "pegasus-setup-inject",
-                label = if (injecting) "INJECTING…" else "BUILD PEGASUS LIBRARY",
+                label = if (injecting) "INJECTING…" else "BUILD LIBRARY",
                 onClick = onInject,
                 enabled = injectEnabled,
             )

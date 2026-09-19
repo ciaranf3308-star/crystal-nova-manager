@@ -550,6 +550,8 @@ class MainActivity : ComponentActivity() {
                             if (homeReadiness.biosIssues.isNotEmpty()) nav.navigate(Dest.Bios)
                             else nav.navigate(Dest.PegasusSetup)
                         },
+                        // u42: keep the library BUILD one tap away when READY.
+                        onRebuildLibrary = { nav.navigate(Dest.PegasusSetup) },
                     onLibrary = {
                         scraper.refresh()
                         nav.navigate(Dest.Library)
@@ -1201,7 +1203,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Explicit INJECT / BUILD PEGASUS LIBRARY. Runs off the main
+     * Explicit INJECT / BUILD LIBRARY. Runs off the main
      * thread; the result (counts, skipped systems, or a failure
      * message) lands in [pegasusNotice]. Never runs automatically.
      *

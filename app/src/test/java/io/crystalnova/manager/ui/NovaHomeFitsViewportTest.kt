@@ -52,6 +52,7 @@ class NovaHomeFitsViewportTest : NovaUiTest() {
                 onOpenPegasus = {},
                 onMakeReady = {},
                 onReviewIssues = {},
+                onRebuildLibrary = {},
                 onLibrary = {},
                 onTheme = {},
                 onSettings = {},
@@ -111,6 +112,8 @@ class NovaHomeFitsViewportTest : NovaUiTest() {
         // Status band: READY TO PLAY headline and the happy-path action.
         composeTestRule.onNodeWithText("READY TO PLAY").assertExists()
         assertNodeInViewport("home-primary")
+        // u42: the library rebuild must be one tap away when READY.
+        assertNodeInViewport("home-rebuild")
         // Consolidated action row: every destination visible at once,
         // no expander to open.
         assertNodeInViewport("home-library")

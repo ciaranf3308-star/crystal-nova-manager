@@ -287,7 +287,7 @@ class StorageLocations(
     /**
      * True when the pref is set AND the persisted grant still carries
      * BOTH read and write ([ContentResolver.persistedUriPermissions]).
-     * v19: BUILD PEGASUS LIBRARY requires the ROM root to be WRITABLE
+     * v19: BUILD LIBRARY requires the ROM root to be WRITABLE
      * — a read-only grant can scan but cannot receive the game-dir
      * metafile. SecurityException reads as "no grant", never as
      * configured.

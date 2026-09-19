@@ -147,8 +147,10 @@ fun homeBiosLine(r: HomeReadiness): String =
  *   destination visible at once in one row, no expander, no hidden taps
  * - pinned footer: A SELECT · B EXIT (from the scaffold)
  *
- * Everyday use never needs Diagnostics (still 5-tap hidden) and never
- * needs the setup screens when everything is READY.
+ * Everyday use never needs Diagnostics (still 5-tap hidden). The setup
+ * screen stays one tap away via REBUILD LIBRARY even when READY, so a
+ * fresh library BUILD (which the Crystal Launcher needs after every
+ * Manager update) is never out of reach.
  */
 @Composable
 fun HomeScreen(
@@ -161,6 +163,7 @@ fun HomeScreen(
     onOpenPegasus: () -> Unit,
     onMakeReady: () -> Unit,
     onReviewIssues: () -> Unit,
+    onRebuildLibrary: () -> Unit,
     onLibrary: () -> Unit,
     onTheme: () -> Unit,
     onSettings: () -> Unit,
@@ -389,6 +392,18 @@ private fun StatusBand(
                         enabled = readiness.pegasusInstalled,
                         requestInitialFocus = isPrimaryInitialFocus,
                         modifier = Modifier.height(84.dp),
+                    )
+                    // u42: the library BUILD must stay reachable when READY —
+                    // the Crystal Launcher needs a fresh BUILD after every
+                    // Manager update, and the setup screen is otherwise
+                    // unreachable once everything reads as ready.
+                    CrystalButton(
+                        key = "home-rebuild",
+                        testTag = "home-rebuild",
+                        label = "REBUILD LIBRARY",
+                        onClick = onRebuildLibrary,
+                        dispatcher = dispatcher,
+                        modifier = Modifier.height(60.dp),
                     )
                 } else {
                     CrystalButton(
