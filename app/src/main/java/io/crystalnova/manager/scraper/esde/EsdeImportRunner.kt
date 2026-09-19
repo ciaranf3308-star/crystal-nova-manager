@@ -388,7 +388,9 @@ class EsdeImportRunner(
             val root = JSONObject(text)
             val games = root.optJSONObject("games") ?: JSONObject()
             for ((key, game) in manifests) {
-                if (games.has(key)) games.put(key, ScraperJson.indexEntryToJson(game))
+                // Add new entries, not just update existing ones — ES-DE
+                // imports create manifests for games the scraper never saw.
+                games.put(key, ScraperJson.indexEntryToJson(game))
             }
             root.put("games", games)
             if (!storage.saveIndexJson(root.toString())) {
