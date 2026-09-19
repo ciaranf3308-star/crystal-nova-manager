@@ -285,6 +285,10 @@ private fun ControllerListContent.packSection(
         is PackDownloadState.Failed -> downloadState.packId == pack.id
         else -> false
     }
+    // One download at a time: while another pack is mid-download this
+    // pack's DOWNLOAD disables instead of silently no-opping.
+    val busyElsewhere = (downloadState is PackDownloadState.Downloading ||
+        downloadState is PackDownloadState.Verifying) && !thisPack
     when {
         downloadState is PackDownloadState.Downloading && thisPack -> section {
             val pct = downloadState.total
@@ -301,7 +305,7 @@ private fun ControllerListContent.packSection(
         downloadState is PackDownloadState.ReadyToInstall && thisPack -> control(
             key = "pack-action-${pack.id}",
             testTag = "pack-action-${pack.id}",
-            label = "INSTALL TO iiSU",
+            label = if (installed) "SEND TO iiSU AGAIN" else "INSTALL TO iiSU",
             onClick = { onInstallToIisu(pack, downloadState.zip) },
         )
         downloadState is PackDownloadState.Failed && thisPack -> {
@@ -322,6 +326,7 @@ private fun ControllerListContent.packSection(
             key = "pack-action-${pack.id}",
             testTag = "pack-action-${pack.id}",
             label = if (installed) "DOWNLOAD AGAIN" else "DOWNLOAD",
+            enabled = !busyElsewhere,
             onClick = onDownload,
         )
     }
