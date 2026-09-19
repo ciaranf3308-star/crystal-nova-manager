@@ -188,7 +188,9 @@ class EsdeImportRunner(
         slotPlans: List<EsdeImport.SlotPlan>,
     ): List<EsdeImport.UnmatchedMediaGroup> {
         // Collect all relPaths claimed by the automatic matcher.
-        val usedPaths = slotPlans.mapNotNull { it.found?.relPath }.toSet()
+        val usedPaths: Set<String> = slotPlans.mapNotNull { sp: EsdeImport.SlotPlan ->
+            sp.found?.relativePath
+        }.toSet()
 
         // Reverse SLOT_DIRS: dir name -> slot.
         val dirToSlot = mutableMapOf<String, AssetSlot>()

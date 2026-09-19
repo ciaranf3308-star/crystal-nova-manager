@@ -327,7 +327,7 @@ class ScraperManager(
                             fileName = mf.fileName,
                             byteLength = mf.byteLength,
                         ),
-                        decision = EsdeImport.Decision.Copy,
+                        decision = EsdeImport.Decision.COPY_NEW,
                     )
                 }
                 // Minimal plan for just this game.
