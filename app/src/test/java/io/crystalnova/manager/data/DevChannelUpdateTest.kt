@@ -161,8 +161,8 @@ class DevChannelUpdateTest {
         c.check(7)
         // Cache-buster timestamp is appended — verify the base URL matches.
         assertEquals(1, http.requested.size)
-        assertTrue(http.requested[0].startsWith(DEV_MANIFEST_URL),
-            "Expected URL starting with $DEV_MANIFEST_URL but was ${http.requested[0]}")
+        assertTrue("Expected URL starting with $DEV_MANIFEST_URL but was ${http.requested[0]}",
+            http.requested[0].startsWith(DEV_MANIFEST_URL))
     }
 
     @Test
