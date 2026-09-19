@@ -264,7 +264,10 @@ open class DevUpdateChecker(
      */
     @Throws(IOException::class)
     open fun check(installedVersionCode: Int): DevUpdateManifest? {
-        val resp = manifestHttp.get(DEV_MANIFEST_URL)
+        // Cache-buster: GitHub's CDN aggressively caches the rolling
+        // dev-latest manifest. Appending a timestamp forces a fresh fetch.
+        val url = "$DEV_MANIFEST_URL?t=${System.currentTimeMillis()}"
+        val resp = manifestHttp.get(url)
         if (resp.code != 200) throw IOException("Dev manifest returned HTTP ${resp.code}")
         val manifest = parseDevManifest(resp.bodyText())
             ?: throw IOException("Malformed dev manifest")
@@ -285,7 +288,9 @@ open class DevUpdateChecker(
         dest: File,
         onProgress: (downloadedBytes: Long, totalBytes: Long?) -> Unit,
     ) {
-        assetHttp.download(manifest.apkUrl, dest, onProgress)
+        // Cache-buster for the APK too — same CDN issue as the manifest.
+        val url = "${manifest.apkUrl}?t=${System.currentTimeMillis()}"
+        assetHttp.download(url, dest, onProgress)
         if (!sha256Hex(dest).equals(manifest.apkSha256, ignoreCase = true)) {
             dest.delete()
             throw IOException("Dev APK checksum mismatch")
