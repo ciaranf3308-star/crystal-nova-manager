@@ -194,6 +194,20 @@ class EsdeImportRunner(
         // (platform, gameId) -> manifest being built up.
         val manifests = mutableMapOf<String, io.crystalnova.manager.scraper.model.ScrapedGame>()
 
+        // Index repair: load existing manifests for all matched games.
+        // If a previous import copied files but failed to update index.json
+        // (e.g. u23), the re-run will SKIP all files (already exist) and
+        // the index would never be fixed. Pre-loading ensures the index
+        // gets repaired even when nothing is copied.
+        for (gameId in plan.matchedGameIds) {
+            val parts = gameId.split("/", limit = 2)
+            if (parts.size != 2) continue
+            try {
+                val m = storage.loadManifest(parts[0], parts[1])
+                if (m != null) manifests[gameId] = m
+            } catch (_: Exception) { }
+        }
+
         toWrite.forEachIndexed { i, sp ->
             try {
                 val found = sp.found ?: return@forEachIndexed
