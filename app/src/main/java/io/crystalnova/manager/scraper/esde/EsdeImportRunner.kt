@@ -357,7 +357,57 @@ class EsdeImportRunner(
                 }
             }
         }
+        // Ruthless fallback: Levenshtein fuzzy match. For stubborn cases
+        // where names differ more substantially (e.g. "Mario Golf -
+        // Toadstool Tour" vs "Mario Golf Toadstool Tour (E)"), find the
+        // closest normalized basename within an edit-distance threshold.
+        if (normBase.isNotEmpty()) {
+            for (dir in dirs) {
+                val prefix = "media/$esdeSys/$dir/"
+                var bestDoc: DocumentFile? = null
+                var bestKey: String? = null
+                var bestDist = Int.MAX_VALUE
+                for ((key, doc) in exportIndex) {
+                    if (!key.startsWith(prefix) || !doc.isFile) continue
+                    val ext = key.substringAfterLast('.', "")
+                    if (ext !in EsdeImport.IMAGE_EXTENSIONS) continue
+                    val fileBase = key.removePrefix(prefix).substringBeforeLast('.')
+                    val normFile = TitleNormalizer.normalize(fileBase)
+                    if (normFile.isEmpty()) continue
+                    val dist = levenshtein(normBase, normFile)
+                    // Threshold: allow ~20% of the name length in edits,
+                    // minimum 2, maximum 6. Prevents absurd matches.
+                    val threshold = (normBase.length / 5).coerceIn(2, 6)
+                    if (dist <= threshold && dist < bestDist) {
+                        bestDist = dist
+                        bestDoc = doc
+                        bestKey = key
+                    }
+                }
+                if (bestDoc != null && bestKey != null) {
+                    val rel = "media/$esdeSys/$dir/${bestDoc.name}"
+                    return EsdeImport.FoundAsset(slot, rel, bestDoc.name ?: "", bestDoc.length())
+                }
+            }
+        }
         return null
+    }
+
+    private fun levenshtein(a: String, b: String): Int {
+        if (a == b) return 0
+        if (a.isEmpty()) return b.length
+        if (b.isEmpty()) return a.length
+        val prev = IntArray(b.length + 1) { it }
+        val curr = IntArray(b.length + 1)
+        for (i in 1..a.length) {
+            curr[0] = i
+            for (j in 1..b.length) {
+                val cost = if (a[i - 1] == b[j - 1]) 0 else 1
+                curr[j] = minOf(prev[j] + 1, curr[j - 1] + 1, prev[j - 1] + cost)
+            }
+            prev.indices.forEach { prev[it] = curr[it] }
+        }
+        return prev[b.length]
     }
 
     private fun loadGamelist(
