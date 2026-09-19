@@ -9,6 +9,7 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.requestFocus
+import io.crystalnova.manager.data.PackEntry
 import io.crystalnova.manager.scraper.ScraperUiState
 import io.crystalnova.manager.scraper.esde.EsdeImport
 import io.crystalnova.manager.storage.LocationState
@@ -51,17 +52,24 @@ fun fakeManualMatchPlan(count: Int): EsdeImport.ImportPlan {
 }
 
 /** [count] fake Crystal iiSU packs, ids `pack-0 …`. */
-fun fakeCrystalPacks(count: Int): List<CrystalPack> =
-    (0 until count).map { i ->
-        CrystalPack(
-            id = "pack-$i",
-            name = "Crystal Pack $i",
-            version = "1.$i",
-            description = "Test pack $i",
-            systems = listOf("Super Nintendo"),
-            installed = i == 0,
-        )
-    }
+fun fakePackEntry(i: Int): PackEntry = PackEntry(
+    id = "pack-$i",
+    name = "Crystal Pack $i",
+    version = "1.$i",
+    versionCode = 10 + i,
+    description = "Test pack $i",
+    previewUrl = null,
+    previewSha256 = null,
+    systems = listOf("Super Nintendo"),
+    iisuMinVersion = "0.0.7.4",
+    zipUrl = "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/pack-$i.zip",
+    zipSha256 = "a".repeat(64),
+    zipBytes = 1024L,
+    assets = emptyList(),
+)
+
+fun fakeCrystalPacks(count: Int): List<PackEntry> =
+    (0 until count).map(::fakePackEntry)
 
 // ---------------------------------------------------------------------------
 // Focus + viewport drivers shared by the Nova behavior tests.

@@ -132,6 +132,8 @@ class MainActivity : ComponentActivity() {
     private lateinit var packLibrary: PackLibrary
     /** Lazily-loaded pack preview bitmaps, keyed by pack id. */
     private var packPreviews by mutableStateOf(mapOf<String, androidx.compose.ui.graphics.ImageBitmap>())
+    /** Pack ids whose preview fetch has already been kicked off. */
+    private val previewLoadsStarted = mutableSetOf<String>()
     /** Manual-import guidance shown when iiSU does not take the share. */
     private var manualImport: ManualImport? by mutableStateOf(null)
     /** Notice inside the manual-import panel (e.g. no file manager). */
@@ -834,10 +836,11 @@ class MainActivity : ComponentActivity() {
 
     /** Lazily fetches and decodes one pack preview image. */
     private fun requestPackPreview(pack: PackEntry) {
-        if (packPreviews.containsKey(pack.id)) return
-        scope.launch(kotlinx.coroutines.Dispatchers.IO) {
-            val bitmap = packLibrary.previewBytes(pack)
-                ?.let(::decodePreviewImage)
+        if (!previewLoadsStarted.add(pack.id)) return
+        scope.launch {
+            val bitmap = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                packLibrary.previewBytes(pack)?.let(::decodePreviewImage)
+            }
             if (bitmap != null) {
                 packPreviews = packPreviews + (pack.id to bitmap)
             }
