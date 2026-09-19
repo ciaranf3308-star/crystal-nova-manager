@@ -256,6 +256,7 @@ class EsdeImportRunner(
      */
     private fun platformForEsdeSystem(esdeSystem: String): String = when (esdeSystem) {
         "gc" -> "gamecube"
+        "gamecube" -> "gamecube"
         "3ds" -> "n3ds"
         "megadrive" -> "genesis"
         else -> esdeSystem

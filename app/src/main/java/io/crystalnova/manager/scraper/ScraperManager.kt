@@ -469,6 +469,8 @@ class ScraperManager(
                 )
                 when (val r = st.saveAsset(
                     platform, gameId, slot, provenance, png, manifest.assets[slot],
+                    // Explicit user choice: replacing your own artwork always wins.
+                    force = true,
                 )) {
                     is ScraperStorage.SaveResult.Saved -> {
                         val updated = manifest.assets.toMutableMap()

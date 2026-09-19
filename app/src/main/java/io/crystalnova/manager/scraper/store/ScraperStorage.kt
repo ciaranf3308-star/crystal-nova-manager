@@ -133,7 +133,10 @@ class ScraperStorage(
 
     /**
      * Saves an asset file honoring replacement rules. [existing] is the
-     * current provenance for the slot, or null when empty.
+     * current provenance for the slot, or null when empty. [force] is
+     * reserved for an explicit user choice (the artwork studio): a user
+     * replacing their own USER asset always wins. Imports never pass
+     * force, so the USER-wins protection is unchanged for them.
      */
     fun saveAsset(
         platform: String,
@@ -142,8 +145,9 @@ class ScraperStorage(
         provenance: AssetProvenance,
         bytes: ByteArray,
         existing: AssetProvenance?,
+        force: Boolean = false,
     ): SaveResult {
-        if (existing != null) {
+        if (existing != null && !force) {
             if (existing.sourceType == SourceType.USER) {
                 return SaveResult.Kept("user asset wins")
             }

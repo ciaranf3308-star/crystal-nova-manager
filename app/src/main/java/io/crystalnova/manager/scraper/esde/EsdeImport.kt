@@ -44,14 +44,15 @@ object EsdeImport {
     /**
      * ES-DE system folder candidates for a Crystal platform slug, in
      * priority order. ES-DE's canonical folder names don't always match
-     * ours: GameCube lives under `gc`, 3DS under `3ds`, and Sega Genesis
-     * under `megadrive` (we use `genesis`). The importer searches every
-     * candidate; the first hit wins, so a mixed export (both `genesis/`
-     * and `megadrive/`) still resolves.
+     * ours: Sega Genesis lives under `megadrive` (we use `genesis`), 3DS
+     * under `3ds` (we use `n3ds`) — and GameCube exports have been seen
+     * as both `gamecube` and `gc`, so both are searched. The importer
+     * searches every candidate; the first hit wins, so a mixed export
+     * still resolves.
      */
     fun esdeSystemDirs(platformSlug: String): List<String> = when (platformSlug) {
         "genesis" -> listOf("genesis", "megadrive")
-        "gamecube" -> listOf("gc")
+        "gamecube" -> listOf("gamecube", "gc")
         "n3ds" -> listOf("3ds")
         else -> listOf(platformSlug)
     }
