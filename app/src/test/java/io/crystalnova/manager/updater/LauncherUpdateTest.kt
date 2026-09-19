@@ -3,6 +3,7 @@ package io.crystalnova.manager.updater
 import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.DevUpdateManifest
 import io.crystalnova.manager.data.FakeHttpClient
+import io.crystalnova.manager.data.GitHubEndpoints
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.data.SelfUpdateChecker
