@@ -152,6 +152,26 @@ object EsdeImport {
     }
 
     /** Result of the pre-scan: everything the report and the import need. */
+    /**
+     * A group of ES-DE media files that were not matched to any ROM game
+     * during prescan, grouped by (system, normalized basename). Used by
+     * the manual matching UI so the user can pair them with games.
+     */
+    data class UnmatchedMediaGroup(
+        val esdeSystem: String,
+        val platform: String,
+        val key: String,
+        val displayName: String,
+        val files: List<UnmatchedMediaFile>,
+    )
+
+    data class UnmatchedMediaFile(
+        val slot: AssetSlot,
+        val relPath: String,
+        val fileName: String,
+        val byteLength: Long,
+    )
+
     data class ImportPlan(
         val games: List<RomGame>,
         val slotPlans: List<SlotPlan>,
@@ -159,6 +179,8 @@ object EsdeImport {
         val matchedGameIds: Set<String>,
         /** Games with no ES-DE asset in any slot. */
         val unmatchedGames: List<RomGame>,
+        /** ES-DE media files not claimed by any game, grouped for manual matching. */
+        val unmatchedMediaGroups: List<UnmatchedMediaGroup>,
     ) {
         val toWrite: List<SlotPlan> get() = slotPlans.filter { it.decision.isCopy }
         val totalBytes: Long get() = toWrite.sumOf { it.found?.byteLength ?: 0L }
@@ -178,6 +200,7 @@ object EsdeImport {
             appendLine("ROMs scanned: ${games.size}")
             appendLine("Games matched: ${matchedGameIds.size}")
             appendLine("Games unmatched: ${unmatchedGames.size}")
+            appendLine("Unmatched media groups: ${unmatchedMediaGroups.size}")
             appendLine()
             appendLine("Assets found by slot:")
             for (slot in SLOT_DIRS.keys) {

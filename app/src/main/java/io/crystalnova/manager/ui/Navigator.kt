@@ -30,6 +30,8 @@ sealed interface Dest {
     data object SettingsEsde : Dest
     /** ES-DE MEDIA IMPORT child of SETTINGS (copy real art into the library). */
     data object SettingsEsdeImport : Dest
+    /** MANUAL MEDIA MATCH child of ES-DE IMPORT (pair unmatched games with media). */
+    data object SettingsEsdeManualMatch : Dest
     /** APPEARANCE child of SETTINGS (recolor the Crystal identity). */
     data object SettingsAppearance : Dest
     /** THEME STORAGE child of SETTINGS. */

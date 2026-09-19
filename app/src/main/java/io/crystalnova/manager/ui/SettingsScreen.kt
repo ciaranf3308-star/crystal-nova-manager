@@ -329,8 +329,10 @@ fun EsdeImportScreen(
     importRunning: Boolean,
     importProgress: String?,
     importResult: String?,
+    unmatchedCount: Int,
     onPrescan: () -> Unit,
     onImport: () -> Unit,
+    onManualMatch: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -391,6 +393,15 @@ fun EsdeImportScreen(
                 onClick = onImport,
                 enabled = canImport,
             )
+            if (importPlanReady && unmatchedCount > 0) {
+                control(
+                    key = "settings-esde-import-manual",
+                    testTag = "settings-esde-import-manual",
+                    label = "MANUAL MATCH ($unmatchedCount UNMATCHED)",
+                    onClick = onManualMatch,
+                    enabled = !prescanning && !importRunning,
+                )
+            }
             importResult?.let { result ->
                 section {
                     StatusLine(result)

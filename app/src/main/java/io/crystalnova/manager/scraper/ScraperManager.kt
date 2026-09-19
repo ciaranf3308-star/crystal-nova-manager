@@ -69,6 +69,8 @@ data class ScraperUiState(
     val importProgress: String? = null,
     /** Import summary incl. per-system validation; null when never run. */
     val importResult: String? = null,
+    /** Result of the last manual match; null when never run. */
+    val manualMatchResult: String? = null,
     val scanning: Boolean = false,
     /** Live scan counters while [scanning]; null when idle. Never a percentage. */
     val scanProgress: ScanProgress? = null,
@@ -294,6 +296,61 @@ class ScraperManager(
             )
             // Refresh scraper stats so the new REAL assets show up.
             loadStats()
+        }
+    }
+
+    /**
+     * Applies a manual match: copies the media group's files into the
+     * game's library folder, updates manifest + index, then re-runs the
+     * pre-scan to refresh the unmatched lists. Never throws.
+     */
+    fun applyManualMatch(
+        game: EsdeImport.RomGame,
+        media: EsdeImport.UnmatchedMediaGroup,
+    ) {
+        if (_state.value.importRunning || _state.value.importPrescanning) return
+        _state.value = _state.value.copy(
+            importRunning = true,
+            importProgress = "MATCHING ${game.title}…",
+            manualMatchResult = null,
+        )
+        scope.launch(ioDispatcher) {
+            val resultText = try {
+                // Build SlotPlans from the media group's files.
+                val slotPlans = media.files.map { mf ->
+                    EsdeImport.SlotPlan(
+                        game = game,
+                        slot = mf.slot,
+                        found = EsdeImport.FoundAsset(
+                            slot = mf.slot,
+                            relativePath = mf.relPath,
+                            fileName = mf.fileName,
+                            byteLength = mf.byteLength,
+                        ),
+                        decision = EsdeImport.Decision.Copy,
+                    )
+                }
+                // Minimal plan for just this game.
+                val plan = EsdeImport.ImportPlan(
+                    games = listOf(game),
+                    slotPlans = slotPlans,
+                    matchedGameIds = setOf("${game.platform}/${game.gameId}"),
+                    unmatchedGames = emptyList(),
+                    unmatchedMediaGroups = emptyList(),
+                )
+                val roms = ensureLibraryScan()
+                val result = EsdeImportRunner(context, locations, storage())
+                    .execute(plan, roms) { _, _ -> }
+                "MATCHED ${game.title}\n${result.written} files copied."
+            } catch (e: Exception) {
+                "MATCH FAILED\n\n${e.message ?: e.javaClass.simpleName}"
+            }
+            _state.value = _state.value.copy(
+                importRunning = false, importProgress = null,
+                manualMatchResult = resultText,
+            )
+            // Re-run prescan to refresh unmatched lists.
+            runEsdeImportPrescan()
         }
     }
 

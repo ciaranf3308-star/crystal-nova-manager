@@ -40,6 +40,7 @@ import io.crystalnova.manager.ui.Crystal
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.DiagnosticsScreen
 import io.crystalnova.manager.ui.EsdeImportScreen
+import io.crystalnova.manager.ui.EsdeManualMatchScreen
 import io.crystalnova.manager.ui.HomeReadiness
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.LibraryScreen
@@ -651,8 +652,16 @@ class MainActivity : ComponentActivity() {
                     importRunning = scraperState.importRunning,
                     importProgress = scraperState.importProgress,
                     importResult = scraperState.importResult,
+                    unmatchedCount = scraperState.importPlan?.unmatchedGames?.size ?: 0,
                     onPrescan = { scraper.runEsdeImportPrescan() },
                     onImport = { scraper.runEsdeImport() },
+                    onManualMatch = { nav.navigate(Dest.SettingsEsdeManualMatch) },
+                    onBack = pop,
+                )
+                is Dest.SettingsEsdeManualMatch -> EsdeManualMatchScreen(
+                    importPlan = scraperState.importPlan,
+                    manualMatchResult = scraperState.manualMatchResult,
+                    onApplyMatch = { game, media -> scraper.applyManualMatch(game, media) },
                     onBack = pop,
                 )
                 is Dest.SettingsAppearance -> AppearanceScreen(

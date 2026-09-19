@@ -167,14 +167,94 @@ class EsdeImportRunner(
 
         val matchedSet = matchedIds.toSet()
         val unmatched = games.filter { "${it.platform}/${it.gameId}" !in matchedSet }
+        val unmatchedMedia = findUnmatchedMediaGroups(exportIndex, slotPlans)
         return PrescanResult.Ready(
             EsdeImport.ImportPlan(
                 games = games,
                 slotPlans = slotPlans,
                 matchedGameIds = matchedSet,
                 unmatchedGames = unmatched,
+                unmatchedMediaGroups = unmatchedMedia,
             ),
         )
+    }
+
+    /**
+     * Finds ES-DE media files not claimed by any SlotPlan, grouped by
+     * (system, normalized basename) for the manual matching UI.
+     */
+    private fun findUnmatchedMediaGroups(
+        exportIndex: Map<String, DocumentFile>,
+        slotPlans: List<EsdeImport.SlotPlan>,
+    ): List<EsdeImport.UnmatchedMediaGroup> {
+        // Collect all relPaths claimed by the automatic matcher.
+        val usedPaths = slotPlans.mapNotNull { it.found?.relPath }.toSet()
+
+        // Reverse SLOT_DIRS: dir name -> slot.
+        val dirToSlot = mutableMapOf<String, AssetSlot>()
+        for ((slot, dirs) in EsdeImport.SLOT_DIRS) {
+            for (dir in dirs) dirToSlot[dir] = slot
+        }
+
+        // Group unmatched files by "esdeSystem/normalizedBasename".
+        val groups = mutableMapOf<String, MutableList<EsdeImport.UnmatchedMediaFile>>()
+        val groupMeta = mutableMapOf<String, Pair<String, String>>() // key -> (esdeSystem, displayName)
+
+        for ((key, doc) in exportIndex) {
+            if (!key.startsWith("media/") || !doc.isFile) continue
+            // key format: "media/<system>/<dir>/<filename>"
+            val parts = key.removePrefix("media/").split("/")
+            if (parts.size != 3) continue
+            val system = parts[0]
+            val dir = parts[1]
+            val fileName = parts[2]
+
+            // Skip if already claimed by auto-matcher.
+            // Note: found.relPath is "media/<system>/<dir>/<actualFileName>"
+            // which should match the exportIndex key format.
+            if (key in usedPaths) continue
+
+            val slot = dirToSlot[dir] ?: continue
+            val ext = fileName.substringAfterLast('.', "")
+            if (ext.lowercase() !in EsdeImport.IMAGE_EXTENSIONS) continue
+
+            val base = fileName.substringBeforeLast('.')
+            val norm = TitleNormalizer.normalize(base)
+            if (norm.isEmpty()) continue
+
+            val groupKey = "$system/$norm"
+            val mediaFile = EsdeImport.UnmatchedMediaFile(
+                slot = slot,
+                relPath = key,
+                fileName = fileName,
+                byteLength = doc.length(),
+            )
+            groups.getOrPut(groupKey) { mutableListOf() }.add(mediaFile)
+            if (groupKey !in groupMeta) {
+                groupMeta[groupKey] = Pair(system, base)
+            }
+        }
+
+        return groups.map { (groupKey, files) ->
+            val (system, displayName) = groupMeta[groupKey] ?: Pair("", "")
+            EsdeImport.UnmatchedMediaGroup(
+                esdeSystem = system,
+                platform = platformForEsdeSystem(system),
+                key = groupKey,
+                displayName = displayName,
+                files = files.sortedBy { it.slot.ordinal },
+            )
+        }.sortedBy { it.displayName.lowercase() }
+    }
+
+    /**
+     * Reverse of EsdeImport.esdeSystemDir(): maps an ES-DE system folder
+     * back to the Crystal platform slug.
+     */
+    private fun platformForEsdeSystem(esdeSystem: String): String = when (esdeSystem) {
+        "gc" -> "gamecube"
+        "3ds" -> "n3ds"
+        else -> esdeSystem
     }
 
     // ------------------------------------------------------------------

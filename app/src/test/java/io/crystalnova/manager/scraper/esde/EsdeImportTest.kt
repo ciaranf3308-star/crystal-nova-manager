@@ -133,6 +133,7 @@ class EsdeImportTest {
             slotPlans = plans.toList(),
             matchedGameIds = setOf("ps2/x"),
             unmatchedGames = emptyList(),
+            unmatchedMediaGroups = emptyList(),
         )
     }
 
