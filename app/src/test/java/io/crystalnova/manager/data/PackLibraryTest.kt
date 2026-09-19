@@ -2,7 +2,9 @@ package io.crystalnova.manager.data
 
 import java.io.File
 import java.io.IOException
+import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -11,6 +13,7 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
+import kotlin.coroutines.ContinuationInterceptor
 
 private const val LIB_SHA = "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08"
 
@@ -43,15 +46,18 @@ class PackLibraryTest {
     @get:Rule
     val tmp = TemporaryFolder()
 
-    private fun library(
+    private fun TestScope.library(
         http: HttpClient,
         prefs: KeyValueStore? = null,
-        scope: kotlinx.coroutines.CoroutineScope,
     ) = PackLibrary(
         http = http,
         workDir = tmp.newFolder("packs"),
-        scope = scope,
+        scope = this,
         prefs = prefs,
+        // Drive the library's IO work on the test dispatcher: runTest
+        // cannot advance real Dispatchers.IO, so without this the
+        // catalog/download assertions race the background fetch.
+        ioDispatcher = coroutineContext[ContinuationInterceptor] as CoroutineDispatcher,
     )
 
     @Test
@@ -59,7 +65,7 @@ class PackLibraryTest {
         val http = FakeHttpClient(
             getHandler = { jsonResponse(200, libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/d.zip")) },
         )
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val state = lib.catalog.value
         assertTrue(state is PackCatalogState.Ready)
@@ -69,7 +75,7 @@ class PackLibraryTest {
     @Test
     fun catalog404IsHonestUnavailable() = runTest {
         val http = FakeHttpClient(getHandler = { jsonResponse(404, "nope") })
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val state = lib.catalog.value
         assertTrue(state is PackCatalogState.Unavailable)
@@ -79,7 +85,7 @@ class PackLibraryTest {
     @Test
     fun malformedCatalogIsUnavailable() = runTest {
         val http = FakeHttpClient(getHandler = { jsonResponse(200, "{oops") })
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         assertTrue(lib.catalog.value is PackCatalogState.Unavailable)
     }
@@ -87,7 +93,7 @@ class PackLibraryTest {
     @Test
     fun networkFailureIsUnavailable() = runTest {
         val http = FakeHttpClient(getHandler = { throw IOException("offline") })
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val state = lib.catalog.value
         assertTrue(state is PackCatalogState.Unavailable)
@@ -99,7 +105,7 @@ class PackLibraryTest {
         val http = FakeHttpClient(
             getHandler = { jsonResponse(200, libCatalogJson("https://evil.example/pack.zip")) },
         )
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val state = lib.catalog.value
         assertTrue(state is PackCatalogState.Unavailable)
@@ -121,7 +127,7 @@ class PackLibraryTest {
             },
             downloadHandler = { _, dest -> dest.writeBytes(content) },
         )
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val pack = (lib.catalog.value as PackCatalogState.Ready).packs.single()
         lib.downloadPack(pack)
@@ -145,7 +151,7 @@ class PackLibraryTest {
             },
             downloadHandler = { _, dest -> dest.writeBytes("tampered".toByteArray()) },
         )
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val pack = (lib.catalog.value as PackCatalogState.Ready).packs.single()
         lib.downloadPack(pack)
@@ -170,7 +176,7 @@ class PackLibraryTest {
                 )
             },
         )
-        val lib = library(http, prefs, scope = this)
+        val lib = library(http, prefs)
         advanceUntilIdle()
         assertNull(lib.installedPack())
         val pack = (lib.catalog.value as PackCatalogState.Ready).packs.single()
@@ -191,7 +197,7 @@ class PackLibraryTest {
                 )
             },
         )
-        val lib = library(http, scope = this)
+        val lib = library(http)
         advanceUntilIdle()
         val pack = (lib.catalog.value as PackCatalogState.Ready).packs.single()
         lib.noteInstalled(pack) // no prefs: must not crash
