@@ -32,6 +32,8 @@ sealed interface Dest {
     data object SettingsEsdeImport : Dest
     /** MANUAL MEDIA MATCH child of ES-DE IMPORT (pair unmatched games with media). */
     data object SettingsEsdeManualMatch : Dest
+    /** MEDIA HEALTH CHECK report child of ES-DE IMPORT (why games render blank). */
+    data object SettingsEsdeHealthReport : Dest
     /** APPEARANCE child of SETTINGS (recolor the Crystal identity). */
     data object SettingsAppearance : Dest
     /** THEME STORAGE child of SETTINGS. */

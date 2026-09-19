@@ -653,9 +653,22 @@ class MainActivity : ComponentActivity() {
                     importProgress = scraperState.importProgress,
                     importResult = scraperState.importResult,
                     unmatchedCount = scraperState.importPlan?.unmatchedGames?.size ?: 0,
+                    healthCheckRunning = scraperState.healthCheckRunning,
+                    healthCheckStatus = scraperState.healthCheckStatus,
                     onPrescan = { scraper.runEsdeImportPrescan() },
                     onImport = { scraper.runEsdeImport() },
                     onManualMatch = { nav.navigate(Dest.SettingsEsdeManualMatch) },
+                    onHealthCheck = {
+                        scraper.runMediaHealthCheck()
+                        nav.navigate(Dest.SettingsEsdeHealthReport)
+                    },
+                    onBack = pop,
+                )
+                is Dest.SettingsEsdeHealthReport -> MediaHealthReportScreen(
+                    report = scraperState.healthReport,
+                    running = scraperState.healthCheckRunning,
+                    status = scraperState.healthCheckStatus,
+                    onRunAgain = { scraper.runMediaHealthCheck() },
                     onBack = pop,
                 )
                 is Dest.SettingsEsdeManualMatch -> EsdeManualMatchScreen(

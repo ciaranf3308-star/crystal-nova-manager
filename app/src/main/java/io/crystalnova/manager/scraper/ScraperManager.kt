@@ -4,6 +4,8 @@ import android.content.Context
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.scraper.esde.EsdeImport
 import io.crystalnova.manager.scraper.esde.EsdeImportRunner
+import io.crystalnova.manager.scraper.esde.MediaHealthCheck
+import io.crystalnova.manager.scraper.esde.MediaHealthCheckRunner
 import io.crystalnova.manager.scraper.match.TitleNormalizer
 import io.crystalnova.manager.scraper.model.AssetSlot
 import io.crystalnova.manager.scraper.model.Completeness
@@ -71,6 +73,12 @@ data class ScraperUiState(
     val importResult: String? = null,
     /** Result of the last manual match; null when never run. */
     val manualMatchResult: String? = null,
+    /** True while the media health check is running. */
+    val healthCheckRunning: Boolean = false,
+    /** Human-readable health-check phase; null when idle. */
+    val healthCheckStatus: String? = null,
+    /** Last media health report; null when never run. */
+    val healthReport: MediaHealthCheck.HealthReport? = null,
     val scanning: Boolean = false,
     /** Live scan counters while [scanning]; null when idle. Never a percentage. */
     val scanProgress: ScanProgress? = null,
@@ -296,6 +304,37 @@ class ScraperManager(
             )
             // Refresh scraper stats so the new REAL assets show up.
             loadStats()
+        }
+    }
+
+    /**
+     * Media Health Check (u34): replays the Pegasus theme's artwork
+     * resolution chain for every game in every
+     * `*.metadata.pegasus.txt` on the card and reports exactly why
+     * each blank game is blank. Read-only — never writes the index,
+     * the media tree, or any metafile. Never throws.
+     */
+    fun runMediaHealthCheck() {
+        if (_state.value.healthCheckRunning) return
+        _state.value = _state.value.copy(
+            healthCheckRunning = true,
+            healthCheckStatus = "STARTING…",
+            healthReport = null,
+        )
+        scope.launch(ioDispatcher) {
+            val report = try {
+                MediaHealthCheckRunner(context, locations, storage()).run { phase ->
+                    _state.value = _state.value.copy(healthCheckStatus = phase)
+                }
+            } catch (e: Exception) {
+                if (e is kotlinx.coroutines.CancellationException) throw e
+                null
+            }
+            _state.value = _state.value.copy(
+                healthCheckRunning = false,
+                healthCheckStatus = null,
+                healthReport = report,
+            )
         }
     }
 

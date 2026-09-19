@@ -330,9 +330,12 @@ fun EsdeImportScreen(
     importProgress: String?,
     importResult: String?,
     unmatchedCount: Int,
+    healthCheckRunning: Boolean,
+    healthCheckStatus: String?,
     onPrescan: () -> Unit,
     onImport: () -> Unit,
     onManualMatch: () -> Unit,
+    onHealthCheck: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -401,6 +404,19 @@ fun EsdeImportScreen(
                     onClick = onManualMatch,
                     enabled = !prescanning && !importRunning,
                 )
+            }
+            control(
+                key = "settings-esde-import-health",
+                testTag = "settings-esde-import-health",
+                label = if (healthCheckRunning) "CHECKING…" else "CHECK MEDIA HEALTH",
+                onClick = onHealthCheck,
+                enabled = !prescanning && !importRunning && !healthCheckRunning,
+            )
+            if (healthCheckRunning) {
+                section {
+                    StatusLine(healthCheckStatus ?: "CHECKING…")
+                    DimLine("READ-ONLY — DIAGNOSES WHY GAMES SHOW BLANK ART IN PEGASUS.")
+                }
             }
             importResult?.let { result ->
                 section {
