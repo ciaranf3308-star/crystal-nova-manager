@@ -16,13 +16,14 @@
          "install unknown apps" for this app once, in Settings. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Package visibility for emulator/Pegasus detection (Android 11+).
-         Mirrors LauncherPresets.knownEmulatorPackages plus the Pegasus
-         package itself; used only for getPackageInfo/getLaunchIntent
-         checks so the UI can show honest INSTALLED / NOT INSTALLED
-         states. No data is read from these apps. -->
+    <!-- Package visibility (Android 11+). Emulator detection via
+         LauncherPresets.knownEmulatorPackages, plus iiSU
+         (com.iisulauncher) for the HOME status check + LAUNCH iiSU
+         action. Used only for getPackageInfo/getLaunchIntent checks so
+         the UI can show honest INSTALLED / NOT INSTALLED states. No
+         data is read from these apps. -->
     <queries>
-        <package android:name="io.crystalnova.launcher" />
+        <package android:name="com.iisulauncher" />
         <package android:name="org.pegasus_frontend.android" />
         <package android:name="com.retroarch.aarch64" />
         <package android:name="com.retroarch" />
