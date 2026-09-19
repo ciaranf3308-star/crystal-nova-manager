@@ -20,7 +20,7 @@ import org.junit.Test
  *
  * Requirement 4 — scrolling screens bring focused rows into view.
  *
- * The LAUNCHERS screen with 25 systems is far taller than the 960dp
+ * The GAME ARTWORK screen with 25 games is far taller than the 960dp
  * viewport. The test first proves the target row starts below the fold
  * (not even composed), then walks D-pad DOWN from the first row to the
  * last row, asserting every focused row lands inside the viewport. Each hop
@@ -28,27 +28,35 @@ import org.junit.Test
  * near the bottom edge scrolls it centered, which composes the rows
  * below it, which the next D-pad press can then reach. If the engine
  * ever strands a focused row offscreen, the traversal fails.
+ *
+ * u44: the archived LAUNCHERS screen is retired; the game-artwork list
+ * is the current UI's tall focusable list.
  */
 class NovaFocusBringsIntoViewTest : NovaUiTest() {
 
     @Test
-    fun dpadFocusBringsBelowFoldLauncherRowIntoViewport() {
-        val systems = fakePegasusSystems(25)
+    fun dpadFocusBringsBelowFoldGameRowIntoViewport() {
         setNovaContent {
-            PegasusLaunchersScreen(
-                systems = systems,
-                onSelectSystem = { _, _ -> },
+            EsdeManualMatchScreen(
+                importPlan = fakeManualMatchPlan(25),
+                manualMatchResult = null,
+                selectedGame = null,
+                artworkSlots = null,
+                artworkResult = null,
+                onSelectGame = {},
+                onApplyMatch = { _, _ -> },
+                onPickImage = { _, _, _ -> },
+                onClearSlot = { _, _, _ -> },
                 onBack = {},
             )
         }
 
         // Sanity: the last row really starts below the fold (the lazy list
         // has not composed it yet, which counts as outside the viewport).
-        // (Rows are compact — row 12 is already visible in 960dp.)
-        assertNodeOutsideViewport("launcher-row-sys-24")
+        assertNodeOutsideViewport("esde-manual-game-game-24")
 
         val steps = (0..24).map { i ->
-            { composeTestRule.onNodeWithTag("launcher-row-sys-$i") }
+            { composeTestRule.onNodeWithTag("esde-manual-game-game-%02d".format(i)) }
         }
         assertDpadTraversalInViewport(steps)
     }

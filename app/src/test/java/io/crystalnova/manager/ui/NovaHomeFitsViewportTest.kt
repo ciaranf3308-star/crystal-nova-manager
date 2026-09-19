@@ -13,48 +13,43 @@ import org.junit.Test
  * scrolling.
  *
  * Renders the real [HomeScreen] in the 1280x960 viewport and asserts
- * the status band (READY TO PLAY / OPEN PEGASUS), the consolidated
- * action row (LIBRARY / ARTWORK, THEME, SETTINGS — no expander), and
- * the footer are all inside the viewport with NO scroll interaction
- * anywhere in the test.
+ * the status band (CRYSTAL NOVA branding, the three honest lines, and
+ * LAUNCH iiSU), the consolidated action row (THEME / ASSETS / ROMS /
+ * SYSTEM / SETTINGS — no expander), and the footer are all inside the
+ * viewport with NO scroll interaction anywhere in the test.
  *
- * Two variants: the idle ready state, and the update-available state
- * where the manager-app banner (which must never be buried) is also
- * shown — the banner shrinks the actions' share of the column, so this
- * is the worst case for the "everything visible at once" contract.
+ * Two variants: the idle state, and the update-available state where
+ * the manager-app banner (which must never be buried) is also shown —
+ * the banner shrinks the actions' share of the column, so this is the
+ * worst case for the "everything visible at once" contract.
  *
- * A third variant covers the needs-attention band (FINISH SETUP /
- * MAKE READY / REVIEW ISSUE) to prove it fits the same contract.
+ * A third variant covers iiSU-not-installed: the iiSU line says so
+ * honestly and the LAUNCH button is present but disabled.
  */
 class NovaHomeFitsViewportTest : NovaUiTest() {
 
-    private val readyReadiness = HomeReadiness(
-        systemCount = 13,
-        totalGames = 147,
-        configuredCount = 13,
-        issueCount = 0,
-        pegasusInstalled = true,
+    private val installedStatus = buildHomeStatus(
+        systems = listOf("Super Nintendo" to 12, "Game Boy Advance" to 8),
         romReady = true,
+        iisuInstalled = true,
+        iisuVersion = "0.0.7.4",
     )
 
     private fun setHome(
         appUpdate: AppUpdateState,
-        readiness: HomeReadiness = readyReadiness,
+        status: HomeStatus = installedStatus,
     ) {
         setNovaContent {
             HomeScreen(
-                readiness = readiness,
-                appVersion = "1.2.3-u7",
+                status = status,
+                appVersion = "1.2.4-u44-stripback",
                 appUpdate = appUpdate,
-                themeSubtitle = "v1.2.3",
-                settingsSubtitle = "DEV CHANNEL",
                 onUpdateApp = {},
-                onOpenPegasus = {},
-                onMakeReady = {},
-                onReviewIssues = {},
-                onRebuildLibrary = {},
-                onLibrary = {},
+                onLaunchIisu = {},
                 onTheme = {},
+                onAssets = {},
+                onRoms = {},
+                onSystem = {},
                 onSettings = {},
                 onDiagnostics = {},
                 onExit = {},
@@ -86,38 +81,33 @@ class NovaHomeFitsViewportTest : NovaUiTest() {
     }
 
     @Test
-    fun homeControlsVisibleWithoutScrolling_whenNeedsAttention() {
+    fun homeControlsVisibleWithoutScrolling_whenIisuNotInstalled() {
         setHome(
             AppUpdateState.Idle(),
-            readiness = readyReadiness.copy(issueCount = 1, configuredCount = 12),
+            status = buildHomeStatus(
+                systems = listOf("Super Nintendo" to 12),
+                romReady = true,
+                iisuInstalled = false,
+                iisuVersion = null,
+            ),
         )
-        composeTestRule.onNodeWithText("FINISH SETUP").assertExists()
-        assertNodeInViewport("home-primary")
-        assertNodeInViewport("home-review")
-        assertNodeInViewport("home-library")
-        assertNodeInViewport("home-theme")
-        assertNodeInViewport("home-settings")
-        // Pinned footer survives the taller hero too.
-        assertInteractionInViewport(
-            composeTestRule.onNodeWithText("A"),
-            "footer keycap A",
-        )
-        assertInteractionInViewport(
-            composeTestRule.onNodeWithText("B"),
-            "footer keycap B",
-        )
+        composeTestRule.onNodeWithText("iiSU NOT INSTALLED").assertExists()
+        composeTestRule.onNodeWithText("CRYSTAL PACK: NONE INSTALLED").assertExists()
+        assertHomeFits()
     }
 
     private fun assertHomeFits() {
-        // Status band: READY TO PLAY headline and the happy-path action.
-        composeTestRule.onNodeWithText("READY TO PLAY").assertExists()
-        assertNodeInViewport("home-primary")
-        // u42: the library rebuild must be one tap away when READY.
-        assertNodeInViewport("home-rebuild")
+        // Status band: CRYSTAL NOVA branding, the three honest lines,
+        // and the LAUNCH iiSU action docked beside them.
+        composeTestRule.onNodeWithText("CRYSTAL NOVA").assertExists()
+        composeTestRule.onNodeWithText("LAUNCH iiSU").assertExists()
+        assertNodeInViewport("home-launch-iisu")
         // Consolidated action row: every destination visible at once,
         // no expander to open.
-        assertNodeInViewport("home-library")
         assertNodeInViewport("home-theme")
+        assertNodeInViewport("home-assets")
+        assertNodeInViewport("home-roms")
+        assertNodeInViewport("home-system")
         assertNodeInViewport("home-settings")
 
         // Pinned footer: A SELECT · B EXIT (keycap letters are their own

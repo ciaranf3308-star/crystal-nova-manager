@@ -10,9 +10,8 @@ import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.requestFocus
 import io.crystalnova.manager.scraper.ScraperUiState
+import io.crystalnova.manager.scraper.esde.EsdeImport
 import io.crystalnova.manager.storage.LocationState
-import io.crystalnova.manager.updater.ManagerState
-import io.crystalnova.manager.updater.VersionDisplay
 import org.junit.Assert.assertTrue
 
 // ---------------------------------------------------------------------------
@@ -20,40 +19,49 @@ import org.junit.Assert.assertTrue
 // Everything here is pure data — no DataStore, no SAF, no permissions.
 // ---------------------------------------------------------------------------
 
-/** Scraper state with ROM + MEDIA configured and Pegasus ready. */
+/** Scraper state with ROM + MEDIA configured. */
 fun fakeReadyScraperState(): ScraperUiState = ScraperUiState(
     needsGamesFolder = false,
     romLocation = LocationState.Ready("INTERNAL STORAGE /Roms", isRemovable = false),
     mediaLocation = LocationState.Ready("SD CARD /Media", isRemovable = true),
 )
 
-/** [count] fake launcher rows for the LAUNCHERS screen, slugs `sys-0 …`. */
-fun fakePegasusSystems(count: Int): List<PegasusSystemRow> =
-    (0 until count).map { i ->
-        PegasusSystemRow(
-            slug = "sys-$i",
-            label = "System $i",
-            gameCount = 10 + i,
-            launcherStatus = "NOT CONFIGURED",
-            launcherInstalled = false,
-            isDefault = false,
+/**
+ * An [EsdeImport.ImportPlan] with [count] games on a single platform.
+ * Game ids/titles are zero-padded so the screen's title sort keeps
+ * numeric order — traversal tests address rows by index.
+ */
+fun fakeManualMatchPlan(count: Int): EsdeImport.ImportPlan {
+    val games = (0 until count).map { i ->
+        val id = "game-%02d".format(i)
+        EsdeImport.RomGame(
+            platform = "snes",
+            gameId = id,
+            title = "Game %02d".format(i),
+            fileName = "$id.zip",
         )
     }
+    return EsdeImport.ImportPlan(
+        games = games,
+        slotPlans = emptyList(),
+        matchedGameIds = emptySet(),
+        unmatchedGames = games,
+        unmatchedMediaGroups = emptyList(),
+    )
+}
 
-/**
- * The busiest THEME state: update available, backup present, a notice,
- * and a destination line — the maximum number of focusable controls
- * this screen can show at once.
- */
-fun fakeThemeReadyState(): ManagerState.Ready = ManagerState.Ready(
-    installed = VersionDisplay("1.2.3", "abc1234"),
-    latest = VersionDisplay("1.2.4", "def5678"),
-    updateAvailable = true,
-    backup = VersionDisplay("1.2.2", "aaa1111"),
-    checking = false,
-    notice = "COULD NOT REACH UPDATE SERVER",
-    destination = "/storage/emulated/0/themes",
-)
+/** [count] fake Crystal iiSU packs, ids `pack-0 …`. */
+fun fakeCrystalPacks(count: Int): List<CrystalPack> =
+    (0 until count).map { i ->
+        CrystalPack(
+            id = "pack-$i",
+            name = "Crystal Pack $i",
+            version = "1.$i",
+            description = "Test pack $i",
+            systems = listOf("Super Nintendo"),
+            installed = i == 0,
+        )
+    }
 
 // ---------------------------------------------------------------------------
 // Focus + viewport drivers shared by the Nova behavior tests.

@@ -11,72 +11,41 @@ import org.junit.Test
  * Requirement 5 — no essential action can remain permanently below the
  * viewport.
  *
- * The previously-worst screens (PEGASUS SETUP, THEME) are rendered in
- * their busiest states and focus is traversed through EVERY focusable
- * control to the last one, asserting each is in-viewport when focused.
- * If any focusable could never be brought into view, the traversal
- * fails — that is the point of this test.
+ * The SYSTEM hub and the THEME pack screen are rendered and focus is
+ * traversed through EVERY focusable control to the last one, asserting
+ * each is in-viewport when focused. If any focusable could never be
+ * brought into view, the traversal fails — that is the point of this
+ * test.
  *
  * Notes on the fixtures:
- * - Pegasus Setup uses `romWritable = false` (shows RE-PICK ROM ROOT),
- *   an inject warning, a dismissible notice, and Pegasus installed — the
- *   tallest honest configuration. `injectEnabled = true` keeps INJECT
- *   focusable so the walk covers it; a disabled control is correctly
- *   skipped by D-pad and is a separate behavior.
- * - The notice's DISMISS button carries no testTag (it is built by
- *   `SectionScope.notice`), so it is addressed by its exact label text.
- * - Theme uses the busiest `ManagerState.Ready`: update available,
- *   backup present, notice set — five focusable controls.
+ * - The System hub's three rows (DIAGNOSTICS / BIOS / INSTALLED
+ *   EMULATORS) plus the scaffold BACK are all focusable; the walk
+ *   covers the three rows.
+ * - Theme renders two fake packs: pack cards are display-only by
+ *   design (install actions land with the catalog), so the only
+ *   focusable control is BACK — the walk proves it is reachable and
+ *   the pack cards' text is rendered.
+ *
+ * u44: the archived PEGASUS SETUP walk is retired with the strip-back.
  */
 class NovaNoStrandedControlTest : NovaUiTest() {
 
     @Test
-    fun everyPegasusSetupControlReachableByDpad() {
+    fun everySystemHubControlReachableByDpad() {
         setNovaContent {
-            PegasusSetupScreen(
-                metafileTarget = "INTERNAL STORAGE /ROMs · NOT WRITABLE — RE-PICK ROM ROOT",
-                romWritable = false,
-                systems = listOf(
-                    PegasusSystemRow(
-                        slug = "snes",
-                        label = "Super Nintendo",
-                        gameCount = 12,
-                        launcherStatus = "NOT CONFIGURED",
-                        launcherInstalled = false,
-                        isDefault = false,
-                    ),
-                    PegasusSystemRow(
-                        slug = "gba",
-                        label = "Game Boy Advance",
-                        gameCount = 8,
-                        launcherStatus = "RetroArch 64",
-                        launcherInstalled = true,
-                        isDefault = true,
-                    ),
-                ),
-                injectEnabled = true,
-                injectWarning = "1 SYSTEM NEEDS LAUNCHER SETUP — INJECT WILL SKIP IT.",
-                injecting = false,
-                notice = "LIBRARY REFRESHED — 20 GAMES FOUND.",
-                pegasusInstalled = true,
-                onRepickRomRoot = {},
-                onConfigureLaunchers = {},
-                onInject = {},
-                onDismissNotice = {},
-                onOpenPegasus = {},
+            SystemHubScreen(
+                onDiagnostics = {},
+                onBios = {},
+                onInstalledEmulators = {},
                 onBack = {},
             )
         }
 
         assertDpadTraversalInViewport(
             listOf(
-                { composeTestRule.onNodeWithTag("pegasus-setup-rom-root") },
-                { composeTestRule.onNodeWithTag("pegasus-setup-autoconfigure") },
-                { composeTestRule.onNodeWithTag("pegasus-setup-launchers") },
-                { composeTestRule.onNodeWithTag("pegasus-setup-inject") },
-                // DISMISS has no testTag by construction; exact label text.
-                { composeTestRule.onNodeWithText("DISMISS") },
-                { composeTestRule.onNodeWithTag("pegasus-setup-open") },
+                { composeTestRule.onNodeWithTag("system-diagnostics") },
+                { composeTestRule.onNodeWithTag("system-bios") },
+                { composeTestRule.onNodeWithTag("system-emulators") },
             ),
         )
     }
@@ -85,21 +54,18 @@ class NovaNoStrandedControlTest : NovaUiTest() {
     fun everyThemeControlReachableByDpad() {
         setNovaContent {
             ThemeScreen(
-                state = fakeThemeReadyState(),
-                onEvent = {},
-                pegasusLaunchable = true,
-                onPickFolder = {},
+                packs = fakeCrystalPacks(2),
                 onBack = {},
             )
         }
 
+        // Pack cards render their names; the only focusable control is
+        // BACK, which the traversal proves reachable.
+        composeTestRule.onNodeWithText("CRYSTAL PACK 0").assertExists()
+        composeTestRule.onNodeWithText("CRYSTAL PACK 1").assertExists()
         assertDpadTraversalInViewport(
             listOf(
-                { composeTestRule.onNodeWithTag("theme-update") },
-                { composeTestRule.onNodeWithTag("theme-rollback") },
-                { composeTestRule.onNodeWithTag("theme-retry") },
-                { composeTestRule.onNodeWithTag("theme-open-pegasus") },
-                { composeTestRule.onNodeWithTag("theme-change-folder") },
+                { composeTestRule.onNodeWithTag("theme-back") },
             ),
         )
     }

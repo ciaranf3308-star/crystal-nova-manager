@@ -13,12 +13,15 @@ import org.junit.Test
 /**
  * Requirement 3 — focus can traverse every row.
  *
- * On the Settings list and the Launchers list: programmatically focus
+ * On the Settings list and the System hub: programmatically focus
  * the first row, send D-pad DOWN repeatedly, and assert each expected
  * row gains focus in order. [assertDpadTraversalInViewport] fails if
  * focus is lost, lands on the wrong row, or a row never becomes
  * focused — so focus can never silently land on a non-focusable or
  * vanish.
+ *
+ * u44: the Pegasus Launchers traversal is retired with the strip-back;
+ * the System hub traversal covers the same contract on the current UI.
  */
 class NovaDpadTraversalTest : NovaUiTest() {
 
@@ -31,20 +34,15 @@ class NovaDpadTraversalTest : NovaUiTest() {
                     isRemovable = false,
                 ),
                 mediaLocation = LocationState.NotConfigured,
-                esdeLocation = LocationState.NotConfigured,
                 themesRootLabel = "INTERNAL STORAGE /Themes",
                 updateChannel = AppUpdateChannel.STABLE,
-                appVersion = "1.0.2",
+                appVersion = "1.2.4-u44-stripback",
                 appUpdate = AppUpdateState.Idle(),
-                launcherUpdate = AppUpdateState.Idle(),
-                launcherInstalled = true,
                 locationError = null,
                 onDismissLocationError = {},
                 onUpdateApp = {},
-                onUpdateLauncher = {},
                 onOpenRom = {},
                 onOpenMedia = {},
-                onOpenEsde = {},
                 onOpenEsdeImport = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
@@ -56,10 +54,8 @@ class NovaDpadTraversalTest : NovaUiTest() {
 
         val rows = listOf(
             "settings-update-app",
-            "settings-update-launcher",
             "settings-row-rom",
             "settings-row-media",
-            "settings-row-esde",
             "settings-row-esde-import",
             "settings-row-themes",
             "settings-row-channel",
@@ -68,6 +64,26 @@ class NovaDpadTraversalTest : NovaUiTest() {
         )
         assertDpadTraversalInViewport(
             rows.map { tag -> { composeTestRule.onNodeWithTag(tag) } },
+        )
+    }
+
+    @Test
+    fun dpadTraversesSystemHubRowsInOrder() {
+        setNovaContent {
+            SystemHubScreen(
+                onDiagnostics = {},
+                onBios = {},
+                onInstalledEmulators = {},
+                onBack = {},
+            )
+        }
+
+        assertDpadTraversalInViewport(
+            listOf(
+                "system-diagnostics",
+                "system-bios",
+                "system-emulators",
+            ).map { tag -> { composeTestRule.onNodeWithTag(tag) } },
         )
     }
 
@@ -104,24 +120,6 @@ class NovaDpadTraversalTest : NovaUiTest() {
         )
         assertDpadTraversalInViewport(
             rows.map { tag -> { composeTestRule.onNodeWithTag(tag) } },
-        )
-    }
-
-    @Test
-    fun dpadTraversesLauncherRowsInOrder() {
-        val systems = fakePegasusSystems(6)
-        setNovaContent {
-            PegasusLaunchersScreen(
-                systems = systems,
-                onSelectSystem = { _, _ -> },
-                onBack = {},
-            )
-        }
-
-        assertDpadTraversalInViewport(
-            systems.map { sys ->
-                { composeTestRule.onNodeWithTag("launcher-row-${sys.slug}") }
-            },
         )
     }
 }

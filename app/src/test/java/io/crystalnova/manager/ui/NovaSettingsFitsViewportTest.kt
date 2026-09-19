@@ -15,6 +15,9 @@ import org.junit.Test
  * Renders the real [SettingsScreen] (top level) in the 1280x960
  * viewport and asserts every row plus the footer are inside the
  * viewport with NO scroll interaction anywhere in the test.
+ *
+ * u44: eight rows — the INSTALL/UPDATE LAUNCHER row and the separate
+ * ES-DE export-folder row are gone with the strip-back.
  */
 class NovaSettingsFitsViewportTest : NovaUiTest() {
 
@@ -27,20 +30,15 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                     isRemovable = false,
                 ),
                 mediaLocation = LocationState.NotConfigured,
-                esdeLocation = LocationState.NotConfigured,
                 themesRootLabel = "INTERNAL STORAGE /Themes",
                 updateChannel = AppUpdateChannel.STABLE,
-                appVersion = "1.0.2",
+                appVersion = "1.2.4-u44-stripback",
                 appUpdate = AppUpdateState.Idle(),
-                launcherUpdate = AppUpdateState.Idle(),
-                launcherInstalled = true,
                 locationError = null,
                 onDismissLocationError = {},
                 onUpdateApp = {},
-                onUpdateLauncher = {},
                 onOpenRom = {},
                 onOpenMedia = {},
-                onOpenEsde = {},
                 onOpenEsdeImport = {},
                 onOpenThemes = {},
                 onOpenChannel = {},
@@ -51,10 +49,8 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
         }
 
         assertNodeInViewport("settings-update-app")
-        assertNodeInViewport("settings-update-launcher")
         assertNodeInViewport("settings-row-rom")
         assertNodeInViewport("settings-row-media")
-        assertNodeInViewport("settings-row-esde")
         assertNodeInViewport("settings-row-esde-import")
         assertNodeInViewport("settings-row-themes")
         assertNodeInViewport("settings-row-channel")

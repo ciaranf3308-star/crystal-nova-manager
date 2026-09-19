@@ -10,27 +10,36 @@ import org.junit.Test
 /**
  * Requirement 6 — a touch-scroll container remains scrollable.
  *
- * Extends the harness smoke test to a REAL screen: the LAUNCHERS
- * screen with 25 systems. A full-height touch swipe must change the
+ * Extends the harness smoke test to a REAL screen: the GAME ARTWORK
+ * screen with 25 games. A full-height touch swipe must change the
  * list's scroll position (read black-box from its
  * `VerticalScrollAxisRange` semantics — screens own their
  * `LazyListState` inside the scaffold) and reveal the last row, which
  * starts below the fold.
+ *
+ * u44: the archived LAUNCHERS screen is retired; the game-artwork list
+ * is the current UI's tall focusable list.
  */
 class NovaTouchScrollTest : NovaUiTest() {
 
     @Test
-    fun touchSwipeScrollsLaunchersListAndRevealsBelowFoldRow() {
-        val systems = fakePegasusSystems(25)
+    fun touchSwipeScrollsGameListAndRevealsBelowFoldRow() {
         setNovaContent {
-            PegasusLaunchersScreen(
-                systems = systems,
-                onSelectSystem = { _, _ -> },
+            EsdeManualMatchScreen(
+                importPlan = fakeManualMatchPlan(25),
+                manualMatchResult = null,
+                selectedGame = null,
+                artworkSlots = null,
+                artworkResult = null,
+                onSelectGame = {},
+                onApplyMatch = { _, _ -> },
+                onPickImage = { _, _, _ -> },
+                onClearSlot = { _, _, _ -> },
                 onBack = {},
             )
         }
 
-        val target = "launcher-row-sys-24"
+        val target = "esde-manual-game-game-24"
         // The last row starts below the fold: the lazy list has not
         // composed it yet.
         assertNodeOutsideViewport(target)
@@ -49,7 +58,7 @@ class NovaTouchScrollTest : NovaUiTest() {
 
         val after = verticalScrollValue()
         assertTrue(
-            "touch swipe did not scroll the LAUNCHERS list " +
+            "touch swipe did not scroll the GAME ARTWORK list " +
                 "(scroll position before=$before after=$after, swipes=$swipes)",
             after > before,
         )
