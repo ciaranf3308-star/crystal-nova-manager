@@ -37,7 +37,7 @@ class EsdeImportTest {
     }
 
     @Test fun `esdeSystemDir maps differing slugs`() {
-        assertEquals("gc", EsdeImport.esdeSystemDir("gamecube"))
+        assertEquals("gamecube", EsdeImport.esdeSystemDir("gamecube"))
         assertEquals("3ds", EsdeImport.esdeSystemDir("n3ds"))
         assertEquals("ps2", EsdeImport.esdeSystemDir("ps2"))
         assertEquals("gba", EsdeImport.esdeSystemDir("gba"))
@@ -46,7 +46,7 @@ class EsdeImportTest {
     @Test fun `esdeSystemDirs covers every ES-DE folder name a system can live under`() {
         // Sega Genesis: ES-DE's canonical folder is `megadrive`; ours is `genesis`.
         assertEquals(listOf("genesis", "megadrive"), EsdeImport.esdeSystemDirs("genesis"))
-        assertEquals(listOf("gc"), EsdeImport.esdeSystemDirs("gamecube"))
+        assertEquals(listOf("gamecube", "gc"), EsdeImport.esdeSystemDirs("gamecube"))
         assertEquals(listOf("3ds"), EsdeImport.esdeSystemDirs("n3ds"))
         assertEquals(listOf("ps2"), EsdeImport.esdeSystemDirs("ps2"))
         // Primary (backwards-compatible) is always the first candidate.
