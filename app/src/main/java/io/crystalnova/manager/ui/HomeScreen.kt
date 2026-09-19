@@ -13,8 +13,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
@@ -176,7 +178,9 @@ fun HomeScreen(
         fallbackFocusKey = if (appUpdate is AppUpdateState.Available) "home-update-app" else "home-primary",
     ) {
         Column(
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier
+                .fillMaxSize()
+                .verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(
@@ -315,8 +319,8 @@ private fun StatusBand(
                 Brush.linearGradient(
                     colors = listOf(
                         Color(0xFF0A0E27),
-                        Color(0xFF1A1B4B),
-                        Color(0xFF2D1B4E),
+                        Color(0xFF0F1B3D),
+                        Color(0xFF1A2B5C),
                     ),
                 ),
             )
@@ -337,8 +341,8 @@ private fun StatusBand(
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 48.sp,
-                        letterSpacing = 4.sp,
+                        fontSize = 36.sp,
+                        letterSpacing = 2.sp,
                         color = Color(0xFF7DD3FC),
                     ),
                 )
@@ -347,9 +351,9 @@ private fun StatusBand(
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontWeight = FontWeight.Bold,
-                        fontSize = 48.sp,
-                        letterSpacing = 12.sp,
-                        color = Color(0xFFF0ABFC),
+                        fontSize = 36.sp,
+                        letterSpacing = 8.sp,
+                        color = Color(0xFF7DD3FC),
                     ),
                 )
                 BasicText(
