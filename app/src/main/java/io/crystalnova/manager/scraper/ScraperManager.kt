@@ -265,7 +265,8 @@ class ScraperManager(
     fun runEsdeImport() {
         val plan = _state.value.importPlan ?: return
         if (_state.value.importRunning || _state.value.importPrescanning) return
-        if (plan.toWrite.isEmpty()) return
+        // Do NOT skip when toWrite is empty — the runner repairs index.json
+        // for previously-copied files even when nothing needs copying.
         _state.value = _state.value.copy(
             importRunning = true,
             importProgress = "0/${plan.toWrite.size}",
