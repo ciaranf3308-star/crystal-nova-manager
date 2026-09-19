@@ -159,7 +159,10 @@ class DevChannelUpdateTest {
     fun `check fetches the dev manifest URL`() {
         val (c, http) = checker()
         c.check(7)
-        assertEquals(listOf(DEV_MANIFEST_URL), http.requested)
+        // Cache-buster timestamp is appended — verify the base URL matches.
+        assertEquals(1, http.requested.size)
+        assertTrue(http.requested[0].startsWith(DEV_MANIFEST_URL),
+            "Expected URL starting with $DEV_MANIFEST_URL but was ${http.requested[0]}")
     }
 
     @Test
