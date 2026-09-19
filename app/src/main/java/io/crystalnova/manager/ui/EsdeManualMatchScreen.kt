@@ -44,6 +44,12 @@ fun EsdeManualMatchScreen(
     modifier: Modifier = Modifier,
 ) {
     var selectedPlatform by remember { mutableStateOf<String?>(null) }
+    // Inline confirmations: tapping a media group or CLEAR asks first,
+    // right where the user tapped. Reset whenever the game changes.
+    var pendingMatch by remember(selectedGame) {
+        mutableStateOf<EsdeImport.UnmatchedMediaGroup?>(null)
+    }
+    var pendingClear by remember(selectedGame) { mutableStateOf<AssetSlot?>(null) }
 
     val allGames = importPlan?.games ?: emptyList()
     val unmatchedMedia = importPlan?.unmatchedMediaGroups ?: emptyList()
@@ -145,17 +151,69 @@ fun EsdeManualMatchScreen(
                             onClick = { onPickImage(game.platform, game.gameId, slot) },
                         )
                         if (prov != null) {
-                            control(
-                                key = "esde-art-clear-${game.gameId}-${slot.name}",
-                                testTag = "esde-art-clear-${game.gameId}-${slot.name}",
-                                label = "  CLEAR ${slotLabel(slot)}",
-                                onClick = { onClearSlot(game.platform, game.gameId, slot) },
-                            )
+                            if (pendingClear == slot) {
+                                section {
+                                    StatusLine("⚠ CLEAR ${slotLabel(slot)}?")
+                                    DimLine("REMOVES THIS IMAGE. THE NEXT IMPORT CAN FILL IT AGAIN.")
+                                }
+                                control(
+                                    key = "esde-art-clear-yes-${game.gameId}-${slot.name}",
+                                    testTag = "esde-art-clear-yes-${game.gameId}-${slot.name}",
+                                    label = "✓ YES, CLEAR IT",
+                                    onClick = {
+                                        pendingClear = null
+                                        onClearSlot(game.platform, game.gameId, slot)
+                                    },
+                                )
+                                control(
+                                    key = "esde-art-clear-no-${game.gameId}-${slot.name}",
+                                    testTag = "esde-art-clear-no-${game.gameId}-${slot.name}",
+                                    label = "✕ CANCEL",
+                                    onClick = { pendingClear = null },
+                                )
+                            } else {
+                                control(
+                                    key = "esde-art-clear-${game.gameId}-${slot.name}",
+                                    testTag = "esde-art-clear-${game.gameId}-${slot.name}",
+                                    label = "  CLEAR ${slotLabel(slot)}",
+                                    onClick = { pendingClear = slot },
+                                )
+                            }
                         }
                     }
                 }
 
-                if (mediaForPlatform.isNotEmpty()) {
+                val matchGroup = pendingMatch
+                if (matchGroup != null) {
+                    section {
+                        StatusLine("⚠ MATCH THIS MEDIA?")
+                        DimLine("GAME:  ${game.title}")
+                        DimLine("MEDIA: ${matchGroup.displayName}")
+                    }
+                    section {
+                        StatusLine("IT WILL FILL THESE SLOTS:")
+                    }
+                    matchGroup.files.forEach { file ->
+                        section {
+                            DimLine("${slotLabel(file.slot)} ← ${file.fileName}")
+                        }
+                    }
+                    control(
+                        key = "esde-manual-match-yes-${matchGroup.key}",
+                        testTag = "esde-manual-match-yes-${matchGroup.key}",
+                        label = "✓ YES, MATCH IT",
+                        onClick = {
+                            pendingMatch = null
+                            onApplyMatch(game, matchGroup)
+                        },
+                    )
+                    control(
+                        key = "esde-manual-match-no-${matchGroup.key}",
+                        testTag = "esde-manual-match-no-${matchGroup.key}",
+                        label = "✕ CANCEL",
+                        onClick = { pendingMatch = null },
+                    )
+                } else if (mediaForPlatform.isNotEmpty()) {
                     section {
                         StatusLine("MATCH ES-DE MEDIA (${mediaForPlatform.size} UNMATCHED GROUPS)")
                         DimLine("APPLIES THE WHOLE GROUP AT ONCE")
@@ -165,7 +223,7 @@ fun EsdeManualMatchScreen(
                             key = "esde-manual-media-${mediaGroup.key}",
                             testTag = "esde-manual-media-${mediaGroup.key}",
                             label = "${mediaGroup.displayName} (${mediaGroup.files.size} files)",
-                            onClick = { onApplyMatch(game, mediaGroup) },
+                            onClick = { pendingMatch = mediaGroup },
                         )
                     }
                 }
