@@ -274,13 +274,20 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     val catalog = (esdeCatalog as? io.crystalnova.manager.data.EsdeThemeCatalogState.Ready)?.catalog
-                    val minManagerNotice = catalog?.minManagerVersion
-                        ?.takeIf { it != BuildConfig.VERSION_NAME }
-                        ?.let { want ->
+                    val minManagerNotice = catalog?.let { c ->
+                        val want = c.minManagerVersion ?: c.minManagerVersionCode?.let { "vc$it" }
+                        if (want != null && io.crystalnova.manager.data.managerBelowMinimum(
+                                c.minManagerVersion,
+                                c.minManagerVersionCode,
+                                BuildConfig.VERSION_NAME,
+                                BuildConfig.VERSION_CODE,
+                            )
+                        )
                             "THIS THEME WANTS MANAGER $want — " +
                                 "THIS MANAGER IS ${BuildConfig.VERSION_NAME}. " +
                                 "UPDATE THE MANAGER FIRST."
-                        }
+                        else null
+                    }
                     HomeScreen(
                         catalogState = esdeCatalog,
                         downloadState = esdeDownload,

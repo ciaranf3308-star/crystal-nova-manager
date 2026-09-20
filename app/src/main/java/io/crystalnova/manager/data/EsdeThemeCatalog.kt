@@ -19,6 +19,8 @@ package io.crystalnova.manager.data
  * - zipSha256: String (64 hex chars)
  * - zipBytes: Int?
  * - minManagerVersion: String?, e.g. "1.2.4-u48-esdeupdate"
+ * - minManagerVersionCode: Int?, e.g. 63 (machine-readable minimum;
+ *   preferred over the name by [managerBelowMinimum])
  * - history: [ { version, versionCode, zipUrl, zipSha256, zipBytes } ]
  *   (latest previous first — history[0] is the rollback target)
  *
@@ -49,6 +51,7 @@ data class EsdeThemeCatalog(
     val zipSha256: String,
     val zipBytes: Long?,
     val minManagerVersion: String?,
+    val minManagerVersionCode: Int? = null,
     val history: List<EsdeThemeEntry>,
 ) {
     /** The current release as an installable entry. */
@@ -128,6 +131,7 @@ fun parseEsdeThemeCatalog(json: String): EsdeThemeCatalog? {
         zipSha256 = zipSha256,
         zipBytes = root.esdeLong("zipBytes"),
         minManagerVersion = root.esdeStr("minManagerVersion"),
+        minManagerVersionCode = root.esdeInt("minManagerVersionCode"),
         history = history,
     )
 }

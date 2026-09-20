@@ -36,6 +36,7 @@ private fun esdeCatalogJson(
   "zipSha256": "$ESDE_SHA_A",
   "zipBytes": 4194304,
   "minManagerVersion": "1.2.4-u48-esdeupdate",
+  "minManagerVersionCode": 63,
   "history": $history
   $extra
 }
@@ -51,6 +52,7 @@ class EsdeThemeCatalogTest {
         assertEquals(1, catalog.versionCode)
         assertEquals(4194304L, catalog.zipBytes)
         assertEquals("1.2.4-u48-esdeupdate", catalog.minManagerVersion)
+        assertEquals(63, catalog.minManagerVersionCode)
         assertEquals(1, catalog.history.size)
         assertEquals("0.9.0", catalog.history[0].version)
         assertEquals(0, catalog.history[0].versionCode)
@@ -90,6 +92,7 @@ class EsdeThemeCatalogTest {
         val catalog = parseEsdeThemeCatalog(json)!!
         assertTrue(catalog.history.isEmpty())
         assertNull(catalog.minManagerVersion)
+        assertNull(catalog.minManagerVersionCode)
         assertNull(catalog.zipBytes)
     }
 
