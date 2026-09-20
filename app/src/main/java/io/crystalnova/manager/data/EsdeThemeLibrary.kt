@@ -56,7 +56,7 @@ sealed interface EsdeThemeDownloadState {
  * expected state, not an error to hide.
  */
 class EsdeThemeLibrary(
-    private val http: HttpClient = PackHttpClient(),
+    private val http: HttpClient = ThemeHttpClient(),
     private val workDir: File,
     private val scope: CoroutineScope,
     private val prefs: KeyValueStore? = null,

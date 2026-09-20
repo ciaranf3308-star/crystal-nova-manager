@@ -16,23 +16,14 @@
          "install unknown apps" for this app once, in Settings. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- Package visibility (Android 11+). Emulator detection via
-         LauncherPresets.knownEmulatorPackages, plus iiSU
-         (com.iisulauncher) for the HOME status check + LAUNCH iiSU
-         action. Used only for getPackageInfo/getLaunchIntent checks so
-         the UI can show honest INSTALLED / NOT INSTALLED states. No
-         data is read from these apps. -->
+    <!-- Package visibility (Android 11+). ES-DE
+         (org.es_de.frontend / the Galaxy-store variant) for the OPEN
+         ES-DE launcher check. Used only for getLaunchIntentForPackage
+         so the UI can show an honest INSTALLED / NOT INSTALLED state.
+         No data is read from these apps. -->
     <queries>
-        <package android:name="com.iisulauncher" />
-        <package android:name="org.pegasus_frontend.android" />
-        <package android:name="com.retroarch.aarch64" />
-        <package android:name="com.retroarch" />
-        <package android:name="xyz.aethersx2.android" />
-        <package android:name="org.ppsspp.ppsspp" />
-        <package android:name="org.ppsspp.ppssppgold" />
-        <package android:name="org.dolphinemu.dolphinemu" />
-        <package android:name="org.azahar_emu.azahar" />
-        <package android:name="io.github.lime3ds.android" />
+        <package android:name="org.es_de.frontend" />
+        <package android:name="org.es_de.frontend.galaxy" />
     </queries>
 
     <application

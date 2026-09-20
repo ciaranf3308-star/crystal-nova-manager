@@ -13,6 +13,7 @@ import io.crystalnova.manager.data.EsdeThemeCatalogState
 import io.crystalnova.manager.data.EsdeThemeDownloadState
 import io.crystalnova.manager.data.EsdeThemeEntry
 import io.crystalnova.manager.data.EsdeThemeInstalled
+import io.crystalnova.manager.updater.AppUpdateState
 import java.io.File
 
 /**
@@ -26,11 +27,24 @@ sealed interface EsdeInstallUiState {
     data class Failed(val message: String, val notes: List<String>) : EsdeInstallUiState
 }
 
+/** Moved here from the deleted (iiSU) ThemeScreen.kt — the only surviving user. */
+internal fun formatPackBytes(bytes: Long): String =
+    when {
+        bytes < 1024 -> "$bytes B"
+        bytes < 1024 * 1024 -> "%.1f KB".format(bytes / 1024f)
+        else -> "%.1f MB".format(bytes / (1024f * 1024f))
+    }
+
 /**
  * THEME: the ES-DE "crystal" theme updater (u48). Shows the installed
  * theme version, the remote catalog version, and drives the
  * download → verify → SAF-install flow plus rollback to the previous
  * release.
+ *
+ * u50: THE STRIP — this screen IS the home screen now. The optional
+ * [showManagerSection] appends the MANAGER self-update route
+ * (current version, CHECK FOR UPDATE → UPDATE) to the same scroll;
+ * [isHome] makes B exit instead of popping.
  *
  * Pure function of its inputs: every side effect (network, SAF,
  * intents, persistence) arrives as a callback owned by the activity.
@@ -55,19 +69,52 @@ fun EsdeThemeScreen(
     onInstall: (EsdeThemeEntry, File) -> Unit = { _, _ -> },
     onLaunchEsde: () -> Unit = {},
     onDismissInstall: () -> Unit = {},
-    /** Pops one navigation level (B). */
+    /** Pops one navigation level (B); on HOME it exits the app. */
     onBack: () -> Unit = {},
+    // ---- u50 home-screen configuration ----
+    routeKey: String = "theme",
+    screenTitle: String = "ES-DE THEME",
+    contentHeader: String = "CRYSTAL THEME FOR ES-DE",
+    backLabel: String = "BACK",
+    isHome: Boolean = false,
+    /** The manager self-update section (u50 home only). */
+    showManagerSection: Boolean = false,
+    managerVersionLabel: String = "",
+    appUpdate: AppUpdateState? = null,
+    onUpdateApp: () -> Unit = {},
     modifier: Modifier = Modifier,
 ) {
     val catalog = (catalogState as? EsdeThemeCatalogState.Ready)?.catalog
     val current = catalog?.current()
     val rollback = catalog?.rollbackTarget()
+    val updateAvailable = catalog != null &&
+        (installed == null || installed.versionCode < catalog.versionCode)
+    val backKey = if (isHome) "home-exit" else "theme-back"
+    // Initial D-pad focus: the primary CTA for the current state, or
+    // the back/exit control when nothing actionable is up.
+    val fallbackFocusKey: Any? = when {
+        installState is EsdeInstallUiState.Installing -> backKey
+        installState is EsdeInstallUiState.Done ||
+            installState is EsdeInstallUiState.Failed -> "esde-install-dismiss"
+        updateAvailable ->
+            if (downloadState is EsdeThemeDownloadState.ReadyToInstall &&
+                downloadState.entry.versionCode == current?.versionCode
+            ) {
+                "esde-current-install"
+            } else {
+                "esde-current-download"
+            }
+        !folderGranted -> "esde-grant-folder"
+        else -> backKey
+    }
     ScreenScaffold(
-        routeKey = "theme",
-        title = "ES-DE THEME",
+        routeKey = routeKey,
+        title = screenTitle,
         onBack = onBack,
         modifier = modifier,
-        fallbackFocusKey = "theme-back",
+        isHome = isHome,
+        footerLabel = backLabel,
+        fallbackFocusKey = fallbackFocusKey,
     ) {
         ControllerList(
             state = listState,
@@ -76,7 +123,7 @@ fun EsdeThemeScreen(
         ) {
             section {
                 BasicText(
-                    text = "CRYSTAL THEME FOR ES-DE",
+                    text = contentHeader,
                     style = TextStyle(
                         fontFamily = Crystal.Mono,
                         fontWeight = FontWeight.Bold,
@@ -104,12 +151,10 @@ fun EsdeThemeScreen(
                             if (installedOnDisk) Crystal.Good else Crystal.Joystick,
                         )
                         if (catalog != null) {
-                            val newer = installed == null ||
-                                installed.versionCode < catalog.versionCode
                             StatusLine(
                                 "LATEST: v${catalog.version}" +
-                                    if (!newer) " — UP TO DATE" else " — UPDATE AVAILABLE",
-                                if (!newer) Crystal.Good else Crystal.Joystick,
+                                    if (!updateAvailable) " — UP TO DATE" else " — UPDATE AVAILABLE",
+                                if (!updateAvailable) Crystal.Good else Crystal.Joystick,
                             )
                             catalog.zipBytes?.let {
                                 DimLine("SIZE: ${formatPackBytes(it)}")
@@ -169,6 +214,16 @@ fun EsdeThemeScreen(
                     onClick = onGrantFolder,
                 )
             }
+            // ---- OPEN ES-DE: always on the home screen when ES-DE is
+            // installed (the install-outcome panel keeps its own copy) ----
+            if (esdeInstalled && installState is EsdeInstallUiState.Idle) {
+                control(
+                    key = "esde-launch",
+                    testTag = "esde-launch",
+                    label = "OPEN ES-DE",
+                    onClick = onLaunchEsde,
+                )
+            }
             // ---- catalog states ----
             when (catalogState) {
                 is EsdeThemeCatalogState.Checking -> section {
@@ -197,14 +252,7 @@ fun EsdeThemeScreen(
                             entry = current,
                             downloadState = downloadState,
                             folderGranted = folderGranted,
-                            actionLabel = if (
-                                installed == null ||
-                                installed.versionCode < current.versionCode
-                            ) {
-                                "UPDATE"
-                            } else {
-                                "REINSTALL"
-                            },
+                            actionLabel = if (updateAvailable) "UPDATE" else "REINSTALL",
                             onDownload = onDownload,
                             onInstall = onInstall,
                         )
@@ -326,10 +374,105 @@ fun EsdeThemeScreen(
                 }
                 EsdeInstallUiState.Idle -> { /* nothing */ }
             }
+            // ---- MANAGER self-update (u50 home only): surfaced here,
+            // never buried behind a route. Every future manager build
+            // ships through this path. ----
+            if (showManagerSection) {
+                section {
+                    BasicText(
+                        text = "MANAGER",
+                        style = TextStyle(
+                            fontFamily = Crystal.Mono,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = Crystal.BodySize,
+                            color = Crystal.Cream,
+                        ),
+                    )
+                }
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            StatusLine(
+                                "VERSION: $managerVersionLabel",
+                                Crystal.Cream,
+                            )
+                            when (val u = appUpdate) {
+                                is AppUpdateState.Available -> {
+                                    StatusLine(
+                                        "MANAGER v${u.info.version} AVAILABLE",
+                                        Crystal.Joystick,
+                                    )
+                                    u.notice?.let { notice ->
+                                        StatusLine(notice.uppercase(), Crystal.Bad)
+                                    }
+                                }
+                                is AppUpdateState.Downloaded ->
+                                    StatusLine("APP UPDATE READY", Crystal.Joystick)
+                                is AppUpdateState.Downloading -> {
+                                    val pct = u.progress
+                                        ?.let { " — ${(it * 100).toInt()}%" } ?: ""
+                                    StatusLine(
+                                        "DOWNLOADING APP UPDATE$pct",
+                                        Crystal.Divider,
+                                    )
+                                }
+                                is AppUpdateState.Checking ->
+                                    StatusLine(
+                                        "CHECKING FOR APP UPDATES…",
+                                        Crystal.Divider,
+                                    )
+                                is AppUpdateState.Failed ->
+                                    StatusLine(
+                                        "APP UPDATE FAILED — ${u.message}".uppercase(),
+                                        Crystal.Bad,
+                                    )
+                                is AppUpdateState.Idle ->
+                                    if (u.lastCheckFailed) {
+                                        StatusLine(
+                                            "APP UPDATE CHECK FAILED",
+                                            Crystal.Bad,
+                                        )
+                                    } else {
+                                        DimLine("APP UPDATE CHECKS RUN ON START")
+                                    }
+                                is AppUpdateState.Installing ->
+                                    StatusLine(
+                                        "INSTALLING — FOLLOW THE SYSTEM PROMPT",
+                                        Crystal.Divider,
+                                    )
+                                null -> { /* CHECK FOR UPDATE button below */ }
+                            }
+                        }
+                    }
+                }
+                when (appUpdate) {
+                    is AppUpdateState.Available -> control(
+                        key = "home-update-app",
+                        testTag = "home-update-app",
+                        label = "DOWNLOAD UPDATE",
+                        onClick = onUpdateApp,
+                    )
+                    is AppUpdateState.Downloaded -> control(
+                        key = "home-update-app",
+                        testTag = "home-update-app",
+                        label = "INSTALL UPDATE",
+                        onClick = onUpdateApp,
+                    )
+                    is AppUpdateState.Failed,
+                    is AppUpdateState.Idle,
+                    null -> control(
+                        key = "home-check-update",
+                        testTag = "home-check-update",
+                        label = "CHECK FOR UPDATE",
+                        onClick = onUpdateApp,
+                    )
+                    else -> { /* Checking / Downloading / Installing: busy */ }
+                }
+            }
             control(
-                key = "theme-back",
-                testTag = "theme-back",
-                label = "BACK",
+                key = backKey,
+                testTag = backKey,
+                label = backLabel,
                 onClick = onBack,
             )
         }

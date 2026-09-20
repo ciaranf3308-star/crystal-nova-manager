@@ -9,70 +9,12 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.requestFocus
-import io.crystalnova.manager.data.PackEntry
-import io.crystalnova.manager.scraper.ScraperUiState
-import io.crystalnova.manager.scraper.esde.EsdeImport
-import io.crystalnova.manager.storage.LocationState
 import org.junit.Assert.assertTrue
 
 // ---------------------------------------------------------------------------
-// Minimal fake state for rendering the real screens under Robolectric.
-// Everything here is pure data — no DataStore, no SAF, no permissions.
-// ---------------------------------------------------------------------------
-
-/** Scraper state with ROM + MEDIA configured. */
-fun fakeReadyScraperState(): ScraperUiState = ScraperUiState(
-    needsGamesFolder = false,
-    romLocation = LocationState.Ready("INTERNAL STORAGE /Roms", isRemovable = false),
-    mediaLocation = LocationState.Ready("SD CARD /Media", isRemovable = true),
-)
-
-/**
- * An [EsdeImport.ImportPlan] with [count] games on a single platform.
- * Game ids/titles are zero-padded so the screen's title sort keeps
- * numeric order — traversal tests address rows by index.
- */
-fun fakeManualMatchPlan(count: Int): EsdeImport.ImportPlan {
-    val games = (0 until count).map { i ->
-        val id = "game-%02d".format(i)
-        EsdeImport.RomGame(
-            platform = "snes",
-            gameId = id,
-            title = "Game %02d".format(i),
-            fileName = "$id.zip",
-        )
-    }
-    return EsdeImport.ImportPlan(
-        games = games,
-        slotPlans = emptyList(),
-        matchedGameIds = emptySet(),
-        unmatchedGames = games,
-        unmatchedMediaGroups = emptyList(),
-    )
-}
-
-/** [count] fake Crystal iiSU packs, ids `pack-0 …`. */
-fun fakePackEntry(i: Int): PackEntry = PackEntry(
-    id = "pack-$i",
-    name = "Crystal Pack $i",
-    version = "1.$i",
-    versionCode = 10 + i,
-    description = "Test pack $i",
-    previewUrl = null,
-    previewSha256 = null,
-    systems = listOf("Super Nintendo"),
-    iisuMinVersion = "0.0.7.4",
-    zipUrl = "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/pack-$i.zip",
-    zipSha256 = "a".repeat(64),
-    zipBytes = 1024L,
-    assets = emptyList(),
-)
-
-fun fakeCrystalPacks(count: Int): List<PackEntry> =
-    (0 until count).map(::fakePackEntry)
-
-// ---------------------------------------------------------------------------
-// Focus + viewport drivers shared by the Nova behavior tests.
+// Focus + viewport drivers for the u50 single-screen home, recovered
+// from the retired NovaScreenFakes.kt (its pack/scraper fakes died with
+// the strip; these drivers are pure UI-test helpers with no app deps).
 // ---------------------------------------------------------------------------
 
 /**
@@ -90,8 +32,7 @@ fun SemanticsNodeInteraction.requestDpadFocus(): SemanticsNodeInteraction {
  * Viewport assertion for a node addressed by an arbitrary interaction
  * (tag- or text-based): it must exist, have non-empty bounds, and
  * overlap the 1280x960 viewport. Same strength as
- * [NovaUiTest.assertNodeInViewport] but usable where no testTag exists
- * (status strip, footer keycaps, the DISMISS notice button).
+ * [NovaUiTest.assertNodeInViewport] but usable where no testTag exists.
  */
 fun NovaUiTest.assertInteractionInViewport(
     interaction: SemanticsNodeInteraction,
@@ -163,9 +104,7 @@ fun NovaUiTest.assertDpadTraversalInViewport(
 /**
  * Current vertical scroll offset (px == dp at density 1) of the single
  * scrollable on screen, read from its `VerticalScrollAxisRange`
- * semantics. Screens own their `LazyListState` inside the scaffold, so
- * tests cannot reach it directly — the semantics axis range is the
- * black-box equivalent.
+ * semantics.
  */
 fun NovaUiTest.verticalScrollValue(): Float {
     val node = composeTestRule.onNode(hasScrollAction()).fetchSemanticsNode()

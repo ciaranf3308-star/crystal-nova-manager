@@ -22,7 +22,7 @@ package io.crystalnova.manager.data
  * - history: [ { version, versionCode, zipUrl, zipSha256, zipBytes } ]
  *   (latest previous first — history[0] is the rollback target)
  *
- * Pure JVM: reuses the minimal parser from PackCatalog.kt (no org.json,
+ * Pure JVM: reuses the minimal hand-rolled JSON parser (no org.json,
  * no Android APIs).
  */
 const val ESDE_THEME_CATALOG_URL =
@@ -69,7 +69,7 @@ data class EsdeThemeCatalog(
 }
 
 // ------------------------------------------------------------------
-// Parsing — defensive, mirroring PackCatalog.kt: malformed JSON or a
+// Parsing — defensive: malformed JSON or a
 // missing top-level shape yields null; individual bad history entries
 // are dropped.
 // ------------------------------------------------------------------

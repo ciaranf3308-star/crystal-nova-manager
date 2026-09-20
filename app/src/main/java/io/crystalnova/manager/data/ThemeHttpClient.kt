@@ -6,7 +6,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 
 /**
- * HTTP client for the pack pipeline: fetches the catalog JSON and
+ * HTTP client for the ES-DE theme pipeline: fetches the catalog JSON and
  * downloads pack ZIPs.
  *
  * The manager's existing clients each do half of this job —
@@ -14,12 +14,12 @@ import java.net.URL
  * [ReleaseAssetHttpClient] downloads but rejects non-APK files. This
  * client follows both, with the same single-CDN-hop validation for
  * every redirect (GitHub `releases/download/…` 302s to its release
- * CDN). Pack ZIPs are verified by SHA-256 against the catalog before
+ * CDN). Theme ZIPs are verified by SHA-256 against the catalog before
  * use — the transport is not the trust boundary.
  *
  * Pure JVM: no Android APIs.
  */
-class PackHttpClient : HttpClient {
+class ThemeHttpClient : HttpClient {
 
     companion object {
         private const val MAX_REDIRECTS = 5
@@ -74,7 +74,7 @@ class PackHttpClient : HttpClient {
                     if (++redirects > MAX_REDIRECTS) throw IOException("Too many redirects")
                     continue
                 }
-                if (code !in 200..299) throw IOException("Pack download failed: HTTP $code")
+                if (code !in 200..299) throw IOException("Theme download failed: HTTP $code")
                 val total = conn.getHeaderField("Content-Length")?.toLongOrNull()
                 dest.parentFile?.mkdirs()
                 val tmp = File(dest.parentFile, dest.name + ".part")

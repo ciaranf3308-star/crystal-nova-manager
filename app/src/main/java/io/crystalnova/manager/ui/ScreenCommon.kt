@@ -1,8 +1,5 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -15,7 +12,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import io.crystalnova.manager.storage.LocationState
 
 /**
  * Shared screen infrastructure for the destination stack. Visual
@@ -110,66 +106,6 @@ fun DimLine(text: String) {
     )
 }
 
-/**
- * One-line friendly display for a storage location. Never a raw
- * content:// URI: [LocationState.Ready] carries the parsed display
- * path (e.g. "INTERNAL STORAGE /Roms" or "SD CARD /Media").
- */
-fun friendlyLocation(loc: LocationState): String = when (loc) {
-    is LocationState.NotConfigured -> "NOT CONFIGURED"
-    is LocationState.Ready -> loc.displayPath
-    is LocationState.AccessLost -> "ACCESS LOST — RESELECT"
-}
-
-/** Dismissible bad-news notice, in the house style. */
-@Composable
-fun NoticeBlock(
-    notice: String,
-    onDismiss: () -> Unit,
-    dispatcher: FocusDispatcher,
-) {
-    StatusLine(notice, Crystal.Bad)
-    CrystalButton(
-        key = "dismiss-notice",
-        label = "DISMISS",
-        onClick = onDismiss,
-        dispatcher = dispatcher,
-    )
-}
-
 // NOTE: BackFooter (the manual per-screen B-key legend) is gone: the
 // scaffold renders the pinned footer hint bar (A SELECT · B BACK /
 // B EXIT) on every screen.
-
-/**
- * Safety-net screen: shown when a destination needs payload that isn't
- * ready (e.g. Diagnostics before its IO read completes). Never blank.
- */
-@Composable
-fun PlaceholderScreen(
-    label: String,
-    onBack: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    ScreenScaffold(
-        routeKey = "placeholder",
-        title = "LOADING",
-        onBack = onBack,
-        modifier = modifier,
-        fallbackFocusKey = "placeholder-back",
-    ) {
-        Column(
-            modifier = Modifier.fillMaxSize(),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            StatusLine(label, Crystal.Divider)
-            CrystalButton(
-                key = "placeholder-back",
-                label = "BACK",
-                onClick = onBack,
-                dispatcher = dispatcher,
-                requestInitialFocus = isInitialFocus("placeholder-back"),
-            )
-        }
-    }
-}
