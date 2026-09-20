@@ -18,6 +18,7 @@ import org.junit.Test
  *
  * u44: eight rows — the INSTALL/UPDATE LAUNCHER row and the separate
  * ES-DE export-folder row are gone with the strip-back.
+ * u46: nine rows — the INJECT TEST PACK test-utility row is added.
  */
 class NovaSettingsFitsViewportTest : NovaUiTest() {
 
@@ -44,6 +45,9 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
                 onOpenChannel = {},
                 onOpenAppearance = {},
                 onDiagnostics = {},
+                injectBusy = false,
+                injectStatus = null,
+                onInjectTestPack = {},
                 onBack = {},
             )
         }
@@ -56,6 +60,7 @@ class NovaSettingsFitsViewportTest : NovaUiTest() {
         assertNodeInViewport("settings-row-channel")
         assertNodeInViewport("settings-row-appearance")
         assertNodeInViewport("settings-row-diagnostics")
+        assertNodeInViewport("settings-row-inject-test-pack")
 
         // Pinned footer: A SELECT · B BACK.
         assertInteractionInViewport(

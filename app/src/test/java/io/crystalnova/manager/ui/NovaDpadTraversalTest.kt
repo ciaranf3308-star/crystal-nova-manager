@@ -48,6 +48,9 @@ class NovaDpadTraversalTest : NovaUiTest() {
                 onOpenChannel = {},
                 onOpenAppearance = {},
                 onDiagnostics = {},
+                injectBusy = false,
+                injectStatus = null,
+                onInjectTestPack = {},
                 onBack = {},
             )
         }
@@ -61,6 +64,7 @@ class NovaDpadTraversalTest : NovaUiTest() {
             "settings-row-channel",
             "settings-row-appearance",
             "settings-row-diagnostics",
+            "settings-row-inject-test-pack",
         )
         assertDpadTraversalInViewport(
             rows.map { tag -> { composeTestRule.onNodeWithTag(tag) } },

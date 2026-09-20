@@ -21,6 +21,7 @@ import io.crystalnova.manager.data.InstalledPack
 import io.crystalnova.manager.data.KeyValueStore
 import io.crystalnova.manager.data.PackEntry
 import io.crystalnova.manager.data.PackLibrary
+import io.crystalnova.manager.data.TestPackInjector
 import io.crystalnova.manager.data.compareVersions
 import io.crystalnova.manager.ui.ManualImport
 import io.crystalnova.manager.pegasus.EmulatorDetector
@@ -152,6 +153,10 @@ class MainActivity : ComponentActivity() {
     private var diagnosticsInfo: DiagnosticsInfo? by mutableStateOf(null)
     /** Last ROM/MEDIA adopt failure, surfaced on the Settings screen. */
     private var locationError: String? by mutableStateOf(null)
+    /** u46: test-pack inject busy flag (Settings test utility). */
+    private var injectBusy by mutableStateOf(false)
+    /** u46: last INJECT TEST PACK result, shown on the Settings screen. */
+    private var injectStatus: String? by mutableStateOf(null)
     /** PackageManager-backed detection of known emulator apps. */
     private val emulatorDetector: EmulatorDetector by lazy { EmulatorDetector(this) }
 
@@ -544,6 +549,9 @@ class MainActivity : ComponentActivity() {
                     onOpenChannel = { nav.navigate(Dest.SettingsChannel) },
                     onOpenAppearance = { nav.navigate(Dest.SettingsAppearance) },
                     onDiagnostics = { openDiagnostics(nav) },
+                    injectBusy = injectBusy,
+                    injectStatus = injectStatus,
+                    onInjectTestPack = { onInjectTestPack() },
                     onBack = pop,
                 )
                 is Dest.SettingsRom -> SettingsLocationScreen(
@@ -878,6 +886,26 @@ class MainActivity : ComponentActivity() {
             is AppUpdateState.Idle -> manager.checkAppUpdate()
             is AppUpdateState.Failed -> manager.checkAppUpdate()
             else -> { /* Checking / Downloading / Installing: busy */ }
+        }
+    }
+
+    /**
+     * u46 test utility: copies the APK-bundled crystal-test-pack.zip into
+     * the shared Downloads collection via MediaStore, SHA-256-verifying
+     * the copy. Runs off the main thread; the result (honest success or
+     * failure) lands in [injectStatus] for the Settings screen.
+     */
+    private fun onInjectTestPack() {
+        if (injectBusy) return
+        injectBusy = true
+        injectStatus = null
+        scope.launch {
+            val result = TestPackInjector.inject(this@MainActivity)
+            injectBusy = false
+            injectStatus = when (result) {
+                is TestPackInjector.Result.Ok -> result.message
+                is TestPackInjector.Result.Err -> result.message
+            }
         }
     }
 

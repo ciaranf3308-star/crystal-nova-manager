@@ -36,6 +36,9 @@ fun SettingsScreen(
     onOpenChannel: () -> Unit,
     onOpenAppearance: () -> Unit,
     onDiagnostics: () -> Unit,
+    injectBusy: Boolean,
+    injectStatus: String?,
+    onInjectTestPack: () -> Unit,
     onBack: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -50,7 +53,7 @@ fun SettingsScreen(
             state = listState,
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
-            // Eight rows must fit the 960px viewport without scrolling
+            // Nine rows must fit the 960px viewport without scrolling
             // (NovaSettingsFitsViewportTest): compact rows and tighter
             // than the default arrangement.
             verticalArrangement = Arrangement.spacedBy(4.dp),
@@ -114,6 +117,25 @@ fun SettingsScreen(
                 compact = true,
                 label = "DIAGNOSTICS",
                 onClick = onDiagnostics,
+            )
+            // u46 test utility: bulletproof delivery of the iiSU test
+            // pack (chat attachments kept arriving corrupted). Copies the
+            // APK-bundled crystal-test-pack.zip into Downloads via
+            // MediaStore and SHA-256-verifies the copy. Visually distinct
+            // (danger styling + TEST UTILITY label) — not a production
+            // feature.
+            injectStatus?.let { status ->
+                section { StatusLine(status) }
+            }
+            control(
+                key = "settings-row-inject-test-pack",
+                testTag = "settings-row-inject-test-pack",
+                compact = true,
+                label = if (injectBusy) "INJECT TEST PACK (TEST UTILITY)\nCOPYING…"
+                else "INJECT TEST PACK (TEST UTILITY)\nCOPY crystal-test-pack.zip TO DOWNLOADS",
+                onClick = onInjectTestPack,
+                enabled = !injectBusy,
+                danger = true,
             )
         }
     }
