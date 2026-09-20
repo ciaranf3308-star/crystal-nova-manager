@@ -63,7 +63,7 @@ class PackLibraryTest {
     @Test
     fun catalogFetchSuccessYieldsReady() = runTest {
         val http = FakeHttpClient(
-            getHandler = { jsonResponse(200, libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/d.zip")) },
+            getHandler = { jsonResponse(200, libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/d.zip")) },
         )
         val lib = library(http)
         advanceUntilIdle()
@@ -120,7 +120,7 @@ class PackLibraryTest {
                 jsonResponse(
                     200,
                     libCatalogJson(
-                        "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/d.zip",
+                        "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/d.zip",
                         sha,
                     ),
                 )
@@ -144,7 +144,7 @@ class PackLibraryTest {
                 jsonResponse(
                     200,
                     libCatalogJson(
-                        "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/d.zip",
+                        "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/d.zip",
                         "0".repeat(64),
                     ),
                 )
@@ -172,7 +172,7 @@ class PackLibraryTest {
             getHandler = {
                 jsonResponse(
                     200,
-                    libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/d.zip"),
+                    libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/d.zip"),
                 )
             },
         )
@@ -193,7 +193,7 @@ class PackLibraryTest {
             getHandler = {
                 jsonResponse(
                     200,
-                    libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/d.zip"),
+                    libCatalogJson("https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/d.zip"),
                 )
             },
         )

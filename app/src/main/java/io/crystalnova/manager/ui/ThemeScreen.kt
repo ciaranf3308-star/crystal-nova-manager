@@ -267,6 +267,7 @@ private fun ControllerListContent.packSection(
                     if (pack.systems.isNotEmpty()) {
                         add("COVERS: " + pack.systems.joinToString(", ").uppercase())
                     }
+                    pack.zipBytes?.let { add("SIZE: " + formatPackBytes(it)) }
                     if (pack.assets.isNotEmpty()) {
                         add("${pack.assets.size} ASSETS")
                     }
@@ -339,3 +340,13 @@ private fun ControllerListContent.packSection(
 fun decodePreviewImage(bytes: ByteArray): ImageBitmap? = runCatching {
     BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
 }.getOrNull()
+
+/** Human size for a pack ZIP, e.g. "3.5 MB". Never throws. */
+internal fun formatPackBytes(bytes: Long): String {
+    if (bytes <= 0) return "0 B"
+    val kb = bytes / 1024.0
+    if (kb < 1024) return "%.1f KB".format(kb)
+    val mb = kb / 1024.0
+    if (mb < 1024) return "%.1f MB".format(mb)
+    return "%.1f GB".format(mb / 1024.0)
+}

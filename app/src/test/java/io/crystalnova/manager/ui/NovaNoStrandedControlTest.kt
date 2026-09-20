@@ -8,6 +8,7 @@ import androidx.compose.ui.test.onNodeWithText
 import io.crystalnova.manager.data.InstalledPack
 import io.crystalnova.manager.data.PackCatalogState
 import io.crystalnova.manager.data.PackDownloadState
+import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
@@ -70,6 +71,8 @@ class NovaNoStrandedControlTest : NovaUiTest() {
         // BACK are focusable — the walk proves all three reachable.
         composeTestRule.onNodeWithText("CRYSTAL PACK 0").assertExists()
         composeTestRule.onNodeWithText("CRYSTAL PACK 1").assertExists()
+        // u47: the card shows the ZIP size next to coverage.
+        composeTestRule.onNodeWithText("SIZE: 1.0 KB", substring = true).assertExists()
         assertDpadTraversalInViewport(
             listOf(
                 { composeTestRule.onNodeWithTag("pack-action-pack-0") },
@@ -124,8 +127,7 @@ class NovaNoStrandedControlTest : NovaUiTest() {
     }
 
     @Test
-    fun themeInstallActionReachableWhenDownloaded() {
-        val zip = java.io.File("pack-pack-0-10.zip")
+    fun themeInstallActionReachableWhenDownloaded() {        val zip = java.io.File("pack-pack-0-10.zip")
         setNovaContent {
             ThemeScreen(
                 catalogState = PackCatalogState.Ready(fakeCrystalPacks(1)),
@@ -142,5 +144,14 @@ class NovaNoStrandedControlTest : NovaUiTest() {
                 { composeTestRule.onNodeWithTag("theme-back") },
             ),
         )
+    }
+
+    @Test
+    fun formatPackBytesRendersHumanSizes() {
+        assertEquals("0 B", formatPackBytes(0))
+        assertEquals("0 B", formatPackBytes(-5))
+        assertEquals("1.0 KB", formatPackBytes(1024))
+        assertEquals("3.5 MB", formatPackBytes(3661364))
+        assertEquals("1.0 GB", formatPackBytes(1024L * 1024 * 1024))
     }
 }

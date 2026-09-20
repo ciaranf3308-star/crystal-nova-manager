@@ -4,11 +4,13 @@ package io.crystalnova.manager.data
  * The remote Crystal iiSU pack catalog — the source of truth for the
  * THEME pack manager.
  *
- * One constant, following the same rolling-dev-latest pattern as the
- * manager's own manifest: `releases/download/dev-latest/...` on the
- * manager repo. The catalog is published by the pack pipeline (NOT by
- * the manager CI); until it exists the pack screen reports that
- * honestly instead of inventing packs.
+ * The catalog lives in the dedicated `crystal-nova-packs` repo on its
+ * rolling `stable` release; it is published by the pack pipeline, NOT
+ * by the manager CI. (A catalog could never live under the manager's
+ * own dev-latest release: GitHub release asset names cannot contain
+ * `/`, so `packs/catalog.json` as an asset name was a dead end.)
+ * Until the catalog is reachable the pack screen reports that honestly
+ * instead of inventing packs.
  *
  * Catalog schema (all keys camelCase):
  * - catalogVersion: Int
@@ -23,7 +25,7 @@ package io.crystalnova.manager.data
  * Pure JVM: no org.json (stubbed under unit tests), no Android APIs.
  */
 const val PACK_CATALOG_URL =
-    "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/dev-latest/packs/catalog.json"
+    "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/catalog.json"
 
 /** One asset inside a pack ZIP. `slot` is icon | title | background. */
 data class PackAsset(

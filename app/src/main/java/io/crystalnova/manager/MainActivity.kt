@@ -392,9 +392,10 @@ class MainActivity : ComponentActivity() {
         )
         if (pendingFolderNotice != null) manager.refresh(pendingFolderNotice)
 
-        // u45: the Crystal iiSU pack library. The catalog is published
-        // by the pack pipeline, not by the manager CI — until it
-        // exists the pack screen reports that honestly.
+        // u45/u47: the Crystal iiSU pack library. The catalog is
+        // published by the pack pipeline to the crystal-nova-packs
+        // repo's `stable` release — not by the manager CI. Until it
+        // is reachable the pack screen reports that honestly.
         packLibrary = PackLibrary(
             workDir = File(cacheDir, "packs").apply { mkdirs() },
             scope = scope,
