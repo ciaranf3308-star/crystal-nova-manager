@@ -74,8 +74,11 @@ class NovaNoStrandedControlTest : NovaUiTest() {
         composeTestRule.onNodeWithText("CRYSTAL PACK 1").assertExists()
         // u47: the card shows the ZIP size next to coverage (both fake
         // packs are 1024 bytes, so two nodes match — plural query).
-        composeTestRule.onAllNodesWithText("SIZE: 1.0 KB", substring = true)
-            .assertCountEquals(2)
+        assertEquals(
+            2,
+            composeTestRule.onAllNodesWithText("SIZE: 1.0 KB", substring = true)
+                .fetchSemanticsNodes().size,
+        )
         assertDpadTraversalInViewport(
             listOf(
                 { composeTestRule.onNodeWithTag("pack-action-pack-0") },
