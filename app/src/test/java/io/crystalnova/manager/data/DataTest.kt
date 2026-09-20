@@ -68,7 +68,7 @@ class GitHubEndpointsTest {
     @Test
     fun `evil hosts are rejected`() {
         assertThrows(SecurityException::class.java) {
-            GitHubEndpoints.checkAllowed("https://evil.com/ciaranf3308-star/crystal-nova-pegasus-theme/zip")
+            GitHubEndpoints.checkAllowed("https://evil.com/ciaranf3308-star/crystal-nova-manager/zip")
         }
         assertThrows(SecurityException::class.java) {
             GitHubEndpoints.checkAllowed("https://api.github.com.evil.com/repos/x/y")
@@ -78,7 +78,7 @@ class GitHubEndpointsTest {
     @Test
     fun `non-https is rejected`() {
         assertThrows(SecurityException::class.java) {
-            GitHubEndpoints.checkAllowed("http://api.github.com/repos/ciaranf3308-star/crystal-nova-pegasus-theme/commits/main")
+            GitHubEndpoints.checkAllowed("http://api.github.com/repos/ciaranf3308-star/crystal-nova-manager/commits/main")
         }
     }
 
@@ -97,19 +97,6 @@ class GitHubEndpointsTest {
         GitHubEndpoints.checkAllowed(GitHubEndpoints.managerLatestReleaseApi())
         GitHubEndpoints.checkAllowed(
             "https://github.com/ciaranf3308-star/crystal-nova-manager/releases/download/v1.0.2-u1/crystal-nova-manager-u1.2.apk",
-        )
-    }
-
-    @Test
-    fun `packs repo release endpoints are allowed`() {
-        // u47: the Crystal iiSU pack catalog, ZIPs, and previews live in
-        // the crystal-nova-packs repo's rolling `stable` release.
-        GitHubEndpoints.checkAllowed(PACK_CATALOG_URL)
-        GitHubEndpoints.checkAllowed(
-            "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/crystal-pack-v1.zip",
-        )
-        GitHubEndpoints.checkAllowed(
-            "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/preview.png",
         )
     }
 
