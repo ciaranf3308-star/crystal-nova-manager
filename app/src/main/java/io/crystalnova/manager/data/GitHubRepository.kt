@@ -36,6 +36,8 @@ object GitHubEndpoints {
 
     /** The Crystal iiSU packs repository — pack catalog, ZIPs, previews. */
     const val PACKS_REPO = "crystal-nova-packs"
+    /** The ES-DE "crystal" theme repository — theme catalog + theme ZIPs. */
+    const val ESDE_THEME_REPO = "crystal-esde-theme"
 
     private val ALLOWED_HOSTS = setOf(
         "api.github.com",
@@ -100,7 +102,9 @@ object GitHubEndpoints {
                 host in MANAGER_REPO_HOSTS && "/$OWNER/$LAUNCHER_REPO" in u.path
             val inPacksRepo =
                 host in MANAGER_REPO_HOSTS && "/$OWNER/$PACKS_REPO" in u.path
-            if (!inThemeRepo && !inManagerRepo && !inLauncherRepo && !inPacksRepo) {
+            val inEsdeThemeRepo =
+                host in MANAGER_REPO_HOSTS && "/$OWNER/$ESDE_THEME_REPO" in u.path
+            if (!inThemeRepo && !inManagerRepo && !inLauncherRepo && !inPacksRepo && !inEsdeThemeRepo) {
                 throw SecurityException("URL escapes $OWNER repositories: ${u.path}")
             }
         }

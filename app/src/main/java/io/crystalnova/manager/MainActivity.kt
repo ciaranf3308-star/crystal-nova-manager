@@ -1,5 +1,7 @@
 package io.crystalnova.manager
 
+import android.app.ActivityManager
+import android.content.Context
 import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
@@ -9,12 +11,15 @@ import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.documentfile.provider.DocumentFile
+import io.crystalnova.manager.data.EsdeThemeEntry
+import io.crystalnova.manager.data.EsdeThemeLibrary
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.AppUpdateChannel
 import io.crystalnova.manager.data.InstalledPack
@@ -23,6 +28,10 @@ import io.crystalnova.manager.data.PackEntry
 import io.crystalnova.manager.data.PackLibrary
 import io.crystalnova.manager.data.TestPackInjector
 import io.crystalnova.manager.data.compareVersions
+import io.crystalnova.manager.storage.EsdeThemeInstaller
+import io.crystalnova.manager.storage.EsdeThemeInstallResult
+import io.crystalnova.manager.ui.EsdeInstallUiState
+import io.crystalnova.manager.ui.EsdeThemeScreen
 import io.crystalnova.manager.ui.ManualImport
 import io.crystalnova.manager.pegasus.EmulatorDetector
 import io.crystalnova.manager.scraper.model.AssetSlot
@@ -88,6 +97,18 @@ private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueS
 }
 
 /**
+ * u48: one IO-thread probe of the ES-DE SAF grant — whether the
+ * persisted themes URI still resolves, whether `themes/crystal/`
+ * exists, the version marker, and the folder label.
+ */
+private data class EsdeFolderProbe(
+    val granted: Boolean,
+    val onDisk: Boolean,
+    val marker: Pair<String, Int?>?,
+    val label: String?,
+)
+
+/**
  * Navigation hub. Owns the [Navigator] back stack, the managers, and
  * the SAF folder pickers; each [Dest] renders a focused screen from
  * ui/. Controller/system back pops exactly one level from any child
@@ -107,6 +128,20 @@ class MainActivity : ComponentActivity() {
          * LAUNCH iiSU button is disabled when it's absent.
          */
         const val IISU_PACKAGE = "com.iisulauncher"
+
+        /**
+         * u48: the iiSU pack UI is HIDDEN, not deleted. Flip back to
+         * true to restore the Crystal iiSU pack manager on the THEME
+         * screen; all iiSU code paths stay intact.
+         */
+        const val SHOW_IISU_PACKS = false
+
+        /** ES-DE's Android package (+ the Galaxy-store variant). */
+        const val ESDE_PACKAGE = "org.es_de.frontend"
+        const val ESDE_PACKAGE_GALAXY = "org.es_de.frontend.galaxy"
+
+        /** Prefs key for the ES-DE themes folder SAF grant. */
+        const val KEY_ESDE_THEMES_TREE_URI = "esde.themes.treeUri"
     }
 
     private lateinit var manager: UpdateManager
@@ -131,6 +166,22 @@ class MainActivity : ComponentActivity() {
     private var biosNotice: String? by mutableStateOf(null)
     /** u45: the Crystal iiSU pack library (remote catalog + downloads). */
     private lateinit var packLibrary: PackLibrary
+    /** u48: the ES-DE "crystal" theme library (remote catalog + downloads). */
+    private lateinit var esdeThemeLibrary: EsdeThemeLibrary
+    /** u48: the SAF installer for the ES-DE theme ZIP. */
+    private lateinit var esdeThemeInstaller: EsdeThemeInstaller
+    /** u48: UI state for one ES-DE theme install run. */
+    private var esdeInstallUi: EsdeInstallUiState by mutableStateOf(EsdeInstallUiState.Idle)
+    /** u48: last ES-DE themes-folder grant failure, surfaced on the screen. */
+    private var esdeFolderNotice: String? by mutableStateOf(null)
+    /** u48: last ES-DE launch failure, surfaced on the screen. */
+    private var esdeLaunchNotice: String? by mutableStateOf(null)
+    /**
+     * u48: bumped when the ES-DE grant changes (or an install lands)
+     * so the screen recomputes disk presence (state lives in SAF, not
+     * in a flow).
+     */
+    private var esdeGrantRev: Int by mutableStateOf(0)
     /** Lazily-loaded pack preview bitmaps, keyed by pack id. */
     private var packPreviews by mutableStateOf(mapOf<String, androidx.compose.ui.graphics.ImageBitmap>())
     /** Pack ids whose preview fetch has already been kicked off. */
@@ -206,6 +257,75 @@ class MainActivity : ComponentActivity() {
             }
             manager.refresh(folderNotice)
         }
+
+    /**
+     * u48: ES-DE themes-folder picker. Grants the ES-DE themes folder
+     * ONCE with a persistable SAF tree permission — the only storage
+     * access the theme updater holds. NO MANAGE_EXTERNAL_STORAGE, ever.
+     *
+     * The initial URI hints at the Nova's real layout
+     * (`FOUND.000/themes` on internal storage); the user can still
+     * browse anywhere, and `ES-DE/themes` works as a fallback.
+     * Accepting: the picked folder itself named `themes`, or a folder
+     * containing a `themes` child (we descend into it). Anything else
+     * re-prompts with guidance — adopting the wrong folder would
+     * install the theme into the void.
+     */
+    private val esdeFolderPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            var notice: String? = null
+            if (uri != null) {
+                if (adoptEsdeThemesDir(uri)) {
+                    esdeGrantRev++
+                } else {
+                    notice = "THAT WAS NOT A THEMES FOLDER — " +
+                        "PLEASE SELECT FOUND.000/THEMES (OR ES-DE/THEMES)"
+                }
+            }
+            esdeFolderNotice = notice
+        }
+
+    /** Opens the ES-DE themes-folder picker with the FOUND.000 hint. */
+    private fun launchEsdeFolderPicker() {
+        val initial = runCatching {
+            DocumentsContract.buildDocumentUri(
+                "com.android.externalstorage.documents",
+                "primary:FOUND.000/themes",
+            )
+        }.getOrNull()
+        esdeFolderPicker.launch(initial)
+    }
+
+    /**
+     * Adopts the ES-DE themes folder grant. Returns true when a usable
+     * `themes/` folder was found and its persistable permission taken.
+     */
+    private fun adoptEsdeThemesDir(uri: Uri): Boolean {
+        return try {
+            var target = DocumentFile.fromTreeUri(this, uri) ?: return false
+            if (!target.isDirectory) return false
+            if (!target.name.equals("themes", ignoreCase = true)) {
+                val child = target.findFile("themes")
+                if (child == null || !child.isDirectory) return false
+                target = child
+            }
+            val targetUri = target.uri
+            contentResolver.takePersistableUriPermission(
+                targetUri,
+                Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+            getSharedPreferences("crystal-nova-manager", MODE_PRIVATE)
+                .edit()
+                .putString(KEY_ESDE_THEMES_TREE_URI, targetUri.toString())
+                .apply()
+            true
+        } catch (_: SecurityException) {
+            false
+        } catch (_: Exception) {
+            false
+        }
+    }
 
     /**
      * BIOS folder picker (v24). Adopts the persistable SAF grant for
@@ -402,6 +522,20 @@ class MainActivity : ComponentActivity() {
             prefs = prefs,
         )
 
+        // u48: the ES-DE "crystal" theme updater. The theme catalog is
+        // published by the theme pipeline to the crystal-esde-theme
+        // repo's `stable` release — not by the manager CI. Until it is
+        // reachable the theme screen reports that honestly.
+        esdeThemeLibrary = EsdeThemeLibrary(
+            workDir = File(cacheDir, "esde-theme").apply { mkdirs() },
+            scope = scope,
+            prefs = prefs,
+        )
+        esdeThemeInstaller = EsdeThemeInstaller(
+            context = this,
+            cacheDir = cacheDir,
+        )
+
         scraper = ScraperManager(
             context = this,
             prefs = prefs,
@@ -497,26 +631,93 @@ class MainActivity : ComponentActivity() {
                     onBack = pop,
                 )
                 is Dest.Theme -> {
-                    val packCatalog by packLibrary.catalog.collectAsState()
-                    val packDownload by packLibrary.download.collectAsState()
-                    ThemeScreen(
-                        catalogState = packCatalog,
-                        downloadState = packDownload,
-                        installed = packLibrary.installedPack(),
-                        previewOf = { packPreviews[it] },
-                        onPreviewNeeded = { requestPackPreview(it) },
-                        manualImport = manualImport,
-                        manualImportNotice = manualImportNotice,
-                        onRefresh = { packLibrary.refresh() },
-                        onDownload = { packLibrary.downloadPack(it) },
-                        onInstallToIisu = { pack, zip -> sharePackToIisu(pack, zip) },
-                        onOpenFileManager = { openPackInFileManager() },
-                        onDismissManualImport = {
-                            manualImport = null
-                            manualImportNotice = null
-                        },
-                        onBack = pop,
-                    )
+                    if (SHOW_IISU_PACKS) {
+                        // iiSU pack UI (HIDDEN since u48 — kept intact).
+                        val packCatalog by packLibrary.catalog.collectAsState()
+                        val packDownload by packLibrary.download.collectAsState()
+                        ThemeScreen(
+                            catalogState = packCatalog,
+                            downloadState = packDownload,
+                            installed = packLibrary.installedPack(),
+                            previewOf = { packPreviews[it] },
+                            onPreviewNeeded = { requestPackPreview(it) },
+                            manualImport = manualImport,
+                            manualImportNotice = manualImportNotice,
+                            onRefresh = { packLibrary.refresh() },
+                            onDownload = { packLibrary.downloadPack(it) },
+                            onInstallToIisu = { pack, zip -> sharePackToIisu(pack, zip) },
+                            onOpenFileManager = { openPackInFileManager() },
+                            onDismissManualImport = {
+                                manualImport = null
+                                manualImportNotice = null
+                            },
+                            onBack = pop,
+                        )
+                    } else {
+                        // u48: the ES-DE "crystal" theme updater.
+                        val esdeCatalog by esdeThemeLibrary.catalog.collectAsState()
+                        val esdeDownload by esdeThemeLibrary.download.collectAsState()
+                        val treeUri = prefs.getString(KEY_ESDE_THEMES_TREE_URI)
+                        // SAF state lives outside Compose: probe it on IO
+                        // when the grant changes or an install lands
+                        // (esdeGrantRev) — a resolver query on Main can
+                        // block. The installer still re-validates the
+                        // persisted URI on every install.
+                        var esdeProbe by remember { mutableStateOf<EsdeFolderProbe?>(null) }
+                        LaunchedEffect(treeUri, esdeGrantRev) {
+                            esdeProbe = withContext(Dispatchers.IO) {
+                                val granted =
+                                    esdeThemeInstaller.resolveThemesDir(treeUri) != null
+                                EsdeFolderProbe(
+                                    granted = granted,
+                                    onDisk = granted &&
+                                        esdeThemeInstaller.themePresentOnDisk(treeUri),
+                                    marker = if (granted) {
+                                        esdeThemeInstaller.readInstalledMarker(treeUri)
+                                    } else {
+                                        null
+                                    },
+                                    label = if (granted) {
+                                        esdeThemesFolderLabel(treeUri)
+                                    } else {
+                                        null
+                                    },
+                                )
+                            }
+                        }
+                        val catalog = (esdeCatalog as? io.crystalnova.manager.data.EsdeThemeCatalogState.Ready)?.catalog
+                        val minManagerNotice = catalog?.minManagerVersion
+                            ?.takeIf { it != BuildConfig.VERSION_NAME }
+                            ?.let { want ->
+                                "THIS THEME WANTS MANAGER $want — " +
+                                    "THIS MANAGER IS ${BuildConfig.VERSION_NAME}. " +
+                                    "UPDATE THE MANAGER FIRST."
+                            }
+                        EsdeThemeScreen(
+                            catalogState = esdeCatalog,
+                            downloadState = esdeDownload,
+                            installed = esdeThemeLibrary.installedTheme(),
+                            installedOnDisk = esdeProbe?.onDisk == true,
+                            diskVersion = esdeProbe?.marker?.first,
+                            folderGranted = esdeProbe?.granted == true,
+                            folderLabel = esdeProbe?.label,
+                            folderNotice = esdeFolderNotice,
+                            installState = esdeInstallUi,
+                            esdeInstalled = isEsdeInstalled(),
+                            esdeNotice = esdeLaunchNotice,
+                            minManagerNotice = minManagerNotice,
+                            onRefresh = { esdeThemeLibrary.refresh() },
+                            onGrantFolder = { launchEsdeFolderPicker() },
+                            onDownload = { esdeThemeLibrary.downloadTheme(it) },
+                            onInstall = { entry, zip -> performEsdeInstall(entry, zip) },
+                            onLaunchEsde = { launchEsde() },
+                            onDismissInstall = {
+                                esdeInstallUi = EsdeInstallUiState.Idle
+                                esdeLaunchNotice = null
+                            },
+                            onBack = pop,
+                        )
+                    }
                 }
                 is Dest.Assets -> AssetsScreen(
                     onBack = pop,
@@ -1010,6 +1211,109 @@ class MainActivity : ComponentActivity() {
             else biosNotice = "NETHERSX2 NOT INSTALLED"
         } catch (_: Exception) {
             biosNotice = "COULD NOT OPEN NETHERSX2"
+        }
+    }
+
+    /**
+     * u48: runs the ES-DE theme install. Validates the persisted themes
+     * grant first (re-prompt on failure), skips the ThemeSet write when
+     * ES-DE is running, and only records the install in prefs after the
+     * SAF swap succeeded.
+     */
+    private fun performEsdeInstall(entry: EsdeThemeEntry, zip: File) {
+        if (esdeInstallUi is EsdeInstallUiState.Installing) return
+        esdeInstallUi = EsdeInstallUiState.Installing("STARTING…")
+        scope.launch(Dispatchers.IO) {
+            val prefs = getSharedPreferences("crystal-nova-manager", MODE_PRIVATE)
+            val treeUri = prefs.getString(KEY_ESDE_THEMES_TREE_URI, null)
+            val valid = esdeThemeInstaller.resolveThemesDir(treeUri) != null
+            if (!valid) {
+                withContext(Dispatchers.Main) {
+                    esdeFolderNotice = "THEMES FOLDER ACCESS LOST — GRANT IT AGAIN"
+                    esdeGrantRev++
+                    esdeInstallUi = EsdeInstallUiState.Idle
+                }
+                return@launch
+            }
+            val running = isEsdeRunning()
+            val result = esdeThemeInstaller.install(
+                zip = zip,
+                entry = entry,
+                treeUriString = treeUri!!,
+                esdeRunning = running,
+                onStep = { step ->
+                    scope.launch(Dispatchers.Main) {
+                        esdeInstallUi = EsdeInstallUiState.Installing(step)
+                    }
+                },
+            )
+            withContext(Dispatchers.Main) {
+                when (result) {
+                    is EsdeThemeInstallResult.Success -> {
+                        esdeThemeLibrary.noteInstalled(entry)
+                        esdeThemeLibrary.clearDownload()
+                        esdeGrantRev++
+                        esdeInstallUi = EsdeInstallUiState.Done(
+                            version = entry.version,
+                            notes = result.notes,
+                        )
+                    }
+                    is EsdeThemeInstallResult.Failure -> {
+                        // Keep the verified ZIP: the user can retry the
+                        // install without re-downloading.
+                        esdeInstallUi = EsdeInstallUiState.Failed(
+                            message = result.message,
+                            notes = result.notes,
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    /** Friendly one-line label for the persisted ES-DE themes folder. */
+    private fun esdeThemesFolderLabel(treeUri: String?): String? {
+        if (treeUri.isNullOrBlank()) return null
+        return runCatching {
+            DocumentFile.fromTreeUri(this, Uri.parse(treeUri))?.name
+        }.getOrNull()
+    }
+
+    /** True when ES-DE appears to be running right now. */
+    private fun isEsdeRunning(): Boolean {
+        return try {
+            val am = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            am.runningAppProcesses?.any { proc ->
+                proc.processName == ESDE_PACKAGE ||
+                    proc.processName.startsWith("$ESDE_PACKAGE:") ||
+                    proc.processName == ESDE_PACKAGE_GALAXY ||
+                    proc.processName.startsWith("$ESDE_PACKAGE_GALAXY:")
+            } == true
+        } catch (_: Exception) {
+            false
+        }
+    }
+
+    /** True when either ES-DE package resolves a launch intent. */
+    private fun isEsdeInstalled(): Boolean =
+        esdeLaunchIntent() != null
+
+    private fun esdeLaunchIntent(): Intent? =
+        packageManager.getLaunchIntentForPackage(ESDE_PACKAGE)
+            ?: packageManager.getLaunchIntentForPackage(ESDE_PACKAGE_GALAXY)
+
+    /** Launches ES-DE (or reports honestly when it is not installed). */
+    private fun launchEsde() {
+        try {
+            val intent = esdeLaunchIntent()
+            if (intent != null) {
+                esdeLaunchNotice = null
+                startActivity(intent)
+            } else {
+                esdeLaunchNotice = "ES-DE IS NOT INSTALLED — INSTALL ES-DE TO USE THIS THEME"
+            }
+        } catch (_: Exception) {
+            esdeLaunchNotice = "COULD NOT OPEN ES-DE"
         }
     }
 
