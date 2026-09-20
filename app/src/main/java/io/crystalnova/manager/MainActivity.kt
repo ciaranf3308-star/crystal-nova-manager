@@ -259,17 +259,20 @@ class MainActivity : ComponentActivity() {
         }
 
     /**
-     * u48: ES-DE themes-folder picker. Grants the ES-DE themes folder
+     * u49: ES-DE themes-folder picker. Grants the ES-DE themes folder
      * ONCE with a persistable SAF tree permission — the only storage
      * access the theme updater holds. NO MANAGE_EXTERNAL_STORAGE, ever.
      *
      * The initial URI hints at the Nova's real layout
      * (`FOUND.000/themes` on internal storage); the user can still
      * browse anywhere, and `ES-DE/themes` works as a fallback.
-     * Accepting: the picked folder itself named `themes`, or a folder
-     * containing a `themes` child (we descend into it). Anything else
-     * re-prompts with guidance — adopting the wrong folder would
-     * install the theme into the void.
+     *
+     * The user's pick is NEVER rejected: the persistable permission
+     * is taken on the exact URI the picker returned, FIRST, before
+     * any DocumentFile probing. If the picked folder is not itself
+     * named `themes` and contains a `themes` child, we descend into
+     * it (e.g. the user picked FOUND.000 itself). A wrong pick is
+     * recoverable from the screen's CHANGE/RE-PICK button.
      */
     private val esdeFolderPicker =
         registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
@@ -278,8 +281,7 @@ class MainActivity : ComponentActivity() {
                 if (adoptEsdeThemesDir(uri)) {
                     esdeGrantRev++
                 } else {
-                    notice = "THAT WAS NOT A THEMES FOLDER — " +
-                        "PLEASE SELECT FOUND.000/THEMES (OR ES-DE/THEMES)"
+                    notice = "COULD NOT KEEP ACCESS — PLEASE TRY AGAIN"
                 }
             }
             esdeFolderNotice = notice
@@ -297,34 +299,46 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
-     * Adopts the ES-DE themes folder grant. Returns true when a usable
-     * `themes/` folder was found and its persistable permission taken.
+     * Adopts the ES-DE themes folder grant. The persistable permission
+     * is taken on the EXACT picker-returned URI FIRST, before any
+     * DocumentFile probing — the user's pick is never vetoed.
+     * Best-effort descend: when the picked folder isn't itself named
+     * `themes` and contains a `themes` child directory, the child's
+     * permission is taken too and its URI persisted; when that take
+     * fails, the parent grant is kept and the installer descends into
+     * the child itself.
      */
     private fun adoptEsdeThemesDir(uri: Uri): Boolean {
-        return try {
-            var target = DocumentFile.fromTreeUri(this, uri) ?: return false
-            if (!target.isDirectory) return false
-            if (!target.name.equals("themes", ignoreCase = true)) {
-                val child = target.findFile("themes")
-                if (child == null || !child.isDirectory) return false
-                target = child
-            }
-            val targetUri = target.uri
-            contentResolver.takePersistableUriPermission(
-                targetUri,
-                Intent.FLAG_GRANT_READ_URI_PERMISSION or
-                    Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
-            )
-            getSharedPreferences("crystal-nova-manager", MODE_PRIVATE)
-                .edit()
-                .putString(KEY_ESDE_THEMES_TREE_URI, targetUri.toString())
-                .apply()
-            true
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        try {
+            contentResolver.takePersistableUriPermission(uri, flags)
         } catch (_: SecurityException) {
-            false
-        } catch (_: Exception) {
-            false
+            return false
         }
+        var targetUri = uri
+        runCatching {
+            val root = DocumentFile.fromTreeUri(this, uri)
+            if (root != null && root.isDirectory &&
+                !root.name.equals("themes", ignoreCase = true)
+            ) {
+                val child = root.findFile("themes")
+                if (child != null && child.isDirectory) {
+                    val childTreeUri = DocumentsContract.buildTreeDocumentUri(
+                        uri.authority ?: return@runCatching,
+                        DocumentsContract.getDocumentId(child.uri),
+                    )
+                    runCatching {
+                        contentResolver.takePersistableUriPermission(childTreeUri, flags)
+                    }.onSuccess { targetUri = childTreeUri }
+                }
+            }
+        }
+        getSharedPreferences("crystal-nova-manager", MODE_PRIVATE)
+            .edit()
+            .putString(KEY_ESDE_THEMES_TREE_URI, targetUri.toString())
+            .apply()
+        return true
     }
 
     /**

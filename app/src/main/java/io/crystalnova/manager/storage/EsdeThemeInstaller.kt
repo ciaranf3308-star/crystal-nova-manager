@@ -3,6 +3,7 @@ package io.crystalnova.manager.storage
 import android.content.ContentResolver
 import android.content.Context
 import android.net.Uri
+import android.provider.DocumentsContract
 import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.EsdeThemeEntry
 import io.crystalnova.manager.data.JsonVal
@@ -81,7 +82,22 @@ class EsdeThemeInstaller(
         if (treeUriString.isNullOrBlank()) return null
         return try {
             val dir = DocumentFile.fromTreeUri(appContext, Uri.parse(treeUriString))
-            dir?.takeIf { it.exists() && it.canRead() && it.canWrite() }
+            val base = dir?.takeIf { it.exists() && it.canRead() && it.canWrite() }
+                ?: return null
+            // u49: the granted folder isn't always the themes folder
+            // itself (e.g. the user picked the ES-DE data root and the
+            // child-permission take failed) — descend into its `themes`
+            // child when present. The parent tree grant covers the
+            // subtree, so this stays inside the granted folder.
+            if (!base.name.equals("themes", ignoreCase = true)) {
+                val child = base.findFile("themes")
+                if (child != null && child.isDirectory &&
+                    child.canRead() && child.canWrite()
+                ) {
+                    return child
+                }
+            }
+            base
         } catch (_: Exception) {
             null
         }
@@ -396,7 +412,19 @@ class EsdeThemeInstaller(
                 "AND USE THE UPDATE AGAIN."
         }
         return try {
-            val parentUri = parentTreeUri(treeUriString) ?: return noSettingsNote()
+            // u49: derive the data dir from the RESOLVED themes folder
+            // (which may have descended into a `themes` child), not
+            // from the raw persisted URI.
+            val authority = themes.uri.authority
+                ?: Uri.parse(treeUriString).authority
+                ?: return noSettingsNote()
+            val themesTreeUri = runCatching {
+                DocumentsContract.buildTreeDocumentUri(
+                    authority,
+                    DocumentsContract.getDocumentId(themes.uri),
+                )
+            }.getOrNull() ?: return noSettingsNote()
+            val parentUri = parentTreeUri(themesTreeUri.toString()) ?: return noSettingsNote()
             val dataDir = DocumentFile.fromTreeUri(appContext, parentUri)
                 ?: return noSettingsNote()
             val settings = dataDir.findFile(SETTINGS_FILE) ?: return noSettingsNote()

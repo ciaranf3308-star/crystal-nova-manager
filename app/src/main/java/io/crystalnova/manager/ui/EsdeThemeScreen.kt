@@ -159,6 +159,16 @@ fun EsdeThemeScreen(
                     onClick = onGrantFolder,
                 )
             }
+            // ---- re-pick (u49): the adopted folder is shown above and a
+            // wrong pick is recoverable from here — no pick is ever vetoed ----
+            if (folderGranted) {
+                control(
+                    key = "esde-grant-folder-repick",
+                    testTag = "esde-grant-folder-repick",
+                    label = "CHANGE THEMES FOLDER",
+                    onClick = onGrantFolder,
+                )
+            }
             // ---- catalog states ----
             when (catalogState) {
                 is EsdeThemeCatalogState.Checking -> section {
