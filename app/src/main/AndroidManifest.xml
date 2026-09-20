@@ -56,19 +56,5 @@
                 android:resource="@xml/filepaths" />
         </provider>
 
-        <!-- Read-only Crystal library bridge for the Crystal Launcher.
-             The Manager is the sole owner of storage permission; the
-             launcher (io.crystalnova.launcher, enforced in code via the
-             calling UID) reads config.json, index.json, profiles.json and
-             media through this provider. A signature-level permission is
-             not possible: the two APKs are signed with different
-             certificates. grantUriPermissions is on so specific URIs
-             (ROMs) can later be handed to emulator apps. -->
-        <provider
-            android:name=".provider.CrystalDataProvider"
-            android:authorities="io.crystalnova.manager.crystaldata"
-            android:exported="true"
-            android:grantUriPermissions="true" />
-
     </application>
 </manifest>

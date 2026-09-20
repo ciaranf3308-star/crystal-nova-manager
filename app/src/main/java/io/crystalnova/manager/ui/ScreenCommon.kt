@@ -1,5 +1,6 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
