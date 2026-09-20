@@ -120,6 +120,10 @@ fun EsdeThemeScreen(
             state = listState,
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
+            // u50 home: 11 rows must fit the 960px viewport with no
+            // stranded control — the tighter rhythm is the difference
+            // between EXIT composing or not.
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             section {
                 BasicText(
@@ -135,7 +139,7 @@ fun EsdeThemeScreen(
             // ---- status card ----
             section {
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val installedText = when {
                             installed == null && !installedOnDisk ->
                                 "NOT INSTALLED"
@@ -185,7 +189,7 @@ fun EsdeThemeScreen(
             if (!folderGranted) {
                 section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusLine("GRANT THE THEMES FOLDER", Crystal.Joystick)
                             DimLine(
                                 "PICK THE ES-DE THEMES FOLDER IN THE SYSTEM " +
@@ -233,7 +237,7 @@ fun EsdeThemeScreen(
                 }
                 is EsdeThemeCatalogState.Unavailable -> section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusLine("THEME CATALOG UNAVAILABLE", Crystal.Bad)
                             DimLine(catalogState.message.uppercase())
                             DimLine(
@@ -262,7 +266,7 @@ fun EsdeThemeScreen(
                         section {
                             CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                                 Column(
-                                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
                                 ) {
                                     StatusLine(
                                         "ROLLBACK: v${rollback.version} (PREVIOUS)",
@@ -309,7 +313,7 @@ fun EsdeThemeScreen(
                 is EsdeInstallUiState.Done -> {
                     section {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 StatusLine(
                                     "THEME v${installState.version} INSTALLED",
                                     Crystal.Good,
@@ -350,7 +354,7 @@ fun EsdeThemeScreen(
                 is EsdeInstallUiState.Failed -> {
                     section {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 StatusLine(
                                     "INSTALL FAILED: ${installState.message}".uppercase(),
                                     Crystal.Bad,
@@ -378,20 +382,12 @@ fun EsdeThemeScreen(
             // never buried behind a route. Every future manager build
             // ships through this path. ----
             if (showManagerSection) {
-                section {
-                    BasicText(
-                        text = "MANAGER",
-                        style = TextStyle(
-                            fontFamily = Crystal.Mono,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = Crystal.BodySize,
-                            color = Crystal.Cream,
-                        ),
-                    )
-                }
+                // MANAGER header merged into the panel: the u50 home is
+                // 11 rows and every row must fit the 960px viewport.
                 section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("MANAGER", Crystal.Cream)
                             StatusLine(
                                 "VERSION: $managerVersionLabel",
                                 Crystal.Cream,
