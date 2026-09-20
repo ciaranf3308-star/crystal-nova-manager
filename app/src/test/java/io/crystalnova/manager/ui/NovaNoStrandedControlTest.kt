@@ -3,6 +3,7 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import io.crystalnova.manager.data.InstalledPack
@@ -71,8 +72,10 @@ class NovaNoStrandedControlTest : NovaUiTest() {
         // BACK are focusable — the walk proves all three reachable.
         composeTestRule.onNodeWithText("CRYSTAL PACK 0").assertExists()
         composeTestRule.onNodeWithText("CRYSTAL PACK 1").assertExists()
-        // u47: the card shows the ZIP size next to coverage.
-        composeTestRule.onNodeWithText("SIZE: 1.0 KB", substring = true).assertExists()
+        // u47: the card shows the ZIP size next to coverage (both fake
+        // packs are 1024 bytes, so two nodes match — plural query).
+        composeTestRule.onAllNodesWithText("SIZE: 1.0 KB", substring = true)
+            .assertCountEquals(2)
         assertDpadTraversalInViewport(
             listOf(
                 { composeTestRule.onNodeWithTag("pack-action-pack-0") },

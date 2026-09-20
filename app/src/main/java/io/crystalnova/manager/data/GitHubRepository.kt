@@ -16,10 +16,13 @@ import java.net.URL
  *   - codeload.github.com        → ZIP download (serves the archive directly;
  *                                  no CDN hop is followed)
  *
- * Repository-scoped paths must stay inside ciaranf3308-star's two
+ * Repository-scoped paths must stay inside ciaranf3308-star's
  * repositories: the theme repo (crystal-nova-pegasus-theme) for theme
- * updates, and the manager repo (crystal-nova-manager) for the
- * self-updater's release lookup. Nothing else is reachable.
+ * updates, the manager repo (crystal-nova-manager) for the
+ * self-updater's release lookup, the launcher repo (crystal-launcher)
+ * for the launcher updater, and the packs repo (crystal-nova-packs)
+ * for the Crystal iiSU pack catalog, ZIPs, and previews. Nothing else
+ * is reachable.
  */
 object GitHubEndpoints {
     const val OWNER = "ciaranf3308-star"
@@ -30,6 +33,9 @@ object GitHubEndpoints {
 
     /** The Crystal Launcher's repository — used only by the launcher updater. */
     const val LAUNCHER_REPO = "crystal-launcher"
+
+    /** The Crystal iiSU packs repository — pack catalog, ZIPs, previews. */
+    const val PACKS_REPO = "crystal-nova-packs"
 
     private val ALLOWED_HOSTS = setOf(
         "api.github.com",
@@ -92,7 +98,9 @@ object GitHubEndpoints {
                 host in MANAGER_REPO_HOSTS && "/$OWNER/$MANAGER_REPO" in u.path
             val inLauncherRepo =
                 host in MANAGER_REPO_HOSTS && "/$OWNER/$LAUNCHER_REPO" in u.path
-            if (!inThemeRepo && !inManagerRepo && !inLauncherRepo) {
+            val inPacksRepo =
+                host in MANAGER_REPO_HOSTS && "/$OWNER/$PACKS_REPO" in u.path
+            if (!inThemeRepo && !inManagerRepo && !inLauncherRepo && !inPacksRepo) {
                 throw SecurityException("URL escapes $OWNER repositories: ${u.path}")
             }
         }

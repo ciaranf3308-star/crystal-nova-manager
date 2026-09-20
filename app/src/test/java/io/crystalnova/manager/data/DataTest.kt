@@ -101,6 +101,19 @@ class GitHubEndpointsTest {
     }
 
     @Test
+    fun `packs repo release endpoints are allowed`() {
+        // u47: the Crystal iiSU pack catalog, ZIPs, and previews live in
+        // the crystal-nova-packs repo's rolling `stable` release.
+        GitHubEndpoints.checkAllowed(PACK_CATALOG_URL)
+        GitHubEndpoints.checkAllowed(
+            "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/crystal-pack-v1.zip",
+        )
+        GitHubEndpoints.checkAllowed(
+            "https://github.com/ciaranf3308-star/crystal-nova-packs/releases/download/stable/preview.png",
+        )
+    }
+
+    @Test
     fun `other owners manager repos are rejected`() {
         assertThrows(SecurityException::class.java) {
             GitHubEndpoints.checkAllowed(
