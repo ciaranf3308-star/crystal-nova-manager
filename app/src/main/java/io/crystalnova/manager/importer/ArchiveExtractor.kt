@@ -34,7 +34,6 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
         ref: ArchiveRef,
         stagingDir: FsNode,
         plan: ImportPlan,
-        onProgress: (bytesDone: Long, bytesTotal: Long) -> Unit = { _, _ -> },
         /**
          * Single-write mode for [ImportTarget.SingleFile]: only the
          * entry matching the plan's payload file is written, renamed
@@ -43,8 +42,12 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
          * classic mode: every payload entry is written under its
          * planned path. When no entry matches, the usual "no
          * extractable files" error fires.
+         *
+         * Kept ahead of [onProgress] so existing trailing-lambda call
+         * sites keep binding to the progress callback.
          */
         directFileName: String? = null,
+        onProgress: (bytesDone: Long, bytesTotal: Long) -> Unit = { _, _ -> },
     ): ExtractReport {
         return when (ref.kind) {
             ArchiveKind.ZIP -> extractZip(fs, ref, stagingDir, plan, onProgress, directFileName)
