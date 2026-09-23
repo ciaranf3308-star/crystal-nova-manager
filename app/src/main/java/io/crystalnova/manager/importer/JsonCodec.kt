@@ -101,7 +101,7 @@ object JsonRead {
     }
 
     @Suppress("UNCHECKED_CAST")
-    fun toKotlin(v: io.crystalnova.manager.data.JsonVal): Any? = when (v) {
+    internal fun toKotlin(v: io.crystalnova.manager.data.JsonVal): Any? = when (v) {
         is io.crystalnova.manager.data.JsonVal.Str -> v.value
         is io.crystalnova.manager.data.JsonVal.Num ->
             v.raw.toLongOrNull() ?: v.raw.toDoubleOrNull()

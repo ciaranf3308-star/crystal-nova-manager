@@ -8,6 +8,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import io.crystalnova.manager.importer.GrantProbe
+import io.crystalnova.manager.importer.ImportOutcome
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.ImportStage
@@ -173,8 +174,9 @@ fun ImporterHubScreen(
                 section {
                     StatusLine("RECENT IMPORTS")
                     for (entry in history.take(8)) {
-                        val mark = if (entry.succeeded) "✓" else "✗"
-                        val color = if (entry.succeeded) Crystal.Good else Crystal.Bad
+                        val ok = entry.outcome == ImportOutcome.SUCCESS
+                        val mark = if (ok) "✓" else "✗"
+                        val color = if (ok) Crystal.Good else Crystal.Bad
                         val platform = entry.platform?.labels()?.short ?: "—"
                         StatusLine("$mark $platform · ${entry.title}", color)
                     }

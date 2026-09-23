@@ -200,6 +200,7 @@ enum class ImportFailureReason {
     NOT_ENOUGH_STORAGE,
     PERMISSION_DENIED,
     EXTRACTION_FAILED,
+    WRITE_FAILED,
     VERIFICATION_FAILED,
     DUPLICATE_SKIPPED,
     SOURCE_MISSING,
@@ -216,6 +217,7 @@ fun ImportFailureReason.message(): String = when (this) {
     ImportFailureReason.NOT_ENOUGH_STORAGE -> "NOT ENOUGH STORAGE"
     ImportFailureReason.PERMISSION_DENIED -> "STORAGE PERMISSION DENIED"
     ImportFailureReason.EXTRACTION_FAILED -> "EXTRACTION FAILED"
+    ImportFailureReason.WRITE_FAILED -> "COULD NOT WRITE TO THE ROM FOLDER"
     ImportFailureReason.VERIFICATION_FAILED -> "DESTINATION VERIFICATION FAILED"
     ImportFailureReason.DUPLICATE_SKIPPED -> "ALREADY IN LIBRARY — SKIPPED"
     ImportFailureReason.SOURCE_MISSING -> "ARCHIVE NO LONGER IN DOWNLOADS"
@@ -285,18 +287,7 @@ data class ArchiveItem(
             stage != ImportStage.SKIPPED
 }
 
-/** One row of the import history log. */
-data class ImportHistoryEntry(
-    val title: String,
-    val platform: PlatformId?,
-    val archiveName: String,
-    val succeeded: Boolean,
-    val reason: ImportFailureReason?,
-    val at: Long,
-)
-
-/**
- * Cleans "Pokemon - Emerald Version (USA) (Rev 1).zip" down to
+/** Cleans "Pokemon - Emerald Version (USA) (Rev 1).zip" down to
  * "Pokemon Emerald Version" for display. The source filename is never
  * renamed on disk — this is display-only.
  */
@@ -356,15 +347,19 @@ data class ImportHistoryEntry(
 
 /** Controller-oriented display strings for failure reasons. */
 fun ImportFailureReason.label(): String = when (this) {
-    ImportFailureReason.EXTRACTION_FAILED -> "EXTRACTION FAILED"
-    ImportFailureReason.COPY_FAILED -> "COPY FAILED"
+    ImportFailureReason.ARCHIVE_CORRUPT -> "ARCHIVE COULD NOT BE READ"
+    ImportFailureReason.UNSUPPORTED_FORMAT -> "UNSUPPORTED ARCHIVE"
+    ImportFailureReason.UNKNOWN_PLATFORM -> "UNKNOWN PLATFORM"
+    ImportFailureReason.NOT_RECOGNIZED_AS_GAME -> "NOT A GAME"
+    ImportFailureReason.DESTINATION_UNAVAILABLE -> "ROM FOLDER UNAVAILABLE"
+    ImportFailureReason.NOT_ENOUGH_STORAGE -> "NOT ENOUGH STORAGE"
     ImportFailureReason.PERMISSION_DENIED -> "ACCESS LOST"
+    ImportFailureReason.EXTRACTION_FAILED -> "EXTRACTION FAILED"
+    ImportFailureReason.WRITE_FAILED -> "WRITE FAILED"
     ImportFailureReason.VERIFICATION_FAILED -> "VERIFY FAILED"
     ImportFailureReason.DUPLICATE_SKIPPED -> "SKIPPED (DUPLICATE)"
-    ImportFailureReason.NOT_RECOGNIZED_AS_GAME -> "NOT A GAME"
-    ImportFailureReason.UNSUPPORTED_ARCHIVE -> "UNSUPPORTED ARCHIVE"
-    ImportFailureReason.NOT_ENOUGH_STORAGE -> "NOT ENOUGH STORAGE"
     ImportFailureReason.SOURCE_MISSING -> "ARCHIVE GONE"
+    ImportFailureReason.CANCELLED -> "CANCELLED"
     ImportFailureReason.INTERNAL_ERROR -> "UNEXPECTED ERROR"
 }
 

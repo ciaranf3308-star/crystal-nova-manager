@@ -729,7 +729,7 @@ class ImportEngine(
             }
 
             val result = try {
-                importOne(roms, ::platformDir, item, setStage, onBytes, logLine)
+                importOne(roms, ::platformDir, item, setStage, onBytes, ::logLine)
             } catch (e: SecurityException) {
                 queue.update(item.id) {
                     it.copy(stage = ImportStage.FAILED, failure = ImportFailureReason.PERMISSION_DENIED)
@@ -883,7 +883,7 @@ class ImportEngine(
         } catch (e: SecurityException) {
             throw e
         } catch (e: Exception) {
-            return ItemResult.Failed(ImportFailureReason.COPY_FAILED, e.message)
+            return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, e.message)
         }
 
         val stagingName = STAGING_PREFIX + item.id.take(8)
@@ -899,7 +899,7 @@ class ImportEngine(
         // 2. Extract to controlled staging.
         setStage(ImportStage.EXTRACTING, "Extracting")
         val report = try {
-            extractor.extract(roms, ref, staging, plan, onProgress = onBytes)
+            extractor.extract(roms, ref, staging, plan, onProgress = { done, _ -> onBytes(done) })
         } catch (e: ArchiveReadException) {
             cleanupQuietly(roms, staging)
             return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
@@ -947,7 +947,7 @@ class ImportEngine(
                 val backupName = BACKUP_PREFIX + baseName
                 roms.find(dir, backupName)?.let { roms.deleteRecursively(it) }
                 if (!roms.rename(existing, backupName)) {
-                    return ItemResult.Failed(ImportFailureReason.COPY_FAILED, "Could not park the existing game").also {
+                    return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not park the existing game").also {
                         cleanupQuietly(roms, staging)
                     }
                 }
@@ -966,7 +966,7 @@ class ImportEngine(
                 }
                 is ImportTarget.GameFolder -> {
                     if (!roms.rename(staging, finalName)) {
-                        return ItemResult.Failed(ImportFailureReason.COPY_FAILED, "Could not move the game folder").also {
+                        return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not move the game folder").also {
                             cleanupQuietly(roms, staging)
                         }
                     }
@@ -1000,7 +1000,7 @@ class ImportEngine(
             writtenTarget?.let { cleanupQuietly(roms, it) }
             backup?.let { runCatching { roms.rename(it, baseName) } }
             return ItemResult.Failed(
-                if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.COPY_FAILED,
+                if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.WRITE_FAILED,
                 e.message,
             )
         }

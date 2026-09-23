@@ -31,6 +31,15 @@ fun ImporterReviewScreen(
 ) {
     val engine = graph.engine
     val uiState by engine.uiState.collectAsState()
+    // Per-conflict choice, pre-seeded with the persisted default.
+    // Hoisted here (not in the ControllerList content lambda) because
+    // that lambda is not a @Composable context.
+    val conflicts = (uiState as? ImportUiState.ConflictReview)?.conflicts
+    val choices = remember(conflicts) {
+        mutableStateMapOf<String, DuplicatePolicy>().apply {
+            conflicts?.forEach { put(it.itemId, it.resolution) }
+        }
+    }
 
     ScreenScaffold(
         routeKey = "import-review",
@@ -44,8 +53,8 @@ fun ImporterReviewScreen(
             initialFocus = ::isInitialFocus,
         ) {
             when (val s = uiState) {
-                is ImportUiState.ConflictReview -> ConflictSection(s, graph)
-                is ImportUiState.Ready -> ReadySection(s, graph)
+                is ImportUiState.ConflictReview -> ConflictSection(s, graph, choices)
+                is ImportUiState.Ready -> ReadySection(s, graph, onStartImport)
                 is ImportUiState.Error -> section {
                     notice(s.message) { engine.backToIdle() }
                 }
@@ -60,6 +69,7 @@ fun ImporterReviewScreen(
 private fun ControllerListContent.ReadySection(
     s: ImportUiState.Ready,
     graph: ImporterGraph,
+    onStartImport: () -> Unit,
 ) {
     val engine = graph.engine
     section {
@@ -108,14 +118,9 @@ private fun ControllerListContent.ReadySection(
 private fun ControllerListContent.ConflictSection(
     s: ImportUiState.ConflictReview,
     graph: ImporterGraph,
+    choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val engine = graph.engine
-    // Per-conflict choice, pre-seeded with the persisted default.
-    val choices = remember(s.conflicts) {
-        mutableStateMapOf<String, DuplicatePolicy>().apply {
-            s.conflicts.forEach { put(it.itemId, it.resolution) }
-        }
-    }
     section {
         StatusLine(
             "${s.conflicts.size} ALREADY IN THE LIBRARY",
