@@ -194,17 +194,17 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
     @Test
-    fun importerEntryInManagerRow() {
-        // The u52 game importer is a two-line control before the
-        // MANAGER section; the live status rides in the subLabel and
-        // D-pad reaches the entry before the update control.
+    fun importerEntryBetweenUpdateAndExit() {
+        // The u52 game importer is a single-line control between the
+        // manager update control and EXIT; the live status rides in the
+        // MANAGER panel.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
         )
 
         composeTestRule.onNodeWithText("OPEN GAME IMPORTER").assertExists()
-        composeTestRule.onNodeWithText("2 IN QUEUE — TAP TO RESUME")
+        composeTestRule.onNodeWithText("IMPORTER: 2 IN QUEUE — TAP TO RESUME")
             .assertExists()
         assertDpadTraversalInViewport(
             listOf(
@@ -212,8 +212,8 @@ class NovaHomeScreenTest : NovaUiTest() {
                 { composeTestRule.onNodeWithTag("esde-launch") },
                 { composeTestRule.onNodeWithTag("esde-current-download") },
                 { composeTestRule.onNodeWithTag("esde-rollback-download") },
-                { composeTestRule.onNodeWithTag("home-open-importer") },
                 { composeTestRule.onNodeWithTag("home-check-update") },
+                { composeTestRule.onNodeWithTag("home-open-importer") },
                 { composeTestRule.onNodeWithTag("home-exit") },
             ),
         )
