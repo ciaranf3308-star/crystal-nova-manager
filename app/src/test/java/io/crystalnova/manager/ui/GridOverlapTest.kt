@@ -4,7 +4,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
-import androidx.compose.ui.test.fetchSemanticsNodes
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.fail
 import org.junit.Test
