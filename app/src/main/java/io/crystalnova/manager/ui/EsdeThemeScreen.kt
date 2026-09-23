@@ -85,6 +85,7 @@ fun EsdeThemeScreen(
     /** The game importer entry (u52 home only). Null hides it. */
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
+    importerAttention: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val catalog = (catalogState as? EsdeThemeCatalogState.Ready)?.catalog
@@ -467,20 +468,26 @@ fun EsdeThemeScreen(
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
+                // ---- Importer status (u52): lives in the MANAGER panel so
+                // the entry below stays a single-line control — a two-line
+                // subLabel button mis-measures (16px) on first layout in a
+                // ControllerList, which breaks D-pad traversal (u52 CI).
+                if (importerStatusLine.isNotEmpty()) {
+                    StatusLine(
+                        "IMPORTER: $importerStatusLine",
+                        if (importerAttention) Crystal.Joystick else Crystal.InkDim,
+                    )
+                }
             }
             // ---- GAME IMPORTER entry (u52 home only): a single control
             // row — the u50 home is 11 rows and every row must fit the
-            // 960px viewport, so the live queue status rides in the
-            // sub-label instead of a panel. The importer lives under its
-            // own destination stack. ----
+            // 960px viewport. The importer lives under its own
+            // destination stack. ----
             if (showManagerSection && onOpenImporter != null) {
                 control(
                     key = "home-open-importer",
                     testTag = "home-open-importer",
                     label = "OPEN GAME IMPORTER",
-                    subLabel = importerStatusLine.ifEmpty {
-                        "ZIP + 7Z → ROM FOLDERS, ONE AT A TIME"
-                    },
                     onClick = onOpenImporter,
                 )
             }

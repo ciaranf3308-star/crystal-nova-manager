@@ -52,6 +52,7 @@ fun HomeScreen(
     /** Opens the game importer destination stack. Null hides the entry. */
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
+    importerAttention: Boolean = false,
     /** B on HOME exits the app. */
     onExit: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -87,6 +88,7 @@ fun HomeScreen(
         onUpdateApp = onUpdateApp,
         onOpenImporter = onOpenImporter,
         importerStatusLine = importerStatusLine,
+        importerAttention = importerAttention,
         modifier = modifier,
     )
 }

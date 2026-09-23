@@ -2,7 +2,6 @@
 
 package io.crystalnova.manager.ui
 
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -195,68 +194,20 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
     @Test
-    fun importerEntryFocusDiagnostic() {
-        // TEMPORARY diagnostic for the u52 CI failure — prints ground
-        // truth about focus movement around the new row. Deleted before
-        // the final commit.
-        setHome(
-            onOpenImporter = {},
-            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
-        )
-        val tags = listOf(
-            "esde-grant-folder-repick",
-            "esde-launch",
-            "esde-current-download",
-            "esde-rollback-download",
-            "home-check-update",
-            "home-open-importer",
-            "home-exit",
-        )
-        fun bounds(tag: String): String = runCatching {
-            val b = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
-            "h=${b.height} t=${b.top}"
-        }.getOrDefault("NOT-COMPOSED")
-        fun focused(tag: String): String = runCatching {
-            val node = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
-            val f = node.config.contains(SemanticsProperties.Focused) &&
-                node.config[SemanticsProperties.Focused]
-            "$f"
-        }.getOrDefault("?")
-        println("DIAG viewport=${viewportBounds()}")
-        for (t in tags) println("DIAG row $t ${bounds(t)}")
-        // Walk to home-check-update exactly like the traversal helper.
-        val steps = tags.subList(0, 5)
-        composeTestRule.onNodeWithTag(steps[0]).requestDpadFocus()
-        composeTestRule.waitForIdle()
-        var focusedTag = steps[0]
-        for (i in 1 until steps.size) {
-            composeTestRule.onNodeWithTag(focusedTag).pressDpadDown()
-            composeTestRule.waitForIdle()
-            focusedTag = steps[i]
-            println("DIAG step $i tag=$focusedTag focused=${focused(focusedTag)}")
-        }
-        // The press under investigation.
-        composeTestRule.onNodeWithTag("home-check-update").pressDpadDown()
-        composeTestRule.waitForIdle()
-        for (t in tags) println("DIAG after press $t focused=${focused(t)} ${bounds(t)}")
-        // Direct request for comparison.
-        composeTestRule.onNodeWithTag("home-open-importer").requestDpadFocus()
-        composeTestRule.waitForIdle()
-        println("DIAG direct request importer focused=${focused("home-open-importer")}")
-    }
-
-    @Test
     fun importerEntrySitsBetweenUpdateCheckAndExit() {
-        // The u52 game importer is one control row (status in the
-        // sub-label): the 11-row / 960px home budget is preserved, so
-        // EXIT must still overlap the viewport with the entry shown.
+        // The u52 game importer is one single-line control row between
+        // the manager update control and EXIT; the live status rides in
+        // the MANAGER panel so the row measures like every other control
+        // and D-pad traversal reaches it in order.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
         )
 
-        composeTestRule.onNodeWithText("OPEN GAME IMPORTER").assertExists()
-        composeTestRule.onNodeWithText("2 IN QUEUE — TAP TO RESUME").assertExists()
+        composeTestRule.onNodeWithTag("home-open-importer")
+            .assertTextEquals("OPEN GAME IMPORTER")
+        composeTestRule.onNodeWithText("IMPORTER: 2 IN QUEUE — TAP TO RESUME")
+            .assertExists()
         assertDpadTraversalInViewport(
             listOf(
                 { composeTestRule.onNodeWithTag("esde-grant-folder-repick") },
