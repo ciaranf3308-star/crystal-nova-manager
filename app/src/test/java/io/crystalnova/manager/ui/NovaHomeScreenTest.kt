@@ -58,6 +58,8 @@ class NovaHomeScreenTest : NovaUiTest() {
         folderGranted: Boolean = true,
         esdeInstalled: Boolean = true,
         appUpdate: AppUpdateState? = AppUpdateState.Idle(),
+        onOpenImporter: (() -> Unit)? = null,
+        importerStatusLine: String = "",
     ) {
         setNovaContent {
             HomeScreen(
@@ -82,6 +84,8 @@ class NovaHomeScreenTest : NovaUiTest() {
                 onInstall = { _, _ -> },
                 onLaunchEsde = {},
                 onDismissInstall = {},
+                onOpenImporter = onOpenImporter,
+                importerStatusLine = importerStatusLine,
                 onExit = {},
             )
         }
@@ -187,5 +191,30 @@ class NovaHomeScreenTest : NovaUiTest() {
 
         composeTestRule.onNodeWithText("EXIT").assertExists()
         assertNodeInViewport("home-exit")
+    }
+
+    @Test
+    fun importerEntrySitsBetweenUpdateCheckAndExit() {
+        // The u52 game importer is one control row (status in the
+        // sub-label): the 11-row / 960px home budget is preserved, so
+        // EXIT must still overlap the viewport with the entry shown.
+        setHome(
+            onOpenImporter = {},
+            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
+        )
+
+        composeTestRule.onNodeWithText("OPEN GAME IMPORTER").assertExists()
+        composeTestRule.onNodeWithText("2 IN QUEUE — TAP TO RESUME").assertExists()
+        assertDpadTraversalInViewport(
+            listOf(
+                { composeTestRule.onNodeWithTag("esde-grant-folder-repick") },
+                { composeTestRule.onNodeWithTag("esde-launch") },
+                { composeTestRule.onNodeWithTag("esde-current-download") },
+                { composeTestRule.onNodeWithTag("esde-rollback-download") },
+                { composeTestRule.onNodeWithTag("home-check-update") },
+                { composeTestRule.onNodeWithTag("home-open-importer") },
+                { composeTestRule.onNodeWithTag("home-exit") },
+            ),
+        )
     }
 }

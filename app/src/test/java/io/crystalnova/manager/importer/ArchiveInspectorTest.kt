@@ -79,7 +79,7 @@ class ArchiveInspectorTest {
 
     private val fixtures = ArchiveTestFixtures
 
-    @Test fun `zip inspection lists entries without decompressing`() {
+    @Test fun `zip inspection lists entries with real uncompressed sizes`() {
         val zipBytes = fixtures.createZip(
             mapOf(
                 "Pokemon Emerald.gba" to ByteArray(1024) { it.toByte() },
@@ -94,6 +94,9 @@ class ArchiveInspectorTest {
         )
         assertEquals(2, inspection.entries.size)
         assertEquals(setOf("gba", "txt"), inspection.extensions)
+        // Sizes stream in from data descriptors: ZipInputStream
+        // reports -1 until the entry is drained, so the inspector
+        // drains and counts every entry.
         assertEquals(1026L, inspection.totalUncompressedBytes)
     }
 
@@ -151,7 +154,11 @@ class ArchiveInspectorTest {
     @Test(expected = ArchiveReadException::class)
     fun `truncated zip raises ArchiveReadException`() {
         val zipBytes = fixtures.createZip(mapOf("a.gba" to ByteArray(100)))
-        val broken = zipBytes.copyOf(zipBytes.size / 2)
+        // Cut mid-entry-data (the local file header is 35 bytes): the
+        // inflater genuinely runs out of stream here. A cut that only
+        // drops the central directory still drains cleanly and is not
+        // what this test is for.
+        val broken = zipBytes.copyOf(40)
         val inspector = ArchiveInspector(
             ArchiveTestFixtures.FakeOpener(zips = mapOf("u1" to broken)),
         )

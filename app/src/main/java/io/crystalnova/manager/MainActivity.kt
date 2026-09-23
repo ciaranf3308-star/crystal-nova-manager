@@ -394,23 +394,18 @@ class MainActivity : ComponentActivity() {
                         it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
                     }
                     val importerStatusLine: String
-                    val importerAttention: Boolean
                     when (val s = importUi) {
                         is ImportUiState.Importing -> {
                             importerStatusLine =
                                 "IMPORTING ${s.index + 1}/${s.total} — ${s.current?.title ?: ""}"
-                            importerAttention = true
                         }
                         is ImportUiState.Scanning -> {
                             importerStatusLine = "SCANNING DOWNLOADS…"
-                            importerAttention = true
                         }
                         else -> if (importWaiting > 0) {
                             importerStatusLine = "$importWaiting IN QUEUE — TAP TO RESUME"
-                            importerAttention = true
                         } else {
                             importerStatusLine = "SCAN DOWNLOADS FOR GAME ARCHIVES"
-                            importerAttention = false
                         }
                     }
                     val minManagerNotice = catalog?.let { c ->
@@ -454,7 +449,6 @@ class MainActivity : ComponentActivity() {
                         },
                         onOpenImporter = { nav.navigate(Dest.ImportHub) },
                         importerStatusLine = importerStatusLine,
-                        importerAttention = importerAttention,
                         onExit = pop,
                     )
                 }

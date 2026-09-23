@@ -72,22 +72,46 @@ class ArchiveInspector(private val opener: ArchiveStreamOpener) {
             opener.openInput(ref.uri).use { raw ->
                 ZipInputStream(raw).use { zip ->
                     var zipEntry = zip.nextEntry
+                    val drain = ByteArray(8192)
                     while (zipEntry != null) {
                         val name = zipEntry.name
                         val isDir = zipEntry.isDirectory || name.endsWith('/')
+                        val ext = name.substringAfterLast('.', "").lowercase()
                         // Header capture: read the bounded window inline —
                         // ZipInputStream is sequential, so this is the
-                        // only chance.
-                        val ext = name.substringAfterLast('.', "").lowercase()
+                        // only chance. Captured bytes count toward the
+                        // drain total below.
+                        var drained = 0L
                         if (!isDir && ext in headerCandidates && headers.size < MAX_HEADER_ENTRIES) {
-                            headers[name] = readUpTo(zip, HEADER_WINDOW_BYTES)
+                            val header = readUpTo(zip, HEADER_WINDOW_BYTES)
+                            headers[name] = header
+                            drained += header.size
+                        }
+                        // Drain the entry, counting bytes. Two things
+                        // ZipInputStream can't tell us otherwise:
+                        //  - the true uncompressed size (it reports -1
+                        //    until the data descriptor is read), which
+                        //    the storage preflight depends on;
+                        //  - truncation: a short stream surfaces here as
+                        //    EOFException or a short count, never as a
+                        //    silently listed entry.
+                        while (true) {
+                            val read = zip.read(drain)
+                            if (read <= 0) break
+                            drained += read
+                        }
+                        val size = zipEntry.size
+                        if (!isDir && (size < 0 || drained != size)) {
+                            throw ArchiveReadException(
+                                "Truncated entry: $name " +
+                                    "(declared=$size, read=$drained)",
+                            )
                         }
                         entries += ArchiveEntryInfo(
                             path = name,
-                            size = zipEntry.size.coerceAtLeast(0),
+                            size = size.coerceAtLeast(0),
                             isDirectory = isDir,
                         )
-                        zip.closeEntry()
                         zipEntry = zip.nextEntry
                     }
                 }

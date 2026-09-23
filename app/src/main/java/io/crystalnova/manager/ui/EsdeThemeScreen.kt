@@ -85,7 +85,6 @@ fun EsdeThemeScreen(
     /** The game importer entry (u52 home only). Null hides it. */
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
-    importerAttention: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val catalog = (catalogState as? EsdeThemeCatalogState.Ready)?.catalog
@@ -469,27 +468,19 @@ fun EsdeThemeScreen(
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
             }
-            // ---- GAME IMPORTER entry (u52 home only): the archive
-            // importer lives under its own destination stack. ----
+            // ---- GAME IMPORTER entry (u52 home only): a single control
+            // row — the u50 home is 11 rows and every row must fit the
+            // 960px viewport, so the live queue status rides in the
+            // sub-label instead of a panel. The importer lives under its
+            // own destination stack. ----
             if (showManagerSection && onOpenImporter != null) {
-                section {
-                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("GAME IMPORTER", Crystal.Cream)
-                            if (importerStatusLine.isNotEmpty()) {
-                                StatusLine(
-                                    importerStatusLine,
-                                    if (importerAttention) Crystal.Joystick else Crystal.InkDim,
-                                )
-                            }
-                            DimLine("ZIP + 7Z → ROM FOLDERS, ONE AT A TIME")
-                        }
-                    }
-                }
                 control(
                     key = "home-open-importer",
                     testTag = "home-open-importer",
                     label = "OPEN GAME IMPORTER",
+                    subLabel = importerStatusLine.ifEmpty {
+                        "ZIP + 7Z → ROM FOLDERS, ONE AT A TIME"
+                    },
                     onClick = onOpenImporter,
                 )
             }

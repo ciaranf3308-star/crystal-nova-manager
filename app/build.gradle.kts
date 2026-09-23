@@ -18,8 +18,8 @@ android {
         applicationId = "io.crystalnova.manager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 67
-        versionName = "1.2.4-u52-importer"
+        versionCode = 68
+        versionName = "1.2.4-u52-importer-fix"
 
         // Retroid Pocket Nova ships Android 13; minSdk 26 keeps SAF
         // (persistable tree permissions) working on older handhelds too.
@@ -120,6 +120,10 @@ dependencies {
     // ZIP is handled by java.util.zip (no dependency needed). RAR is
     // deliberately unsupported — see ArchiveKind.RAR_UNSUPPORTED.
     implementation("org.apache.commons:commons-compress:1.26.0")
+    // commons-compress loads 7z codecs reflectively at runtime; without
+    // the xz provider, 7z inspection/extraction dies with
+    // NoClassDefFoundError inside Coders.
+    implementation("org.tukaani:xz:1.10")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")
