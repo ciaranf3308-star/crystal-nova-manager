@@ -220,4 +220,49 @@ class NovaHomeScreenTest : NovaUiTest() {
         )
     }
 
+
+    @Test
+    fun importerFocusLandingDiagnostic() {
+        // TEMPORARY — CI only. Finds where D-pad DOWN from rollback lands.
+        setHome(
+            onOpenImporter = {},
+            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
+        )
+        val tags = listOf(
+            "esde-grant-folder-repick",
+            "esde-launch",
+            "esde-current-download",
+            "esde-rollback-download",
+            "home-open-importer",
+            "home-check-update",
+            "home-exit",
+        )
+        fun isFocused(tag: String): Boolean = runCatching {
+            val n = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
+            n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Focused) == true
+        }.getOrDefault(false)
+        composeTestRule.onNodeWithTag(tags[0]).requestDpadFocus()
+        composeTestRule.waitForIdle()
+        // Walk to rollback.
+        for (i in 1..3) {
+            val cur = tags[i - 1]
+            composeTestRule.onNodeWithTag(cur).pressDpadDown()
+            composeTestRule.waitForIdle()
+            println("DIAG3 after press on $cur: " + tags.map { t -> "$t=${isFocused(t)}" })
+        }
+        // The press under investigation.
+        composeTestRule.onNodeWithTag("esde-rollback-download").pressDpadDown()
+        composeTestRule.waitForIdle()
+        println("DIAG3 after press on rollback: " + tags.map { t -> "$t=${isFocused(t)}" })
+        // Try one more press.
+        for (t in tags) {
+            if (isFocused(t)) {
+                composeTestRule.onNodeWithTag(t).pressDpadDown()
+                composeTestRule.waitForIdle()
+                println("DIAG3 after press on $t: " + tags.map { x -> "$x=${isFocused(x)}" })
+                break
+            }
+        }
+    }
+
 }
