@@ -385,18 +385,6 @@ fun EsdeThemeScreen(
             // ---- MANAGER self-update (u50 home only): surfaced here,
             // never buried behind a route. Every future manager build
             // ships through this path. ----
-            // ---- GAME IMPORTER entry (u52): a top-level control before
-            // the MANAGER section. A 12th row after the section pushes
-            // the bottom item out of LazyColumn's composition window;
-            // placed here the entry composes and D-pad reaches it.
-            if (showManagerSection && onOpenImporter != null) {
-                control(
-                    key = "home-open-importer",
-                    testTag = "home-open-importer",
-                    label = "OPEN GAME IMPORTER",
-                    onClick = onOpenImporter,
-                )
-            }
             if (showManagerSection) {
                 // MANAGER header merged into the panel: the u50 home is
                 // 11 rows and every row must fit the 960px viewport.
@@ -492,6 +480,19 @@ fun EsdeThemeScreen(
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
+            }
+            // ---- GAME IMPORTER entry (u52): a single-line control after
+            // the manager update control. Placed here (not before the
+            // MANAGER panel) so D-pad moves between adjacent rows —
+            // outgoing focus from before the tall panel could not skip
+            // past it to the update control (u52 CI).
+            if (onOpenImporter != null) {
+                control(
+                    key = "home-open-importer",
+                    testTag = "home-open-importer",
+                    label = "OPEN GAME IMPORTER",
+                    onClick = onOpenImporter,
+                )
             }
             control(
                 key = backKey,

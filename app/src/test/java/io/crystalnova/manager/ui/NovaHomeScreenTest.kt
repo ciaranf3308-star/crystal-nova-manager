@@ -194,10 +194,10 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
     @Test
-    fun importerEntryBeforeManagerSection() {
-        // The u52 game importer is a single-line control before the
-        // MANAGER section; the live status rides in the panel and D-pad
-        // reaches the entry right before the manager update control.
+    fun importerEntryBetweenUpdateAndExit() {
+        // The u52 game importer is a single-line control after the
+        // manager update control; the live status rides in the MANAGER
+        // panel and D-pad reaches the entry between update and EXIT.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
@@ -212,53 +212,13 @@ class NovaHomeScreenTest : NovaUiTest() {
                 { composeTestRule.onNodeWithTag("esde-launch") },
                 { composeTestRule.onNodeWithTag("esde-current-download") },
                 { composeTestRule.onNodeWithTag("esde-rollback-download") },
-                { composeTestRule.onNodeWithTag("home-open-importer") },
                 { composeTestRule.onNodeWithTag("home-check-update") },
+                { composeTestRule.onNodeWithTag("home-open-importer") },
                 { composeTestRule.onNodeWithTag("home-exit") },
             ),
         )
     }
 
 
-
-    @Test
-    fun importerOutgoingFocusDiagnostic() {
-        // TEMPORARY — CI only. Finds where D-pad DOWN from the importer lands.
-        setHome(
-            onOpenImporter = {},
-            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
-        )
-        val tags = listOf(
-            "esde-grant-folder-repick",
-            "esde-launch",
-            "esde-current-download",
-            "esde-rollback-download",
-            "home-open-importer",
-            "home-check-update",
-            "home-exit",
-        )
-        fun isFocused(tag: String): Boolean = runCatching {
-            val n = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
-            n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Focused) == true
-        }.getOrDefault(false)
-        fun bounds(tag: String): String = runCatching {
-            val n = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
-            val b = n.boundsInRoot
-            "t=${b.top.toInt()} h=${b.height.toInt()}"
-        }.getOrDefault("?")
-        composeTestRule.onNodeWithTag(tags[0]).requestDpadFocus()
-        composeTestRule.waitForIdle()
-        for (i in 1..4) {
-            composeTestRule.onNodeWithTag(tags[i - 1]).pressDpadDown()
-            composeTestRule.waitForIdle()
-        }
-        println("DIAG4 at importer: " + tags.map { t -> "$t=${isFocused(t)} ${bounds(t)}" })
-        composeTestRule.onNodeWithTag("home-open-importer").pressDpadDown()
-        composeTestRule.waitForIdle()
-        println("DIAG4 after DOWN on importer: " + tags.map { t -> "$t=${isFocused(t)}" })
-        composeTestRule.onNodeWithTag("home-open-importer").pressDpadDown()
-        composeTestRule.waitForIdle()
-        println("DIAG4 after 2nd DOWN on importer: " + tags.map { t -> "$t=${isFocused(t)}" })
-    }
 
 }
