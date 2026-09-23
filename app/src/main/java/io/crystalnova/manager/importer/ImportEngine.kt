@@ -243,6 +243,7 @@ class ImportEngine(
                         platform = null,
                         plan = null,
                         inspectFailed = true,
+                        relativePath = ref.relativePath,
                         failureDetail = e.message,
                         addedAt = clock(),
                     )
@@ -302,6 +303,7 @@ class ImportEngine(
             platform = platform,
             plan = plan,
             inspectFailed = detection.recognizedAsGame && plan == null,
+            relativePath = ref.relativePath,
             failureDetail = if (detection.recognizedAsGame && plan == null) {
                 "Archive holds no importable files"
             } else {

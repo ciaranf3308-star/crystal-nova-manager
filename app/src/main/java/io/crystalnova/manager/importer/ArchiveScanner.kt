@@ -18,6 +18,8 @@ data class DownloadFile(
     val size: Long,
     val uri: String,
     val isDirectory: Boolean,
+    /** Subfolder path relative to the listing root, e.g. "GameImport". Empty for top-level files. */
+    val relativePath: String = "",
 )
 
 /** Lists the top level of the Downloads tree. */
@@ -31,6 +33,8 @@ data class ArchiveRef(
     val uri: String,
     val size: Long,
     val kind: ArchiveKind,
+    /** Subfolder path relative to the listing root, e.g. "GameImport". Empty for top-level files. */
+    val relativePath: String = "",
 )
 
 class ArchiveScanner(private val listing: DownloadsListing) {
@@ -53,7 +57,7 @@ class ArchiveScanner(private val listing: DownloadsListing) {
         for (file in files) {
             if (file.isDirectory) continue
             val kind = archiveKindOf(file.name)
-            val ref = ArchiveRef(file.name, file.uri, file.size, kind)
+            val ref = ArchiveRef(file.name, file.uri, file.size, kind, file.relativePath)
             when (kind) {
                 ArchiveKind.ZIP, ArchiveKind.SEVEN_Z -> archives += ref
                 ArchiveKind.RAR_UNSUPPORTED -> unsupported += ref

@@ -11,7 +11,7 @@ class PlatformMappingTest {
         val mapping = PlatformMapping(MapKeyValueStore())
         assertEquals("gba", mapping.folderFor(PlatformId.GBA))
         assertEquals("ps2", mapping.folderFor(PlatformId.PS2))
-        assertEquals("gamecube", mapping.folderFor(PlatformId.GAMECUBE))
+        assertEquals("gc", mapping.folderFor(PlatformId.GAMECUBE))
         assertEquals("3ds", mapping.folderFor(PlatformId.N3DS))
         // Genesis and Mega Drive share one default folder.
         assertEquals("genesis", mapping.folderFor(PlatformId.GENESIS))

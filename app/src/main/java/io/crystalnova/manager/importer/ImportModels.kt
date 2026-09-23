@@ -257,6 +257,8 @@ data class ArchiveItem(
     val failureDetail: String? = null,
     /** Inspection itself failed (corrupt/unsupported) — never imported. */
     val inspectFailed: Boolean = false,
+    /** Subfolder path relative to the Downloads root, e.g. "GameImport". Empty for top-level archives. */
+    val relativePath: String = "",
     /** Per-item duplicate resolution chosen in the conflict screen. */
     val duplicatePolicy: DuplicatePolicy? = null,
     /** Bytes actually extracted (filled during EXTRACTING). */

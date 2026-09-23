@@ -59,6 +59,56 @@ class AllFilesAccessTest {
     }
 
     @Test
+    fun `direct listing finds nested archives with relative path`() {
+        val dir = tempDir()
+        touch(dir, "top.zip", 1000)
+        val nested = File(dir, "GameImport").apply { mkdir() }
+        touch(nested, "nested.7z", 2000)
+        val deep = File(nested, "more").apply { mkdir() }
+        touch(deep, "deep.zip", 3000)
+
+        val outcome = ArchiveScanner(AllFilesAccess.directDownloadsListing(dir)).scan()
+
+        assertEquals(setOf("top.zip", "nested.7z", "deep.zip"), outcome.archives.map { it.name }.toSet())
+        val byName = outcome.archives.associateBy { it.name }
+        assertEquals("", byName.getValue("top.zip").relativePath)
+        assertEquals("GameImport", byName.getValue("nested.7z").relativePath)
+        assertEquals("GameImport/more", byName.getValue("deep.zip").relativePath)
+        // Strictly read-only: nothing moved or deleted.
+        assertTrue(File(deep, "deep.zip").exists())
+    }
+
+    @Test
+    fun `direct listing skips hidden directories`() {
+        val dir = tempDir()
+        val hidden = File(dir, ".cache").apply { mkdir() }
+        touch(hidden, "secret.zip")
+        val visible = File(dir, "visible").apply { mkdir() }
+        touch(visible, "shown.zip")
+
+        val outcome = ArchiveScanner(AllFilesAccess.directDownloadsListing(dir)).scan()
+
+        assertEquals(listOf("shown.zip"), outcome.archives.map { it.name })
+    }
+
+    @Test
+    fun `direct listing respects the depth cap`() {
+        val dir = tempDir()
+        var level = dir
+        // found.zip sits 4 levels deep; too-deep.zip sits 5 levels deep.
+        val names = listOf("l1", "l2", "l3", "l4")
+        for (n in names) level = File(level, n).apply { mkdir() }
+        touch(level, "found.zip")
+        val tooDeep = File(level, "l5").apply { mkdir() }
+        touch(tooDeep, "too-deep.zip")
+
+        val outcome = ArchiveScanner(AllFilesAccess.directDownloadsListing(dir)).scan()
+
+        assertEquals(listOf("found.zip"), outcome.archives.map { it.name })
+        assertEquals("l1/l2/l3/l4", outcome.archives.single().relativePath)
+    }
+
+    @Test
     fun `direct listing of empty dir scans clean`() {
         val outcome = ArchiveScanner(AllFilesAccess.directDownloadsListing(tempDir())).scan()
         assertTrue(outcome.archives.isEmpty())

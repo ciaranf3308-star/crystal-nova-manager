@@ -39,7 +39,7 @@ class PlatformMapping(private val prefs: KeyValueStore) {
             PlatformId.PSX to "psx",
             PlatformId.PS2 to "ps2",
             PlatformId.PSP to "psp",
-            PlatformId.GAMECUBE to "gamecube",
+            PlatformId.GAMECUBE to "gc",
             PlatformId.WII to "wii",
             PlatformId.WIIU to "wiiu",
             PlatformId.DREAMCAST to "dreamcast",

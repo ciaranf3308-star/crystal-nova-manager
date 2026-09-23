@@ -76,6 +76,9 @@ fun ImporterClassifyScreen(
                     "${item.archiveName} · ${formatBytes(item.archiveBytes)} · ${item.archiveKind}",
                     Crystal.InkDim,
                 )
+                if (item.relativePath.isNotEmpty()) {
+                    StatusLine("IN DOWNLOADS/${item.relativePath}", Crystal.InkDim)
+                }
                 if (item.detection.signals.isNotEmpty()) {
                     StatusLine(
                         "CLUES: ${item.detection.signals.take(3).joinToString(" · ")}",

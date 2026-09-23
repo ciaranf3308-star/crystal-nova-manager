@@ -57,6 +57,16 @@ class ArchiveScannerTest {
         assertTrue(outcome.unsupported.isEmpty())
     }
 
+    @Test fun `relative path flows from listing to archive ref`() {
+        val scanner = ArchiveScanner(
+            listing(
+                DownloadFile("nested.zip", 100, "uri:nested", isDirectory = false, relativePath = "GameImport"),
+            ),
+        )
+        val outcome = scanner.scan()
+        assertEquals("GameImport", outcome.archives.single().relativePath)
+    }
+
     @Test(expected = SecurityException::class)
     fun `revoked grant surfaces as SecurityException`() {
         val revoked = object : DownloadsListing {

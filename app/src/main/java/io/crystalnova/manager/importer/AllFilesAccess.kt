@@ -84,21 +84,42 @@ object AllFilesAccess {
      * already handle (ContentResolver and DocumentFile both accept
      * `file:` URIs), so extraction, verification and source deletion
      * work unchanged.
+     *
+     * The listing is recursive (archives in subfolders — e.g. the old
+     * Downloads/GameImport workaround folder — are found) with a depth
+     * cap of [MAX_SCAN_DEPTH] and hidden directories skipped. Read-only:
+     * only [File.listFiles], names and lengths are touched.
      */
     fun directDownloadsListing(dir: File): DownloadsListing =
         object : DownloadsListing {
-            override fun listFiles(): List<DownloadFile> {
-                val files = dir.listFiles() ?: return emptyList()
-                return files.map { f ->
-                    DownloadFile(
-                        name = f.name,
-                        size = if (f.isFile) f.length() else 0L,
-                        uri = Uri.fromFile(f).toString(),
-                        isDirectory = f.isDirectory,
-                    )
+            override fun listFiles(): List<DownloadFile> = listRecursive(dir, "", 0)
+        }
+
+    /** How many subfolder levels below Downloads the direct scan descends. */
+    internal const val MAX_SCAN_DEPTH = 4
+
+    private fun listRecursive(dir: File, relativePath: String, depth: Int): List<DownloadFile> {
+        val files = dir.listFiles() ?: return emptyList()
+        val out = mutableListOf<DownloadFile>()
+        for (f in files) {
+            if (f.name.startsWith(".")) continue
+            if (f.isDirectory) {
+                if (depth < MAX_SCAN_DEPTH) {
+                    val rel = if (relativePath.isEmpty()) f.name else "$relativePath/${f.name}"
+                    out += listRecursive(f, rel, depth + 1)
                 }
+            } else {
+                out += DownloadFile(
+                    name = f.name,
+                    size = f.length(),
+                    uri = Uri.fromFile(f).toString(),
+                    isDirectory = false,
+                    relativePath = relativePath,
+                )
             }
         }
+        return out
+    }
 
     /**
      * Direct listing of the real Downloads dir. Throws
