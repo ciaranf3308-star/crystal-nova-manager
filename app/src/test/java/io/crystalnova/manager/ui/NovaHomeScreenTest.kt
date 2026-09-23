@@ -194,10 +194,11 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
     @Test
-    fun importerEntryBetweenUpdateAndExit() {
-        // The u52 game importer is a single-line control after the
-        // manager update control; the live status rides in the MANAGER
-        // panel and D-pad reaches the entry between update and EXIT.
+    fun importerEntryInManagerRow() {
+        // The u52 game importer is a control sibling to the MANAGER
+        // panel (same lazy row, 11-row budget); the live status rides
+        // in the panel and D-pad reaches the entry before the update
+        // control.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
@@ -212,8 +213,8 @@ class NovaHomeScreenTest : NovaUiTest() {
                 { composeTestRule.onNodeWithTag("esde-launch") },
                 { composeTestRule.onNodeWithTag("esde-current-download") },
                 { composeTestRule.onNodeWithTag("esde-rollback-download") },
-                { composeTestRule.onNodeWithTag("home-check-update") },
                 { composeTestRule.onNodeWithTag("home-open-importer") },
+                { composeTestRule.onNodeWithTag("home-check-update") },
                 { composeTestRule.onNodeWithTag("home-exit") },
             ),
         )

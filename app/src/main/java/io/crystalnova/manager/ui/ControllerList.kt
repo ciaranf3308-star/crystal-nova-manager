@@ -529,11 +529,6 @@ fun ControllerList(
     val keyToIndex = remember { mutableMapOf<Any?, Int>() }
     LazyColumn(
         state = state.lazyListState,
-        // u52: compose one viewport beyond the visible window so a 12th
-        // home row (game importer) is composed and D-pad reachable.
-        // Without this, LazyColumn virtualizes the bottom row out and
-        // the entry never exists in the semantics tree.
-        beyondViewportPageCount = 1,
         modifier = modifier
             .fillMaxSize()
             .onSizeChanged { size -> state.engine.viewportHeightPx = size.height }

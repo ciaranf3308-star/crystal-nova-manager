@@ -456,6 +456,18 @@ fun EsdeThemeScreen(
                             }
                         }
                     }
+                    // ---- GAME IMPORTER entry (u52): a control sibling to
+                    // the panel (same lazy row, 11-row budget). Uses
+                    // SectionScope.control for proper key registration;
+                    // a 12th top-level row is virtualized out by LazyColumn.
+                    if (onOpenImporter != null) {
+                        control(
+                            key = "home-open-importer",
+                            testTag = "home-open-importer",
+                            label = "OPEN GAME IMPORTER",
+                            onClick = onOpenImporter,
+                        )
+                    }
                 }
                 when (appUpdate) {
                     is AppUpdateState.Available -> control(
@@ -480,18 +492,6 @@ fun EsdeThemeScreen(
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
-            }
-            // ---- GAME IMPORTER entry (u52): a single-line control after
-            // the manager update control. ControllerList composes one
-            // viewport beyond the window (beyondViewportPageCount=1) so
-            // the 12th row exists for D-pad.
-            if (onOpenImporter != null) {
-                control(
-                    key = "home-open-importer",
-                    testTag = "home-open-importer",
-                    label = "OPEN GAME IMPORTER",
-                    onClick = onOpenImporter,
-                )
             }
             control(
                 key = backKey,
