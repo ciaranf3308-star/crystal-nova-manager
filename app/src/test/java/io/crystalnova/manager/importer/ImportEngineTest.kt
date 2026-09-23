@@ -249,8 +249,10 @@ class ImportEngineTest {
 
         h.engine.backToClassifying()
         classifying = h.engine.uiState.value as ImportUiState.Classifying
-        assertEquals(listOf(aId, bId), classifying.needsReview.map { it.id })
+        // A is back in needsReview (first); B stays classified.
+        assertEquals(listOf(aId), classifying.needsReview.map { it.id })
         assertTrue(classifying.needsReview.first().platform == null)
+        assertEquals(listOf(bId), classifying.autoIdentified.map { it.id })
     }
 
     @Test fun `full loop - classify, review, reclassify, repick, review under new console`() {
