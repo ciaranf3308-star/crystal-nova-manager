@@ -2,6 +2,7 @@
 
 package io.crystalnova.manager.ui
 
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -191,6 +192,56 @@ class NovaHomeScreenTest : NovaUiTest() {
 
         composeTestRule.onNodeWithText("EXIT").assertExists()
         assertNodeInViewport("home-exit")
+    }
+
+    @Test
+    fun importerEntryFocusDiagnostic() {
+        // TEMPORARY diagnostic for the u52 CI failure — prints ground
+        // truth about focus movement around the new row. Deleted before
+        // the final commit.
+        setHome(
+            onOpenImporter = {},
+            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
+        )
+        fun bounds(tag: String) =
+            composeTestRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+        fun focused(tag: String): Boolean {
+            val node = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
+            return node.config.contains(SemanticsProperties.Focused) &&
+                node.config[SemanticsProperties.Focused]
+        }
+        println("DIAG check-update bounds=${bounds("home-check-update")}")
+        println("DIAG importer bounds=${bounds("home-open-importer")}")
+        println("DIAG exit bounds=${bounds("home-exit")}")
+        println("DIAG viewport=${viewportBounds()}")
+        // Walk to home-check-update exactly like the traversal helper.
+        val steps = listOf(
+            "esde-grant-folder-repick",
+            "esde-launch",
+            "esde-current-download",
+            "esde-rollback-download",
+            "home-check-update",
+        )
+        composeTestRule.onNodeWithTag(steps[0]).requestDpadFocus()
+        composeTestRule.waitForIdle()
+        var focusedTag = steps[0]
+        for (i in 1 until steps.size) {
+            composeTestRule.onNodeWithTag(focusedTag).pressDpadDown()
+            composeTestRule.waitForIdle()
+            focusedTag = steps[i]
+            println("DIAG step $i focused=${focused(focusedTag)} tag=$focusedTag")
+        }
+        // The press under investigation.
+        composeTestRule.onNodeWithTag("home-check-update").pressDpadDown()
+        composeTestRule.waitForIdle()
+        println("DIAG after press: check-update focused=${focused("home-check-update")}")
+        println("DIAG after press: importer focused=${focused("home-open-importer")}")
+        println("DIAG after press: exit focused=${focused("home-exit")}")
+        println("DIAG after press: importer bounds=${bounds("home-open-importer")}")
+        // Direct request for comparison.
+        composeTestRule.onNodeWithTag("home-open-importer").requestDpadFocus()
+        composeTestRule.waitForIdle()
+        println("DIAG direct request: importer focused=${focused("home-open-importer")}")
     }
 
     @Test
