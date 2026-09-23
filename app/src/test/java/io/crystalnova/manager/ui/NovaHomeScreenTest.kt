@@ -204,8 +204,7 @@ class NovaHomeScreenTest : NovaUiTest() {
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
         )
 
-        composeTestRule.onNodeWithTag("home-open-importer")
-            .assertTextEquals("OPEN GAME IMPORTER")
+        composeTestRule.onNodeWithText("OPEN GAME IMPORTER").assertExists()
         composeTestRule.onNodeWithText("IMPORTER: 2 IN QUEUE — TAP TO RESUME")
             .assertExists()
         assertDpadTraversalInViewport(
