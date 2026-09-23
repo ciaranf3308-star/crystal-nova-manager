@@ -456,6 +456,22 @@ fun EsdeThemeScreen(
                             }
                         }
                     }
+                    // ---- GAME IMPORTER entry (u52): a CrystalButton as a
+                    // sibling of the panel (same lazy row) so the 11-row
+                    // home budget is preserved. A 12th row pushes the
+                    // bottom item out of LazyColumn's composition window.
+                    // Direct CrystalButton (not SectionScope.control):
+                    // control() nests an item() inside the section's item,
+                    // which breaks D-pad focus.
+                    if (onOpenImporter != null) {
+                        CrystalButton(
+                            key = "home-open-importer",
+                            label = "OPEN GAME IMPORTER",
+                            onClick = onOpenImporter,
+                            dispatcher = dispatcher,
+                            testTag = "home-open-importer",
+                        )
+                    }
                 }
                 when (appUpdate) {
                     is AppUpdateState.Available -> control(
@@ -480,19 +496,6 @@ fun EsdeThemeScreen(
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
-            }
-            // ---- GAME IMPORTER entry (u52): a single-line control after
-            // the manager update control. Placed here (not before the
-            // MANAGER panel) so D-pad moves between adjacent rows —
-            // outgoing focus from before the tall panel could not skip
-            // past it to the update control (u52 CI).
-            if (onOpenImporter != null) {
-                control(
-                    key = "home-open-importer",
-                    testTag = "home-open-importer",
-                    label = "OPEN GAME IMPORTER",
-                    onClick = onOpenImporter,
-                )
             }
             control(
                 key = backKey,
