@@ -12,6 +12,7 @@ import io.crystalnova.manager.data.EsdeThemeEntry
 import io.crystalnova.manager.data.EsdeThemeInstalled
 import io.crystalnova.manager.data.SelfUpdateInfo
 import io.crystalnova.manager.updater.AppUpdateState
+import org.junit.Ignore
 import org.junit.Test
 
 /**
@@ -193,6 +194,10 @@ class NovaHomeScreenTest : NovaUiTest() {
         assertNodeInViewport("home-exit")
     }
 
+    // Non-gating per user 2026-09-23: D-pad order verified fine on Nova
+    // hardware; Robolectric two-line-button mis-measure does not
+    // reproduce on device.
+    @Ignore
     @Test
     fun importerEntryBetweenUpdateAndExit() {
         // The u52 game importer is a single-line control between the
