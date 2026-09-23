@@ -7,6 +7,7 @@ import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.storage.SafThemeFs
 import io.crystalnova.manager.storage.ThemeFs
 import java.io.Closeable
+import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
 
@@ -140,8 +141,16 @@ class AndroidImporterEnvironment(private val context: Context) : ImporterEnviron
     }
 
     override fun archiveExists(uri: String): Boolean {
+        val parsed = Uri.parse(uri)
+        if (parsed.scheme == "file") {
+            // DocumentFile.fromSingleUri is built for content: URIs —
+            // for file: URIs its internal query throws, which used to
+            // make every direct-scan archive look "missing". Use the
+            // filesystem directly for the direct path.
+            return parsed.path?.let { File(it).exists() } == true
+        }
         return try {
-            DocumentFile.fromSingleUri(context, Uri.parse(uri))?.exists() == true
+            DocumentFile.fromSingleUri(context, parsed)?.exists() == true
         } catch (e: SecurityException) {
             throw e
         } catch (_: Exception) {
@@ -150,8 +159,14 @@ class AndroidImporterEnvironment(private val context: Context) : ImporterEnviron
     }
 
     override fun deleteArchive(uri: String): Boolean {
+        val parsed = Uri.parse(uri)
+        if (parsed.scheme == "file") {
+            // Same file:-scheme trap as archiveExists: fromSingleUri
+            // silently no-ops here, so delete through the filesystem.
+            return parsed.path?.let { File(it).delete() } == true
+        }
         return try {
-            DocumentFile.fromSingleUri(context, Uri.parse(uri))?.delete() == true
+            DocumentFile.fromSingleUri(context, parsed)?.delete() == true
         } catch (e: SecurityException) {
             throw e
         } catch (_: Exception) {

@@ -79,11 +79,13 @@ object AllFilesAccess {
 
     /**
      * Direct File listing of [dir]. Only used when [hasAccess]; the
-     * URIs use the `file:` scheme, which the existing
-     * [ArchiveStreamOpener] and [DocumentFile]-based read/delete paths
-     * already handle (ContentResolver and DocumentFile both accept
-     * `file:` URIs), so extraction, verification and source deletion
-     * work unchanged.
+     * URIs use the `file:` scheme. [ArchiveStreamOpener] handles those
+     * natively (ContentResolver.openInputStream/openFileDescriptor
+     * accept `file:` URIs), so inspection, extraction and verification
+     * work unchanged. But `DocumentFile.fromSingleUri`-based
+     * exists/delete do NOT accept `file:` URIs — the existence and
+     * deletion checks in [AndroidImporterEnvironment] branch on the
+     * URI scheme for that reason.
      *
      * The listing is recursive (archives in subfolders — e.g. the old
      * Downloads/GameImport workaround folder — are found) with a depth
