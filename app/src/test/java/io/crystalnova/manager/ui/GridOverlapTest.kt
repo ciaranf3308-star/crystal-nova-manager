@@ -2,11 +2,15 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.fail
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -29,6 +33,34 @@ class GridOverlapTest : NovaUiTest() {
     @Test
     fun gridPanelsAndFixedHeightControls_noTextOverlap() {
         setNovaContent {
+            OverlapRepro(fontScale = 1f)
+        }
+        composeTestRule.waitForIdle()
+        val count = assertNoTextOverlap()
+        // Sanity: the repro must actually render text, or the test is vacuous.
+        assertTrue("Expected text nodes in the repro, found $count", count >= 10)
+    }
+
+    /**
+     * The Nova lets users crank the font scale up; fixed-height tiles do
+     * not grow with it, so overflowing text paints over the row below.
+     * This is the u58 "loads of overlays" report: it only reproduces when
+     * the device font scale is large.
+     */
+    @Test
+    fun gridPanelsAndFixedHeightControls_largeFontScale_noTextOverlap() {
+        setNovaContent {
+            OverlapRepro(fontScale = 2f)
+        }
+        composeTestRule.waitForIdle()
+        val count = assertNoTextOverlap()
+        assertTrue("Expected text nodes in the repro, found $count", count >= 10)
+    }
+
+    /** The u58 structural pattern, rendered at [fontScale]. */
+    @androidx.compose.runtime.Composable
+    private fun OverlapRepro(fontScale: Float) {
+        CompositionLocalProvider(LocalDensity provides Density(1f, fontScale = fontScale)) {
             ScreenScaffold(
                 routeKey = "test-overlap",
                 title = "OVERLAP TEST",
@@ -100,8 +132,6 @@ class GridOverlapTest : NovaUiTest() {
                 }
             }
         }
-        composeTestRule.waitForIdle()
-        assertNoTextOverlap()
     }
 
     /**
@@ -109,8 +139,11 @@ class GridOverlapTest : NovaUiTest() {
      * epsilon without one containing the other. Nested text (a label drawn
      * inside its own tile) is containment, not overlap; two sibling texts
      * painting over each other is the u58 bug.
+     *
+     * @return the number of text nodes found (so callers can assert the
+     * repro actually rendered).
      */
-    private fun assertNoTextOverlap() {
+    private fun assertNoTextOverlap(): Int {
         val nodes = composeTestRule
             .onAllNodes(SemanticsMatcher.keyIsDefined(SemanticsProperties.Text))
             .fetchSemanticsNodes()
@@ -137,6 +170,7 @@ class GridOverlapTest : NovaUiTest() {
                     "(${violations.size} violations):\n" + violations.take(12).joinToString("\n"),
             )
         }
+        return texts.size
     }
 
     private fun containsWithTolerance(
