@@ -102,6 +102,46 @@ fun NovaUiTest.assertDpadTraversalInViewport(
 }
 
 /**
+ * One D-pad move in a 2D grid traversal: the directional press to
+ * issue on the currently-focused tile, then the thunk resolving the
+ * tile expected to hold focus afterwards.
+ */
+data class DpadMove(
+    val press: (SemanticsNodeInteraction) -> SemanticsNodeInteraction,
+    val expect: () -> SemanticsNodeInteraction,
+)
+
+/**
+ * The grid counterpart of [assertDpadTraversalInViewport]: proves every
+ * tile is reachable by real 2D D-pad movement (not just DOWN) and stays
+ * inside the 1280x960 viewport. The first tile is focused explicitly;
+ * each move presses a direction on the focused tile, waits for idle,
+ * then asserts the expected tile holds focus and is in-viewport.
+ */
+fun NovaUiTest.assertDpadGridTraversalInViewport(
+    first: () -> SemanticsNodeInteraction,
+    moves: List<DpadMove>,
+) {
+    require(moves.isNotEmpty()) { "grid traversal needs at least one move" }
+    var focused = first()
+    focused.requestDpadFocus()
+    composeTestRule.waitForIdle()
+    focused.assertIsFocused()
+    assertInteractionInViewport(focused, "grid traversal start")
+    for ((i, move) in moves.withIndex()) {
+        // The press is issued on the currently-focused tile's
+        // interaction: key events route to whichever node holds focus,
+        // and the thunk is only resolved after the press so lazily
+        // composed tiles exist before they are asserted on.
+        move.press(focused)
+        composeTestRule.waitForIdle()
+        focused = move.expect()
+        focused.assertIsFocused()
+        assertInteractionInViewport(focused, "grid traversal move $i")
+    }
+}
+
+/**
  * Current vertical scroll offset (px == dp at density 1) of the single
  * scrollable on screen, read from its `VerticalScrollAxisRange`
  * semantics.

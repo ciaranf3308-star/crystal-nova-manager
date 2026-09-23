@@ -1,10 +1,28 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.importer.DuplicatePolicy
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
@@ -47,18 +65,26 @@ fun ImporterReviewScreen(
         onBack = onBack,
         fallbackFocusKey = "import-all",
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(3),
             initialFocus = ::isInitialFocus,
         ) {
             when (val s = uiState) {
                 is ImportUiState.ConflictReview -> ConflictSection(s, graph, choices)
                 is ImportUiState.Ready -> ReadySection(s, graph, onStartImport)
-                is ImportUiState.Error -> section {
-                    notice(s.message) { engine.backToIdle() }
+                is ImportUiState.Error -> {
+                    panel {
+                        StatusLine(s.message, Crystal.Bad)
+                    }
+                    control(
+                        key = "dismiss-notice",
+                        label = "DISMISS",
+                        onClick = { engine.backToIdle() },
+                    )
                 }
-                else -> section {
+                else -> panel {
                     StatusLine("PREPARING…", Crystal.InkDim)
                 }
             }
@@ -66,13 +92,13 @@ fun ImporterReviewScreen(
     }
 }
 
-private fun ControllerListContent.ReadySection(
+private fun ControllerGridContent.ReadySection(
     s: ImportUiState.Ready,
     graph: ImporterGraph,
     onStartImport: () -> Unit,
 ) {
     val engine = graph.engine
-    section {
+    panel {
         StatusLine(
             "${s.totalGames} GAME${if (s.totalGames == 1) "" else "S"} · " +
                 "NEED ${formatBytes(s.estimatedBytes)}",
@@ -85,18 +111,20 @@ private fun ControllerListContent.ReadySection(
         )
     }
     for (group in s.groups) {
-        section {
+        panel {
             val folder = graph.mapping.folderFor(group.platform)
             StatusLine(
                 "${group.platform.labels().long.uppercase()} → /$folder",
                 Crystal.Cream,
             )
-            for (item in group.items) {
-                StatusLine("· ${item.displayTitle} (${formatBytes(item.archiveBytes)})")
-            }
+            GameChipRow(
+                games = group.items.map {
+                    "· ${it.displayTitle} (${formatBytes(it.archiveBytes)})"
+                },
+            )
         }
     }
-    section {
+    panel {
         StatusLine("SEQUENTIAL — ONE ARCHIVE AT A TIME", Crystal.InkDim)
         StatusLine("SOURCE DELETED ONLY AFTER VERIFY", Crystal.InkDim)
     }
@@ -107,6 +135,7 @@ private fun ControllerListContent.ReadySection(
         else "BLOCKED — FREE UP SPACE FIRST",
         enabled = s.storageOk,
         onClick = onStartImport,
+        modifier = Modifier.height(88.dp),
     )
     control(
         key = "back-classify",
@@ -115,13 +144,13 @@ private fun ControllerListContent.ReadySection(
     )
 }
 
-private fun ControllerListContent.ConflictSection(
+private fun ControllerGridContent.ConflictSection(
     s: ImportUiState.ConflictReview,
     graph: ImporterGraph,
     choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val engine = graph.engine
-    section {
+    panel {
         StatusLine(
             "${s.conflicts.size} ALREADY IN THE LIBRARY",
             Crystal.Joystick,
@@ -150,12 +179,12 @@ private fun ControllerListContent.ConflictSection(
     )
 }
 
-private fun ControllerListContent.ConflictRow(
+private fun ControllerGridContent.ConflictRow(
     conflict: ItemConflict,
     choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val current = choices[conflict.itemId] ?: conflict.resolution
-    section {
+    panel {
         StatusLine(conflict.title)
         StatusLine(
             "EXISTS AS ${conflict.existingName}",
@@ -188,4 +217,47 @@ private fun DuplicatePolicy.label(): String = when (this) {
     DuplicatePolicy.SKIP -> "SKIP"
     DuplicatePolicy.REPLACE -> "REPLACE"
     DuplicatePolicy.KEEP_BOTH -> "KEEP BOTH"
+}
+
+/**
+ * Display-only game chips for the review groups: a flowing row of
+ * small tiles inside the platform panel. Not focusable — there is no
+ * per-game action on this screen (IMPORT ALL / conflict choices are
+ * the actions), so D-pad focus skips straight past them.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun GameChipRow(games: List<String>) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for (game in games) {
+            GameChip(game)
+        }
+    }
+}
+
+@Composable
+private fun GameChip(text: String) {
+    Box(
+        modifier = Modifier
+            .widthIn(max = 400.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(Crystal.TileDeep)
+            .border(2.dp, Crystal.FrameDim, RoundedCornerShape(2.dp))
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+    ) {
+        BasicText(
+            text = text,
+            style = TextStyle(
+                fontFamily = Crystal.Mono,
+                fontSize = Crystal.SmallSize,
+                color = Crystal.Ink,
+            ),
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
 }

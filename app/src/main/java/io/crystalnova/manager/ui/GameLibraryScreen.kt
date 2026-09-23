@@ -1,12 +1,32 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
+import io.crystalnova.manager.importer.LibrarySystem
 import androidx.compose.ui.text.AnnotatedString
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.LibraryScan
@@ -57,30 +77,31 @@ fun GameLibraryScreen(
         onBack = onBack,
         fallbackFocusKey = "copy-all",
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             val result = scan
             if (scanning && result == null) {
-                section {
+                panel {
                     StatusLine("SCANNING ROM FOLDERS…", Crystal.Joystick)
                 }
             } else if (result == null) {
-                section {
+                panel {
                     StatusLine("ROM ROOT NOT GRANTED", Crystal.Bad)
                     DimLine("GRANT THE ROM ROOT IN THE GAME IMPORTER FIRST.")
                 }
             } else {
                 val total = result.totalGames
                 val systems = result.systemCount
-                section {
+                panel {
                     StatusLine("$total ${if (total == 1) "game" else "games"} found")
                     StatusLine("$systems ${if (systems == 1) "system" else "systems"}")
                 }
                 if (scanning) {
-                    section {
+                    panel {
                         StatusLine("SCANNING ROM FOLDERS…", Crystal.Joystick)
                     }
                 }
@@ -94,29 +115,71 @@ fun GameLibraryScreen(
                     label = "COPY ALL",
                     subLabel = "COPY THE FULL LIST TO THE CLIPBOARD",
                     enabled = total > 0,
+                    modifier = Modifier.height(88.dp),
                     onClick = {
                         clipboard.setText(AnnotatedString(result.exportText))
                         justCopied = true
                     },
                 )
                 if (justCopied) {
-                    section {
+                    panel {
                         StatusLine("COPIED TO CLIPBOARD", Crystal.Good)
                     }
                 }
                 if (total == 0) {
-                    section {
+                    panel {
                         DimLine("NO GAMES FOUND IN THE MAPPED ROM FOLDERS.")
                     }
                 } else {
-                    section {
-                        for (system in result.systems) {
-                            val label = system.platform.labels()
-                            StatusLine("${label.short} — ${system.games.size}")
-                        }
+                    panel {
+                        SystemChipGrid(systems = result.systems)
                     }
                 }
             }
         }
+    }
+}
+
+/**
+ * System tiles as display-only chips in a flowing grid. Not focusable:
+ * tapping a system to see its filenames is explicitly out of scope for
+ * this build, so D-pad focus moves straight between REFRESH and COPY ALL.
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun SystemChipGrid(systems: List<LibrarySystem>) {
+    FlowRow(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        for (system in systems) {
+            val label = system.platform.labels()
+            SystemChip("${label.short} — ${system.games.size}")
+        }
+    }
+}
+
+@Composable
+private fun SystemChip(text: String) {
+    Box(
+        modifier = Modifier
+            .widthIn(min = 120.dp)
+            .clip(RoundedCornerShape(2.dp))
+            .background(Crystal.TileDeep)
+            .border(2.dp, Crystal.FrameDim, RoundedCornerShape(2.dp))
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+    ) {
+        BasicText(
+            text = text,
+            style = TextStyle(
+                fontFamily = Crystal.Mono,
+                fontWeight = FontWeight.Bold,
+                fontSize = Crystal.BodySize,
+                color = Crystal.Ink,
+            ),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }

@@ -1,5 +1,6 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,16 +37,17 @@ fun ImporterResultsScreen(
         onBack = onBack,
         fallbackFocusKey = "done",
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(3),
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null) {
-                section { StatusLine("…", Crystal.InkDim) }
-                return@ControllerList
+                panel { StatusLine("…", Crystal.InkDim) }
+                return@ControllerGrid
             }
-            section {
+            panel {
                 val headline = if (state.cancelled) "RUN CANCELLED" else "RUN FINISHED"
                 StatusLine(headline, Crystal.Joystick)
                 StatusLine(
@@ -79,7 +81,7 @@ fun ImporterResultsScreen(
     }
 }
 
-private fun ControllerListContent.FailedSection(
+private fun ControllerGridContent.FailedSection(
     row: FailedRow,
     platforms: List<PlatformId>,
     platformOverride: MutableMap<String, PlatformId>,
@@ -87,7 +89,7 @@ private fun ControllerListContent.FailedSection(
 ) {
     val engine = graph.engine
     val chosen = platformOverride[row.itemId] ?: row.platform
-    section {
+    panel {
         StatusLine("✗ ${row.title}", Crystal.Bad)
         val platformName = row.platform?.labels()?.long?.uppercase() ?: "UNKNOWN PLATFORM"
         StatusLine("$platformName · ${row.reason.label()}", Crystal.InkDim)

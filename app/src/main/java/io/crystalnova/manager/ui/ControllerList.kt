@@ -7,6 +7,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridScope
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -581,6 +582,24 @@ class ControllerGridContent(
     // and used explicitly instead of delegated.
 
     private var nextIndex = 0
+
+    /**
+     * One full-width static (non-focusable) block: status panels, info
+     * lines, section headers. Consumes one scroll index like every
+     * other emitted item so control indices stay synchronized with the
+     * lazy layout's item indices. Carries no focus-scroll wiring — focus
+     * never lands here.
+     */
+    fun panel(
+        key: Any? = null,
+        content: @Composable () -> Unit,
+    ) {
+        val index = nextIndex++
+        if (key != null) keyToIndex[key] = index
+        gridScope.item(key = key, span = { GridItemSpan(maxLineSpan) }) {
+            content()
+        }
+    }
 
     fun control(
         key: Any?,
