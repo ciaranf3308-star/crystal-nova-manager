@@ -236,7 +236,15 @@ class GridOverlapTest : NovaUiTest() {
      * Fails when two text nodes' bounds intersect by more than a rounding
      * epsilon without one containing the other. Nested text (a label drawn
      * inside its own tile) is containment, not overlap; two sibling texts
-     * painting over each other is the u58 bug.
+     * painting over each other is the u58/u60 bug.
+     *
+     * u61 hardening: two DISTINCT text nodes with near-identical bounds
+     * (LazyVerticalGrid stacks every child of one `item {}` at the same
+     * offset) must be flagged as violations — the old containment excuse
+     * let exact stacking through, which is why u60's test stayed green on
+     * broken layouts. Containment is only excused when one rect strictly
+     * contains the other by a real margin (e.g. a label inside its padded
+     * tile) AND the rects are not near-identical.
      *
      * @return the number of text nodes found (so callers can assert the
      * repro actually rendered).
@@ -258,7 +266,13 @@ class GridOverlapTest : NovaUiTest() {
                 val inter = a.intersect(b)
                 // 1px tolerance for rounding; both axes must meaningfully cross.
                 if (inter.width <= 1f || inter.height <= 1f) continue
-                if (containsWithTolerance(a, b) || containsWithTolerance(b, a)) continue
+                // Exact stacking: distinct texts piled at the same offset.
+                // Never excused as containment.
+                if (nearIdentical(a, b)) {
+                    violations += "STACKED: \"${textA.take(48)}\" $a vs \"${textB.take(48)}\" $b"
+                    continue
+                }
+                if (strictlyContains(a, b) || strictlyContains(b, a)) continue
                 violations += "overlap: \"${textA.take(48)}\" $a vs \"${textB.take(48)}\" $b"
             }
         }
@@ -271,14 +285,31 @@ class GridOverlapTest : NovaUiTest() {
         return texts.size
     }
 
-    private fun containsWithTolerance(
+    /** All four edges within 2px: two texts drawn at the same position. */
+    private fun nearIdentical(
+        a: androidx.compose.ui.geometry.Rect,
+        b: androidx.compose.ui.geometry.Rect,
+    ): Boolean {
+        val t = 2f
+        return kotlin.math.abs(a.left - b.left) <= t &&
+            kotlin.math.abs(a.top - b.top) <= t &&
+            kotlin.math.abs(a.right - b.right) <= t &&
+            kotlin.math.abs(a.bottom - b.bottom) <= t
+    }
+
+    /**
+     * True containment with a real margin on every side (e.g. a label
+     * inside its padded tile: 6dp vertical / 14dp horizontal padding at
+     * density 1). Adjacent or merely touching rects do not count.
+     */
+    private fun strictlyContains(
         outer: androidx.compose.ui.geometry.Rect,
         inner: androidx.compose.ui.geometry.Rect,
     ): Boolean {
-        val t = 1f
-        return outer.left - t <= inner.left &&
-            outer.top - t <= inner.top &&
-            outer.right + t >= inner.right &&
-            outer.bottom + t >= inner.bottom
+        val m = 4f
+        return outer.left + m <= inner.left &&
+            outer.top + m <= inner.top &&
+            outer.right - m >= inner.right &&
+            outer.bottom - m >= inner.bottom
     }
 }

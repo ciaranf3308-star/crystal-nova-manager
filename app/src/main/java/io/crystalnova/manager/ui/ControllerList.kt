@@ -1,6 +1,7 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.lazy.LazyColumn
@@ -589,6 +590,12 @@ class ControllerGridContent(
      * other emitted item so control indices stay synchronized with the
      * lazy layout's item indices. Carries no focus-scroll wiring — focus
      * never lands here.
+     *
+     * The content is wrapped in a [Column] because LazyVerticalGrid
+     * places ALL of an item's children at the same offset (unlike
+     * LazyColumn, which sequences them) — bare multi-line panel content
+     * would stack every line exactly on top of each other (the u60
+     * "green/red/yellow text" pile-up on the Nova).
      */
     fun panel(
         key: Any? = null,
@@ -597,7 +604,9 @@ class ControllerGridContent(
         val index = nextIndex++
         if (key != null) keyToIndex[key] = index
         gridScope.item(key = key, span = { GridItemSpan(maxLineSpan) }) {
-            content()
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                content()
+            }
         }
     }
 
