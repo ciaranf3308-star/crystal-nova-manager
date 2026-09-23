@@ -194,11 +194,11 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
     @Test
-    fun importerEntrySitsBetweenUpdateCheckAndExit() {
-        // The u52 game importer is one single-line control row between
-        // the manager update control and EXIT; the live status rides in
-        // the MANAGER panel so the row measures like every other control
-        // and D-pad traversal reaches it in order.
+    fun importerEntryInManagerRowBeforeUpdateCheck() {
+        // The u52 game importer lives inside the MANAGER row (same lazy
+        // item as the panel) so the 11-row home budget is preserved; the
+        // live status rides in the panel and D-pad reaches the entry
+        // right before the manager update control.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
@@ -213,30 +213,11 @@ class NovaHomeScreenTest : NovaUiTest() {
                 { composeTestRule.onNodeWithTag("esde-launch") },
                 { composeTestRule.onNodeWithTag("esde-current-download") },
                 { composeTestRule.onNodeWithTag("esde-rollback-download") },
-                { composeTestRule.onNodeWithTag("home-check-update") },
                 { composeTestRule.onNodeWithTag("home-open-importer") },
+                { composeTestRule.onNodeWithTag("home-check-update") },
                 { composeTestRule.onNodeWithTag("home-exit") },
             ),
         )
     }
 
-    @Test
-    fun importerTagDiagnostic() {
-        // TEMPORARY — CI only. Deleted before final.
-        setHome(
-            onOpenImporter = {},
-            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
-        )
-        val tagExists = runCatching {
-            composeTestRule.onNodeWithTag("home-open-importer").assertExists()
-            true
-        }.getOrDefault(false)
-        println("DIAG2 tag exists=$tagExists")
-        if (tagExists) {
-            val node = composeTestRule.onNodeWithTag("home-open-importer")
-                .fetchSemanticsNode()
-            println("DIAG2 bounds=" + node.boundsInRoot)
-            println("DIAG2 config=" + node.config)
-        }
-    }
 }

@@ -385,15 +385,6 @@ fun EsdeThemeScreen(
             // ---- MANAGER self-update (u50 home only): surfaced here,
             // never buried behind a route. Every future manager build
             // ships through this path. ----
-            // TEMP-DIAG: importer entry moved up to test visibility.
-            if (showManagerSection && onOpenImporter != null) {
-                control(
-                    key = "home-open-importer",
-                    testTag = "home-open-importer",
-                    label = "OPEN GAME IMPORTER",
-                    onClick = onOpenImporter,
-                )
-            }
             if (showManagerSection) {
                 // MANAGER header merged into the panel: the u50 home is
                 // 11 rows and every row must fit the 960px viewport.
@@ -465,6 +456,21 @@ fun EsdeThemeScreen(
                             }
                         }
                     }
+                    // ---- GAME IMPORTER entry (u52): lives inside the
+                    // MANAGER row (same lazy item) so the 11-row home
+                    // budget is preserved — a 12th row pushes the bottom
+                    // item out of LazyColumn's composition window and the
+                    // entry never composes (u52 CI). Traversal reaches it
+                    // right after the MANAGER panel, before the update
+                    // control.
+                    if (onOpenImporter != null) {
+                        control(
+                            key = "home-open-importer",
+                            testTag = "home-open-importer",
+                            label = "OPEN GAME IMPORTER",
+                            onClick = onOpenImporter,
+                        )
+                    }
                 }
                 when (appUpdate) {
                     is AppUpdateState.Available -> control(
@@ -490,8 +496,6 @@ fun EsdeThemeScreen(
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
             }
-            // ---- GAME IMPORTER entry (u52 home only): a single control
-            // row — TEMP-DIAG: moved above for visibility test.
             control(
                 key = backKey,
                 testTag = backKey,
