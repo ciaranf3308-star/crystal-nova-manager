@@ -5,7 +5,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.fetchSemanticsNodes
-import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.unit.dp
 import org.junit.Assert.fail
 import org.junit.Test
@@ -63,21 +62,24 @@ class GridOverlapTest : NovaUiTest() {
                     control(
                         key = "retry-1",
                         label = "RETRY",
-                        subLabel = "RETRIES THIS GAME AS NINTENDO GAMECUBE DISC IMAGE",
+                        subLabel = "RETRIES THIS GAME AS NINTENDO GAMECUBE EVEN IF THE " +
+                            "ARCHIVE LOOKS CORRUPT OR TRUNCATED ON FIRST INSPECTION",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
                     control(
                         key = "platform-1",
                         label = "PLATFORM: GAMECUBE",
-                        subLabel = "TAP TO CYCLE THROUGH EVERY SUPPORTED PLATFORM THEN RETRY",
+                        subLabel = "TAP TO CYCLE THROUGH EVERY SUPPORTED PLATFORM IN " +
+                            "THE FULL LIST THEN PRESS RETRY TO TRY THE IMPORT AGAIN",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
                     control(
                         key = "skip-1",
                         label = "SKIP",
-                        subLabel = "LEAVES THE SOURCE ARCHIVE IN DOWNLOADS UNTOUCHED",
+                        subLabel = "LEAVES THE SOURCE ARCHIVE IN DOWNLOADS UNTOUCHED " +
+                            "AND MOVES ON TO THE NEXT GAME IN THE QUEUE",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
@@ -85,7 +87,8 @@ class GridOverlapTest : NovaUiTest() {
                     control(
                         key = "scan",
                         label = "SCAN DOWNLOADS",
-                        subLabel = "FIND NEW ARCHIVES IN THE DOWNLOADS FOLDER RECURSIVELY",
+                        subLabel = "FIND NEW ARCHIVES IN THE DOWNLOADS FOLDER RECURSIVELY " +
+                            "INCLUDING NESTED SUBFOLDERS UP TO FOUR LEVELS DEEP",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
