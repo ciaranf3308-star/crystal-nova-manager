@@ -219,4 +219,37 @@ class NovaHomeScreenTest : NovaUiTest() {
             ),
         )
     }
+
+    @Test
+    fun importerTagDiagnostic() {
+        // TEMPORARY — CI only. Determines whether the importer button node
+        // exists and what its semantics contain. Deleted before final.
+        setHome(
+            onOpenImporter = {},
+            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
+        )
+        val tagExists = runCatching {
+            composeTestRule.onNodeWithTag("home-open-importer").assertExists()
+            true
+        }.getOrDefault(false)
+        println("DIAG2 tag exists=$tagExists")
+        if (tagExists) {
+            val node = composeTestRule.onNodeWithTag("home-open-importer")
+                .fetchSemanticsNode()
+            println("DIAG2 bounds=" + node.boundsInRoot)
+            println("DIAG2 config=" + node.config)
+        }
+        // List every text in the merged tree to see what IS there.
+        val texts = mutableListOf<String>()
+        composeTestRule.onRoot().fetchSemanticsNode().let { root ->
+            fun walk(n: androidx.compose.ui.semantics.SemanticsNode) {
+                n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Text)
+                    ?.let { texts.add(it.joinToString("|") { t -> t.text }) }
+                n.children.forEach { walk(it) }
+            }
+            walk(root)
+        }
+        println("DIAG2 all texts=" + texts.joinToString(" ;; "))
+    }
+
 }
