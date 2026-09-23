@@ -58,12 +58,18 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                         if (!entry.isDirectory && !entry.name.endsWith('/')) {
                             val target = payloadSegments(entry.name, plan)
                             if (target != null) {
-                                bytes += writeEntry(fs, stagingDir, target, zip)
+                                val total = plan.payloadBytes.coerceAtLeast(1)
+                                bytes += writeEntry(fs, stagingDir, target, zip) { chunkBytes ->
+                                    // Per-chunk progress: a single giant entry
+                                    // (e.g. a PS2 ISO) would otherwise report
+                                    // nothing for its entire multi-minute write.
+                                    onProgress(bytes + chunkBytes, total)
+                                }
                                 files++
                                 if (files > MAX_ENTRIES) {
                                     throw ArchiveReadException("Archive has too many entries")
                                 }
-                                onProgress(bytes, plan.payloadBytes.coerceAtLeast(1))
+                                onProgress(bytes, total)
                             }
                         }
                         zip.closeEntry()
@@ -97,14 +103,19 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                         if (!entry.isDirectory) {
                             val target = payloadSegments(entry.name, plan)
                             if (target != null) {
+                                val total = plan.payloadBytes.coerceAtLeast(1)
                                 sevenZ.getInputStream(entry).use { content ->
-                                    bytes += writeEntry(fs, stagingDir, target, content)
+                                    bytes += writeEntry(fs, stagingDir, target, content) { chunkBytes ->
+                                        // Per-chunk progress: a single giant entry
+                                        // would otherwise report nothing until done.
+                                        onProgress(bytes + chunkBytes, total)
+                                    }
                                 }
                                 files++
                                 if (files > MAX_ENTRIES) {
                                     throw ArchiveReadException("Archive has too many entries")
                                 }
-                                onProgress(bytes, plan.payloadBytes.coerceAtLeast(1))
+                                onProgress(bytes, total)
                             }
                         }
                         entry = sevenZ.nextEntry
@@ -136,6 +147,7 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
         stagingDir: FsNode,
         segments: List<String>,
         content: java.io.InputStream,
+        onChunk: (chunkBytesDone: Long) -> Unit = {},
     ): Long {
         val parent = ensureDir(fs, stagingDir, segments.dropLast(1))
         val name = segments.last()
@@ -154,6 +166,7 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                 if (n <= 0) break
                 out.write(buf, 0, n)
                 written += n
+                onChunk(written)
             }
         }
         return written

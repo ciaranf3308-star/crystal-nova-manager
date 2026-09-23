@@ -699,34 +699,51 @@ class ImportEngine(
             }
             var lastEmittedBytes = 0L
             var lastPersistedBytes = -1L
+            var lastProgressStage: ImportStage? = null
             val onBytes: (Long) -> Unit = { done ->
-                // Persist byte progress sparingly: every write would
-                // rewrite the whole queue JSON (a 4 GB game writes
-                // 130k+ 32 KiB chunks). Stage transitions persist
-                // anyway, so crash recovery never depends on this.
-                if (lastPersistedBytes < 0 || done - lastPersistedBytes >= 5_242_880) {
+                val stage = queue.items.value
+                    .firstOrNull { it.id == item.id }?.stage
+                // Persist byte progress sparingly, and only during the
+                // extract phase: every write rewrites the whole queue
+                // JSON (a 4 GB game writes 130k+ 32 KiB chunks), and
+                // during copying the counter restarts at 0 — persisting
+                // that backwards would corrupt crash-recovery state.
+                // Stage transitions persist anyway, so crash recovery
+                // never depends on this.
+                if (stage == ImportStage.EXTRACTING &&
+                    (lastPersistedBytes < 0 || done - lastPersistedBytes >= 5_242_880)
+                ) {
                     lastPersistedBytes = done
                     queue.update(item.id) { it.copy(extractedBytes = done) }
                 }
-                // Progress display only tracks the extract phase; the
-                // copy phase reuses the byte counter for verification.
-                val atExtract = queue.items.value
-                    .firstOrNull { it.id == item.id }?.stage == ImportStage.EXTRACTING
-                if (atExtract && done - lastEmittedBytes >= 1_048_576) {
-                    lastEmittedBytes = done
-                    val planBytes = (item.plan?.payloadBytes ?: 0L).coerceAtLeast(1L)
-                    val platform = queue.items.value.firstOrNull { it.id == item.id }?.platform
-                        ?: item.platform!!
-                    emit(
-                        ImportingGame(
-                            title = item.displayTitle,
-                            platform = platform,
-                            stage = ImportStage.EXTRACTING,
-                            progress = (done.toFloat() / planBytes).coerceIn(0f, 1f),
-                            detail = "${formatBytes(done)} of ~${formatBytes(planBytes)}",
-                        ),
-                        index,
-                    )
+                // Progress display tracks the extract and copy phases.
+                // The copy counter restarts at 0, so the emission
+                // baseline resets on every stage change.
+                val progressStage = when (stage) {
+                    ImportStage.EXTRACTING, ImportStage.COPYING -> stage
+                    else -> null
+                }
+                if (progressStage != null) {
+                    if (progressStage != lastProgressStage) {
+                        lastProgressStage = progressStage
+                        lastEmittedBytes = 0L
+                    }
+                    if (done - lastEmittedBytes >= 1_048_576) {
+                        lastEmittedBytes = done
+                        val planBytes = (item.plan?.payloadBytes ?: 0L).coerceAtLeast(1L)
+                        val platform = queue.items.value.firstOrNull { it.id == item.id }?.platform
+                            ?: item.platform!!
+                        emit(
+                            ImportingGame(
+                                title = item.displayTitle,
+                                platform = platform,
+                                stage = progressStage,
+                                progress = (done.toFloat() / planBytes).coerceIn(0f, 1f),
+                                detail = "${formatBytes(done)} of ~${formatBytes(planBytes)}",
+                            ),
+                            index,
+                        )
+                    }
                 }
             }
 

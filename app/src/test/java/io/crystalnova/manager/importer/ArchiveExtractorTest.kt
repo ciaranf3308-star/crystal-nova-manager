@@ -123,6 +123,60 @@ class ArchiveExtractorTest {
         assertEquals(10_000L, lastDone)
     }
 
+    @Test fun `zip streams per-chunk progress for one large entry`() {
+        // A single giant entry (like a PS2 ISO) must report progress
+        // continuously during its write — not once at the very end.
+        val big = ByteArray(1_200_000) { 3 }
+        val zipBytes = fixtures.createZip(mapOf("game.iso" to big))
+        val fs = InMemoryThemeFs()
+        val staging = fs.mkdir(fs.rootNode, "staging")
+        val extractor = ArchiveExtractor(
+            ArchiveTestFixtures.FakeOpener(zips = mapOf("u1" to zipBytes)),
+        )
+        val seen = mutableListOf<Long>()
+        extractor.extract(
+            fs,
+            ArchiveRef("game.zip", "u1", zipBytes.size.toLong(), ArchiveKind.ZIP),
+            staging,
+            planFor(ImportTarget.SingleFile("game.iso"), payloadBytes = big.size.toLong()),
+        ) { done, total ->
+            seen += done
+            assertEquals(big.size.toLong(), total)
+        }
+        assertTrue("expected many progress callbacks, got ${seen.size}", seen.size > 10)
+        assertTrue(
+            "byte counts must strictly increase",
+            seen.zipWithNext().all { (a, b) -> b > a },
+        )
+        assertEquals(big.size.toLong(), seen.last())
+    }
+
+    @Test fun `7z streams per-chunk progress for one large entry`() {
+        val big = ByteArray(1_200_000) { 5 }
+        val file7z = fixtures.create7z(mapOf("game.iso" to big))
+        val fs = InMemoryThemeFs()
+        val staging = fs.mkdir(fs.rootNode, "staging")
+        val extractor = ArchiveExtractor(
+            ArchiveTestFixtures.FakeOpener(sevenZs = mapOf("u7" to file7z)),
+        )
+        val seen = mutableListOf<Long>()
+        extractor.extract(
+            fs,
+            ArchiveRef("game.7z", "u7", file7z.length(), ArchiveKind.SEVEN_Z),
+            staging,
+            planFor(ImportTarget.SingleFile("game.iso"), payloadBytes = big.size.toLong()),
+        ) { done, total ->
+            seen += done
+            assertEquals(big.size.toLong(), total)
+        }
+        assertTrue("expected many progress callbacks, got ${seen.size}", seen.size > 10)
+        assertTrue(
+            "byte counts must strictly increase",
+            seen.zipWithNext().all { (a, b) -> b > a },
+        )
+        assertEquals(big.size.toLong(), seen.last())
+    }
+
     @Test fun `existing files are truncated and rewritten`() {
         val zipBytes = fixtures.createZip(mapOf("rom.gba" to ByteArray(100) { 1 }))
         val fs = InMemoryThemeFs()
