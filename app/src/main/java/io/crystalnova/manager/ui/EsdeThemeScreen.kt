@@ -456,22 +456,6 @@ fun EsdeThemeScreen(
                             }
                         }
                     }
-                    // ---- GAME IMPORTER entry (u52): a CrystalButton as a
-                    // sibling of the panel (same lazy row) so the 11-row
-                    // home budget is preserved. A 12th row pushes the
-                    // bottom item out of LazyColumn's composition window.
-                    // Direct CrystalButton (not SectionScope.control):
-                    // control() nests an item() inside the section's item,
-                    // which breaks D-pad focus.
-                    if (onOpenImporter != null) {
-                        CrystalButton(
-                            key = "home-open-importer",
-                            label = "OPEN GAME IMPORTER",
-                            onClick = onOpenImporter,
-                            dispatcher = dispatcher,
-                            testTag = "home-open-importer",
-                        )
-                    }
                 }
                 when (appUpdate) {
                     is AppUpdateState.Available -> control(
@@ -496,6 +480,18 @@ fun EsdeThemeScreen(
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
+            }
+            // ---- GAME IMPORTER entry (u52): a single-line control after
+            // the manager update control. ControllerList composes one
+            // viewport beyond the window (beyondViewportPageCount=1) so
+            // the 12th row exists for D-pad.
+            if (onOpenImporter != null) {
+                control(
+                    key = "home-open-importer",
+                    testTag = "home-open-importer",
+                    label = "OPEN GAME IMPORTER",
+                    onClick = onOpenImporter,
+                )
             }
             control(
                 key = backKey,

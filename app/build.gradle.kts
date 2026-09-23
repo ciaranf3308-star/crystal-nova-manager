@@ -18,8 +18,8 @@ android {
         applicationId = "io.crystalnova.manager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 83
-        versionName = "1.2.4-u52-importer-sibling"
+        versionCode = 84
+        versionName = "1.2.4-u52-importer-beyondvp"
 
         // Retroid Pocket Nova ships Android 13; minSdk 26 keeps SAF
         // (persistable tree permissions) working on older handhelds too.
