@@ -459,4 +459,98 @@ class ImportEngineTest {
         assertEquals(brokenId, rebuilt.failed.single().itemId)
         assertEquals(ImportFailureReason.EXTRACTION_FAILED, rebuilt.failed.single().reason)
     }
+
+    @Test fun `single-file import writes once with no staging dir and no temp leftovers`() {
+        val romBytes = ByteArray(1024) { 42 }
+        val env = envWith(
+            Triple("Pokemon Emerald (USA).zip", "uri:pk", mapOf("Pokemon Emerald.gba" to romBytes)),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        h.engine.prepareImport()
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.succeeded)
+        assertEquals(listOf("uri:pk"), env.deleted)
+
+        // Destination has the game with intact bytes.
+        val dest = romFile(env, "gba", "Pokemon Emerald.gba")!!
+        assertEquals(1024L, env.roms.length(dest))
+        assertTrue(env.roms.openInput(dest).readBytes().all { it == 42.toByte() })
+
+        // Single write: no staging dir was ever created, no temp remains.
+        val gbaDir = env.roms.find(env.roms.rootNode, "gba")!!
+        assertEquals(listOf("Pokemon Emerald.gba"), env.roms.children(gbaDir).map { it.first })
+    }
+
+    @Test fun `failed single-file write cleans the temp and restores the REPLACE backup`() {
+        val env = envWith(
+            Triple("Pokemon Emerald (USA).zip", "uri:pk", mapOf("Pokemon Emerald.gba" to ByteArray(10) { 1 })),
+        )
+        val gbaDir = env.roms.mkdir(env.roms.rootNode, "gba")
+        val owned = env.roms.createFile(gbaDir, "Pokemon Emerald.gba")
+        env.roms.openOutput(owned).use { it.write(ByteArray(10) { 9 }) }
+        // Fail the temp -> final rename; the backup park still succeeds.
+        env.roms.renameGate = { node, _ -> !node.name.startsWith(".importing-") }
+        val h = harness(env)
+
+        h.engine.scan()
+        h.engine.prepareImport()
+        val conflict = h.engine.uiState.value as ImportUiState.ConflictReview
+        h.engine.confirmConflicts(
+            conflict.conflicts.map { it.copy(resolution = DuplicatePolicy.REPLACE) },
+        )
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.failed.size)
+        assertEquals(ImportFailureReason.WRITE_FAILED, results.failed.single().reason)
+        // Original game intact, no temp, no backup leftovers, source kept.
+        assertTrue(env.roms.openInput(romFile(env, "gba", "Pokemon Emerald.gba")!!).readBytes().all { it == 9.toByte() })
+        assertEquals(listOf("Pokemon Emerald.gba"), env.roms.children(gbaDir).map { it.first })
+        assertTrue(env.deleted.isEmpty())
+        assertTrue(env.zips.containsKey("uri:pk"))
+    }
+
+    @Test fun `zero-byte payload fails verification and keeps everything safe`() {
+        val env = envWith(
+            Triple("empty.zip", "uri:empty", mapOf("empty.gba" to ByteArray(0))),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        h.engine.prepareImport()
+        assertTrue(h.engine.uiState.value is ImportUiState.Ready)
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.failed.size)
+        assertEquals(ImportFailureReason.VERIFICATION_FAILED, results.failed.single().reason)
+        // Source kept; the bad write was rolled back; no temp leftovers.
+        assertTrue(env.deleted.isEmpty())
+        assertTrue(env.zips.containsKey("uri:empty"))
+        val gbaDir = env.roms.find(env.roms.rootNode, "gba")!!
+        assertTrue(env.roms.children(gbaDir).isEmpty())
+    }
+
+    @Test fun `crash recovery deletes stale single-file temps on the next run`() {
+        val env = envWith(
+            Triple("Pokemon Emerald (USA).zip", "uri:pk", mapOf("Pokemon Emerald.gba" to ByteArray(10) { 1 })),
+        )
+        val gbaDir = env.roms.mkdir(env.roms.rootNode, "gba")
+        val stale = env.roms.createFile(gbaDir, ".importing-deadbeef")
+        env.roms.openOutput(stale).use { it.write(ByteArray(10) { 5 }) }
+        val h = harness(env)
+
+        h.engine.scan()
+        h.engine.prepareImport()
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.succeeded)
+        // The stale temp is gone; only the imported game remains.
+        assertEquals(listOf("Pokemon Emerald.gba"), env.roms.children(gbaDir).map { it.first })
+    }
 }

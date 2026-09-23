@@ -6,7 +6,9 @@ import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import java.util.zip.ZipInputStream
 
 /**
- * Streaming archive extraction into a [ThemeFs] staging directory.
+ * Streaming archive extraction into a [ThemeFs] directory (a staging
+ * dir, or — for single-file imports — the destination ROM folder
+ * itself under a temp name; see [directFileName]).
  *
  * - Entry-by-entry through SAF output streams with a bounded 32 KiB
  *   buffer — a multi-GB disc image never sits in memory whole.
@@ -33,10 +35,20 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
         stagingDir: FsNode,
         plan: ImportPlan,
         onProgress: (bytesDone: Long, bytesTotal: Long) -> Unit = { _, _ -> },
+        /**
+         * Single-write mode for [ImportTarget.SingleFile]: only the
+         * entry matching the plan's payload file is written, renamed
+         * to this name. Every other entry is skipped, so a disc
+         * archive's stray docs never land in the ROM folder. Null =
+         * classic mode: every payload entry is written under its
+         * planned path. When no entry matches, the usual "no
+         * extractable files" error fires.
+         */
+        directFileName: String? = null,
     ): ExtractReport {
         return when (ref.kind) {
-            ArchiveKind.ZIP -> extractZip(fs, ref, stagingDir, plan, onProgress)
-            ArchiveKind.SEVEN_Z -> extract7z(fs, ref, stagingDir, plan, onProgress)
+            ArchiveKind.ZIP -> extractZip(fs, ref, stagingDir, plan, onProgress, directFileName)
+            ArchiveKind.SEVEN_Z -> extract7z(fs, ref, stagingDir, plan, onProgress, directFileName)
             else -> throw ArchiveReadException("Unsupported archive kind: ${ref.kind}")
         }
     }
@@ -47,7 +59,13 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
         stagingDir: FsNode,
         plan: ImportPlan,
         onProgress: (Long, Long) -> Unit,
+        directFileName: String?,
     ): ExtractReport {
+        // Single-write mode: only this payload entry is kept.
+        val directName = directFileName
+            ?.takeIf { plan.target is ImportTarget.SingleFile }
+        val directTarget = directName
+            ?.let { listOf((plan.target as ImportTarget.SingleFile).fileName) }
         var files = 0
         var bytes = 0L
         try {
@@ -57,9 +75,15 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                     while (entry != null) {
                         if (!entry.isDirectory && !entry.name.endsWith('/')) {
                             val target = payloadSegments(entry.name, plan)
-                            if (target != null) {
+                            val outSegments = when {
+                                target == null -> null
+                                directTarget != null && target != directTarget -> null
+                                directName != null -> listOf(directName)
+                                else -> target
+                            }
+                            if (outSegments != null) {
                                 val total = plan.payloadBytes.coerceAtLeast(1)
-                                bytes += writeEntry(fs, stagingDir, target, zip) { chunkBytes ->
+                                bytes += writeEntry(fs, stagingDir, outSegments, zip) { chunkBytes ->
                                     // Per-chunk progress: a single giant entry
                                     // (e.g. a PS2 ISO) would otherwise report
                                     // nothing for its entire multi-minute write.
@@ -92,7 +116,13 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
         stagingDir: FsNode,
         plan: ImportPlan,
         onProgress: (Long, Long) -> Unit,
+        directFileName: String?,
     ): ExtractReport {
+        // Single-write mode: only this payload entry is kept.
+        val directName = directFileName
+            ?.takeIf { plan.target is ImportTarget.SingleFile }
+        val directTarget = directName
+            ?.let { listOf((plan.target as ImportTarget.SingleFile).fileName) }
         var files = 0
         var bytes = 0L
         try {
@@ -102,10 +132,16 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                     while (entry != null) {
                         if (!entry.isDirectory) {
                             val target = payloadSegments(entry.name, plan)
-                            if (target != null) {
+                            val outSegments = when {
+                                target == null -> null
+                                directTarget != null && target != directTarget -> null
+                                directName != null -> listOf(directName)
+                                else -> target
+                            }
+                            if (outSegments != null) {
                                 val total = plan.payloadBytes.coerceAtLeast(1)
                                 sevenZ.getInputStream(entry).use { content ->
-                                    bytes += writeEntry(fs, stagingDir, target, content) { chunkBytes ->
+                                    bytes += writeEntry(fs, stagingDir, outSegments, content) { chunkBytes ->
                                         // Per-chunk progress: a single giant entry
                                         // would otherwise report nothing until done.
                                         onProgress(bytes + chunkBytes, total)

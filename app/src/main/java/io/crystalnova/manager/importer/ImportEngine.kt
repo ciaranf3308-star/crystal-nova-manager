@@ -644,8 +644,9 @@ class ImportEngine(
             )
         }
 
-        // Crash recovery: drop stale staging dirs and reconcile
-        // interrupted REPLACE backups before touching anything.
+        // Crash recovery: drop stale staging dirs, stale single-file
+        // temps, and reconcile interrupted REPLACE backups before
+        // touching anything.
         for (platform in items.mapNotNull { it.platform }.toSet()) {
             val dir = try {
                 platformDir(platform)
@@ -656,6 +657,8 @@ class ImportEngine(
                 for ((name, node) in roms.children(dir)) {
                     when {
                         name.startsWith(STAGING_PREFIX) && roms.isDirectory(node) ->
+                            roms.deleteRecursively(node)
+                        name.startsWith(TMP_PREFIX) && !roms.isDirectory(node) ->
                             roms.deleteRecursively(node)
                         name.startsWith(BACKUP_PREFIX) -> {
                             val original = name.removePrefix(BACKUP_PREFIX)
@@ -875,8 +878,11 @@ class ImportEngine(
 
     /**
      * One archive, end to end:
-     * inspect source -> extract to staging -> validate -> move into
-     * the mapped ROM folder -> verify destination -> clean staging ->
+     * inspect source -> extract (SingleFile: straight into the ROM
+     * folder under a dot-prefixed temp name — one write, no staging
+     * copy; GameFolder: into a staging dir) -> duplicate-aware
+     * placement (temp/staging renamed to the final name) -> verify
+     * destination -> clean up ->
      * (the caller deletes the source archive last).
      */
     private fun importOne(
@@ -905,8 +911,15 @@ class ImportEngine(
             return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, e.message)
         }
 
-        val stagingName = STAGING_PREFIX + item.id.take(8)
-        val staging = try {
+        // Single-file games extract straight into the destination
+        // folder under a dot-prefixed temp name: one write instead of
+        // extract-to-staging + copy. Multi-file games still stage.
+        val singleFile = plan.target is ImportTarget.SingleFile
+        val tmpName = TMP_PREFIX + item.id.take(8)
+        val staging: FsNode? = if (singleFile) {
+            null
+        } else try {
+            val stagingName = STAGING_PREFIX + item.id.take(8)
             roms.find(dir, stagingName)?.let { roms.deleteRecursively(it) }
             roms.mkdir(dir, stagingName)
         } catch (e: SecurityException) {
@@ -914,40 +927,68 @@ class ImportEngine(
         } catch (e: Exception) {
             return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
         }
+        if (singleFile) {
+            // Drop any stale temp from an interrupted run; the name is
+            // ours by construction, so nothing of the user's is at risk.
+            try {
+                roms.find(dir, tmpName)?.let { roms.deleteRecursively(it) }
+            } catch (e: SecurityException) {
+                throw e
+            } catch (e: Exception) {
+                return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
+            }
+        }
 
-        // 2. Extract to controlled staging.
+        // Discard partial work after a failure: the staging dir for
+        // folder games, the temp file for single-file games.
+        fun discardWork() {
+            if (singleFile) {
+                runCatching { roms.find(dir, tmpName) }.getOrNull()
+                    ?.let { cleanupQuietly(roms, it) }
+            } else {
+                cleanupQuietly(roms, staging)
+            }
+        }
+
+        // 2. Extract.
         setStage(ImportStage.EXTRACTING, "Extracting")
         val report = try {
-            extractor.extract(roms, ref, staging, plan, onProgress = { done, _ -> onBytes(done) })
+            extractor.extract(
+                roms,
+                ref,
+                staging ?: dir,
+                plan,
+                onProgress = { done, _ -> onBytes(done) },
+                directFileName = if (singleFile) tmpName else null,
+            )
         } catch (e: ArchiveReadException) {
-            cleanupQuietly(roms, staging)
+            discardWork()
             return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
         } catch (e: SecurityException) {
-            cleanupQuietly(roms, staging)
+            discardWork()
             throw e
         } catch (e: Exception) {
-            cleanupQuietly(roms, staging)
+            discardWork()
             return ItemResult.Failed(
                 if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.EXTRACTION_FAILED,
                 e.message,
             )
         }
 
-        // 3. Move into the mapped ROM folder (duplicate-aware).
-        setStage(ImportStage.COPYING, "Writing to ${mapping.folderFor(platform)}")
+        // 3. Duplicate-aware placement.
         val policy = item.duplicatePolicy ?: settings.duplicateDefault
         val baseName = targetNameOf(item)
             ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no target name").also {
-                cleanupQuietly(roms, staging)
+                discardWork()
             }
         val existing = try {
             roms.find(dir, baseName)
         } catch (e: SecurityException) {
-            cleanupQuietly(roms, staging)
+            discardWork()
             throw e
         }
         if (existing != null && policy == DuplicatePolicy.SKIP) {
-            cleanupQuietly(roms, staging)
+            discardWork()
             return ItemResult.SkippedDuplicate
         }
         val finalName = if (existing != null && policy == DuplicatePolicy.KEEP_BOTH) {
@@ -967,26 +1008,43 @@ class ImportEngine(
                 roms.find(dir, backupName)?.let { roms.deleteRecursively(it) }
                 if (!roms.rename(existing, backupName)) {
                     return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not park the existing game").also {
-                        cleanupQuietly(roms, staging)
+                        discardWork()
                     }
                 }
                 backup = roms.find(dir, backupName)
             }
 
             val writtenBytes: Long
-            when (val target = plan.target) {
+            when (plan.target) {
                 is ImportTarget.SingleFile -> {
-                    val src = roms.find(staging, target.fileName)
-                        ?: return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, "Staged file missing").also {
-                            cleanupQuietly(roms, staging)
+                    // The game already sits in the ROM folder under the
+                    // temp name: a same-folder rename puts it in place —
+                    // no second copy of the bytes.
+                    val tmpNode = roms.find(dir, tmpName)
+                        ?: return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, "Extracted file missing").also {
+                            discardWork()
+                            backup?.let { runCatching { roms.rename(it, baseName) } }
                         }
-                    writtenBytes = copyFile(roms, src, dir, finalName, onBytes)
+                    if (!roms.rename(tmpNode, finalName)) {
+                        cleanupQuietly(roms, tmpNode)
+                        backup?.let { runCatching { roms.rename(it, baseName) } }
+                        return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not move the game into place")
+                    }
+                    writtenBytes = report.bytesWritten
                     writtenTarget = roms.find(dir, finalName)
                 }
                 is ImportTarget.GameFolder -> {
-                    if (!roms.rename(staging, finalName)) {
+                    val stageDir = staging
+                        ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no staging dir").also {
+                            discardWork()
+                        }
+                    // Only folder games have a copy phase: the rename
+                    // is the write. Single-file games stay on EXTRACTING
+                    // through their direct write, then VERIFYING.
+                    setStage(ImportStage.COPYING, "Writing to ${mapping.folderFor(platform)}")
+                    if (!roms.rename(stageDir, finalName)) {
                         return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not move the game folder").also {
-                            cleanupQuietly(roms, staging)
+                            discardWork()
                         }
                     }
                     stagingConsumed = true
@@ -1005,17 +1063,17 @@ class ImportEngine(
                 return ItemResult.Failed(ImportFailureReason.VERIFICATION_FAILED, "Destination did not match the staged payload")
             }
 
-            // 5. Clean staging.
+            // 5. Clean up.
             setStage(ImportStage.CLEANING, "Tidying up")
-            if (!stagingConsumed) cleanupQuietly(roms, staging)
+            if (!stagingConsumed) discardWork()
             backup?.let { cleanupQuietly(roms, it) }
             return ItemResult.Success
         } catch (e: SecurityException) {
-            if (!stagingConsumed) cleanupQuietly(roms, staging)
+            if (!stagingConsumed) discardWork()
             backup?.let { runCatching { roms.rename(it, baseName) } }
             throw e
         } catch (e: Exception) {
-            if (!stagingConsumed) cleanupQuietly(roms, staging)
+            if (!stagingConsumed) discardWork()
             writtenTarget?.let { cleanupQuietly(roms, it) }
             backup?.let { runCatching { roms.rename(it, baseName) } }
             return ItemResult.Failed(
@@ -1031,35 +1089,6 @@ class ImportEngine(
             roms.deleteRecursively(node)
         } catch (_: Exception) {
         }
-    }
-
-    private fun copyFile(
-        roms: ThemeFs,
-        src: FsNode,
-        dstDir: FsNode,
-        name: String,
-        onBytes: (Long) -> Unit,
-    ): Long {
-        val dst = roms.createFile(dstDir, name)
-        var written = 0L
-        try {
-            roms.openInput(src).use { input ->
-                roms.openOutput(dst).use { output ->
-                    val buf = ByteArray(64 * 1024)
-                    while (true) {
-                        val n = input.read(buf)
-                        if (n <= 0) break
-                        output.write(buf, 0, n)
-                        written += n
-                        onBytes(written)
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            cleanupQuietly(roms, dst)
-            throw e
-        }
-        return written
     }
 
     private fun verifyDestination(
@@ -1128,5 +1157,7 @@ class ImportEngine(
     companion object {
         internal const val STAGING_PREFIX = ".import-"
         private const val BACKUP_PREFIX = ".replace-backup-"
+        /** Temp name for direct single-file writes; dot-prefixed so the game-list export and ES-DE ignore it. */
+        private const val TMP_PREFIX = ".importing-"
     }
 }

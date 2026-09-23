@@ -4,6 +4,7 @@ import io.crystalnova.manager.storage.InMemoryThemeFs
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 
 class ArchiveExtractorTest {
@@ -217,5 +218,103 @@ class ArchiveExtractorTest {
         )
         assertEquals(1, report.fileCount)
         assertFalse(fs.children(staging).map { it.first }.contains("Game"))
+    }
+
+    @Test fun `zip direct mode writes only the payload file under the temp name`() {
+        val zipBytes = fixtures.createZip(
+            mapOf(
+                "Pokemon Emerald.gba" to ByteArray(2048) { 7 },
+                "readme.txt" to "hi".toByteArray(),
+            ),
+        )
+        val fs = InMemoryThemeFs()
+        val roms = fs.mkdir(fs.rootNode, "gba")
+        val extractor = ArchiveExtractor(
+            ArchiveTestFixtures.FakeOpener(zips = mapOf("u1" to zipBytes)),
+        )
+        val report = extractor.extract(
+            fs,
+            ArchiveRef("game.zip", "u1", zipBytes.size.toLong(), ArchiveKind.ZIP),
+            roms,
+            planFor(ImportTarget.SingleFile("Pokemon Emerald.gba"), payloadBytes = 2048),
+            directFileName = ".importing-abc123",
+        )
+        assertEquals(1, report.fileCount)
+        assertEquals(2048L, report.bytesWritten)
+        // Only the temp file lands in the ROM folder; the readme never does.
+        assertEquals(setOf(".importing-abc123"), fs.children(roms).map { it.first }.toSet())
+        val tmp = fs.find(roms, ".importing-abc123")!!
+        assertEquals(2048L, fs.length(tmp))
+        assertTrue(fs.openInput(tmp).readBytes().all { it == 7.toByte() })
+    }
+
+    @Test fun `zip direct mode with no matching entry throws`() {
+        val zipBytes = fixtures.createZip(mapOf("other.gba" to ByteArray(10)))
+        val fs = InMemoryThemeFs()
+        val roms = fs.mkdir(fs.rootNode, "gba")
+        val extractor = ArchiveExtractor(
+            ArchiveTestFixtures.FakeOpener(zips = mapOf("u1" to zipBytes)),
+        )
+        try {
+            extractor.extract(
+                fs,
+                ArchiveRef("game.zip", "u1", zipBytes.size.toLong(), ArchiveKind.ZIP),
+                roms,
+                planFor(ImportTarget.SingleFile("nope.gba"), payloadBytes = 10),
+                directFileName = ".importing-abc123",
+            )
+            fail("expected ArchiveReadException when no entry matches the payload")
+        } catch (e: ArchiveReadException) {
+            assertTrue(e.message!!.contains("no extractable files"))
+        }
+        assertTrue(fs.children(roms).isEmpty())
+    }
+
+    @Test fun `7z direct mode writes only the payload file under the temp name`() {
+        val file7z = fixtures.create7z(
+            mapOf(
+                "game.iso" to ByteArray(1024) { 3 },
+                "notes.txt" to "hi".toByteArray(),
+            ),
+        )
+        val fs = InMemoryThemeFs()
+        val roms = fs.mkdir(fs.rootNode, "ps2")
+        val extractor = ArchiveExtractor(
+            ArchiveTestFixtures.FakeOpener(sevenZs = mapOf("u7" to file7z)),
+        )
+        val report = extractor.extract(
+            fs,
+            ArchiveRef("game.7z", "u7", file7z.length(), ArchiveKind.SEVEN_Z),
+            roms,
+            planFor(ImportTarget.SingleFile("game.iso"), payloadBytes = 1024),
+            directFileName = ".importing-def456",
+        )
+        assertEquals(1, report.fileCount)
+        assertEquals(1024L, report.bytesWritten)
+        assertEquals(setOf(".importing-def456"), fs.children(roms).map { it.first }.toSet())
+    }
+
+    @Test fun `direct mode without a single-file plan behaves like classic mode`() {
+        // Defensive: directFileName is only honored for SingleFile plans.
+        val zipBytes = fixtures.createZip(
+            mapOf(
+                "Game/rom.gba" to ByteArray(64),
+                "Game/readme.txt" to "hi".toByteArray(),
+            ),
+        )
+        val fs = InMemoryThemeFs()
+        val staging = fs.mkdir(fs.rootNode, "staging")
+        val extractor = ArchiveExtractor(
+            ArchiveTestFixtures.FakeOpener(zips = mapOf("u1" to zipBytes)),
+        )
+        val report = extractor.extract(
+            fs,
+            ArchiveRef("game.zip", "u1", zipBytes.size.toLong(), ArchiveKind.ZIP),
+            staging,
+            planFor(ImportTarget.GameFolder("Game"), unwrapDepth = 1),
+            directFileName = ".importing-ignored",
+        )
+        assertEquals(2, report.fileCount)
+        assertEquals(setOf("rom.gba", "readme.txt"), fs.children(staging).map { it.first }.toSet())
     }
 }
