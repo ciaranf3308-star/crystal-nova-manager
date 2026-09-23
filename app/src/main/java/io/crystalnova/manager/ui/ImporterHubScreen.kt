@@ -1,7 +1,6 @@
 package io.crystalnova.manager.ui
 
 import android.os.Build
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -11,9 +10,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.crystalnova.manager.importer.AllFilesAccess
@@ -33,6 +30,13 @@ import kotlinx.coroutines.withContext
  *
  * Pure function of the graph + callbacks: every side effect (SAF
  * pickers, service start, engine calls) arrives as a lambda.
+ *
+ * 4:3 redesign: 2-column grid — the labels here are long (grant
+ * explanations, resume summaries), so 3 columns would cramp them.
+ * Status lives in full-width panels; actions are generous
+ * content-sized tiles. SCAN DOWNLOADS keeps its primary weight
+ * through its two-line sublabel and initial focus, not a fixed
+ * height.
  */
 @Composable
 fun ImporterHubScreen(
@@ -92,7 +96,7 @@ fun ImporterHubScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             if (uiState is ImportUiState.Error) {
@@ -211,13 +215,14 @@ fun ImporterHubScreen(
                     },
                 )
             }
+            // Primary action: content-sized two-line tile (the sublabel
+            // gives it its weight), initial focus, no fixed height.
             control(
                 key = "scan",
                 label = "SCAN DOWNLOADS",
                 subLabel = "ZIP + 7Z — RAR REPORTED, NOT SUPPORTED",
                 enabled = downloadsOk && uiState !is ImportUiState.Scanning,
                 onClick = { engine.scan() },
-                modifier = Modifier.height(88.dp),
             )
             if (uiState is ImportUiState.Importing) {
                 val importing = uiState as ImportUiState.Importing

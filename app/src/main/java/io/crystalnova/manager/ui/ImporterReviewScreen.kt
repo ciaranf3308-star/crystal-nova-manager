@@ -2,14 +2,9 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -39,6 +34,15 @@ import io.crystalnova.manager.importer.labels
  * IMPORT ALL starts the foreground service and the engine. Execution
  * is strictly sequential and always on; there is no parallelism
  * toggle to show.
+ *
+ * 4:3 redesign: 2-column grid. Each platform group is a full-width
+ * panel with a clear header (platform → destination folder) and a
+ * deterministic vertical stack of readable game rows (filename +
+ * size, ellipsis if long) — no FlowRow chip soup. IMPORT ALL is the
+ * first, biggest control after the storage summary, carrying the
+ * storage numbers in its own sublabel so the go/no-go is visible on
+ * the button itself. Conflict choices get an unmistakable "▸ "
+ * marker plus SELECTED on the active option.
  */
 @Composable
 fun ImporterReviewScreen(
@@ -68,7 +72,7 @@ fun ImporterReviewScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             when (val s = uiState) {
@@ -117,29 +121,37 @@ private fun ControllerGridContent.ReadySection(
                 "${group.platform.labels().long.uppercase()} → /$folder",
                 Crystal.Cream,
             )
-            GameChipRow(
-                games = group.items.map {
-                    "· ${it.displayTitle} (${formatBytes(it.archiveBytes)})"
-                },
-            )
+            Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
+                for (item in group.items) {
+                    GameRow("· ${item.displayTitle} (${formatBytes(item.archiveBytes)})")
+                }
+            }
         }
     }
     panel {
         StatusLine("SEQUENTIAL — ONE ARCHIVE AT A TIME", Crystal.InkDim)
         StatusLine("SOURCE DELETED ONLY AFTER VERIFY", Crystal.InkDim)
     }
+    panel {
+        StatusLine("▶ READY TO IMPORT", Crystal.Joystick)
+    }
+    // The big primary action: content-sized (two-line sublabel carries
+    // the storage verdict, so the tile is naturally tall — no fixed
+    // height), first focusable in the zone, storage summary in the
+    // panel directly above it.
     control(
         key = "import-all",
         label = "IMPORT ALL (${s.totalGames})",
-        subLabel = if (s.storageOk) "RUNS IN A FOREGROUND SERVICE"
-        else "BLOCKED — FREE UP SPACE FIRST",
+        subLabel = "NEED ${formatBytes(s.estimatedBytes)} · FREE ${formatBytes(s.freeBytes)}\n" +
+            if (s.storageOk) "RUNS IN A FOREGROUND SERVICE"
+            else "BLOCKED — FREE UP SPACE FIRST",
         enabled = s.storageOk,
         onClick = onStartImport,
-        modifier = Modifier.height(88.dp),
     )
     control(
         key = "back-classify",
         label = "BACK TO CLASSIFICATION",
+        subLabel = "CHANGE A PLATFORM PICK",
         onClick = { engine.backToClassifying() },
     )
 }
@@ -185,30 +197,32 @@ private fun ControllerGridContent.ConflictRow(
 ) {
     val current = choices[conflict.itemId] ?: conflict.resolution
     panel {
-        StatusLine(conflict.title)
+        StatusLine("⚠ ${conflict.title}", Crystal.Bad)
         StatusLine(
             "EXISTS AS ${conflict.existingName}",
             Crystal.InkDim,
         )
         StatusLine("CHOICE: ${current.label()}", Crystal.Joystick)
     }
-    // One choice per row: controller-simple, no nested focus grid.
+    // One choice per control: controller-simple, no nested focus grid.
+    // The active choice is unmistakable — "▸ " prefix on the label
+    // plus SELECTED, visible with or without focus.
     control(
         key = "conflict-skip-${conflict.itemId}",
-        label = "SKIP THIS GAME",
-        subLabel = if (current == DuplicatePolicy.SKIP) "SELECTED" else null,
+        label = if (current == DuplicatePolicy.SKIP) "▸ SKIP" else "SKIP",
+        subLabel = if (current == DuplicatePolicy.SKIP) "SELECTED" else "LEAVE THE LIBRARY COPY ALONE",
         onClick = { choices[conflict.itemId] = DuplicatePolicy.SKIP },
     )
     control(
         key = "conflict-replace-${conflict.itemId}",
-        label = "REPLACE EXISTING",
-        subLabel = if (current == DuplicatePolicy.REPLACE) "SELECTED" else null,
+        label = if (current == DuplicatePolicy.REPLACE) "▸ REPLACE" else "REPLACE",
+        subLabel = if (current == DuplicatePolicy.REPLACE) "SELECTED" else "OVERWRITE THE LIBRARY COPY",
         onClick = { choices[conflict.itemId] = DuplicatePolicy.REPLACE },
     )
     control(
         key = "conflict-keepboth-${conflict.itemId}",
-        label = "KEEP BOTH",
-        subLabel = if (current == DuplicatePolicy.KEEP_BOTH) "SELECTED" else null,
+        label = if (current == DuplicatePolicy.KEEP_BOTH) "▸ KEEP BOTH" else "KEEP BOTH",
+        subLabel = if (current == DuplicatePolicy.KEEP_BOTH) "SELECTED" else "IMPORT ALONGSIDE THE EXISTING COPY",
         onClick = { choices[conflict.itemId] = DuplicatePolicy.KEEP_BOTH },
     )
 }
@@ -220,44 +234,29 @@ private fun DuplicatePolicy.label(): String = when (this) {
 }
 
 /**
- * Display-only game chips for the review groups: a flowing row of
- * small tiles inside the platform panel. Not focusable — there is no
- * per-game action on this screen (IMPORT ALL / conflict choices are
- * the actions), so D-pad focus skips straight past them.
+ * Display-only game row for the review groups: a deterministic
+ * vertical stack of full-width rows inside the platform panel.
+ * Filename + size, ellipsis if long — no wrapping chip soup. Not
+ * focusable: there is no per-game action on this screen (IMPORT ALL /
+ * conflict choices are the actions), so D-pad focus skips straight
+ * past them.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun GameChipRow(games: List<String>) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        for (game in games) {
-            GameChip(game)
-        }
-    }
-}
-
-@Composable
-private fun GameChip(text: String) {
-    Box(
+private fun GameRow(text: String) {
+    BasicText(
+        text = text,
         modifier = Modifier
-            .widthIn(max = 400.dp)
+            .fillMaxWidth()
             .clip(RoundedCornerShape(2.dp))
             .background(Crystal.TileDeep)
             .border(2.dp, Crystal.FrameDim, RoundedCornerShape(2.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp),
-    ) {
-        BasicText(
-            text = text,
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontSize = Crystal.SmallSize,
-                color = Crystal.Ink,
-            ),
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+        style = TextStyle(
+            fontFamily = Crystal.Mono,
+            fontSize = Crystal.SmallSize,
+            color = Crystal.Ink,
+        ),
+        maxLines = 2,
+        overflow = TextOverflow.Ellipsis,
+    )
 }

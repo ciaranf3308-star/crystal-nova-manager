@@ -2,14 +2,9 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.ExperimentalLayoutApi
-import androidx.compose.foundation.layout.FlowRow
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
@@ -45,6 +40,12 @@ import kotlinx.coroutines.withContext
  * Pure function of the graph: the scan runs on IO and is strictly
  * read-only (see [scanGameLibrary]). A null scan means the ROM root
  * is not granted — the screen says so and points at the importer.
+ *
+ * 4:3 redesign: COPY ALL stays the big primary tile through its
+ * two-line sublabel (content-sized, no fixed height). The system
+ * chips are a deterministic vertical stack of full-width rows —
+ * short name + game count, ellipsis if long — instead of a FlowRow
+ * whose wrapping is unpredictable on the handheld.
  */
 @Composable
 fun GameLibraryScreen(
@@ -115,7 +116,6 @@ fun GameLibraryScreen(
                     label = "COPY ALL",
                     subLabel = "COPY THE FULL LIST TO THE CLIPBOARD",
                     enabled = total > 0,
-                    modifier = Modifier.height(88.dp),
                     onClick = {
                         clipboard.setText(AnnotatedString(result.exportText))
                         justCopied = true
@@ -132,7 +132,12 @@ fun GameLibraryScreen(
                     }
                 } else {
                     panel {
-                        SystemChipGrid(systems = result.systems)
+                        Column(modifier = Modifier.fillMaxWidth()) {
+                            for (system in result.systems) {
+                                val label = system.platform.labels()
+                                SystemRow("${label.short} — ${system.games.size} GAME${if (system.games.size == 1) "" else "S"}")
+                            }
+                        }
                     }
                 }
             }
@@ -141,45 +146,29 @@ fun GameLibraryScreen(
 }
 
 /**
- * System tiles as display-only chips in a flowing grid. Not focusable:
- * tapping a system to see its filenames is explicitly out of scope for
- * this build, so D-pad focus moves straight between REFRESH and COPY ALL.
+ * Display-only system rows: a deterministic vertical stack of
+ * full-width rows inside the panel. Not focusable: tapping a system
+ * to see its filenames is explicitly out of scope for this build, so
+ * D-pad focus moves straight between REFRESH and COPY ALL.
  */
-@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun SystemChipGrid(systems: List<LibrarySystem>) {
-    FlowRow(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        for (system in systems) {
-            val label = system.platform.labels()
-            SystemChip("${label.short} — ${system.games.size}")
-        }
-    }
-}
-
-@Composable
-private fun SystemChip(text: String) {
-    Box(
+private fun SystemRow(text: String) {
+    BasicText(
+        text = text,
         modifier = Modifier
-            .widthIn(min = 120.dp)
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
             .clip(RoundedCornerShape(2.dp))
             .background(Crystal.TileDeep)
             .border(2.dp, Crystal.FrameDim, RoundedCornerShape(2.dp))
             .padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        BasicText(
-            text = text,
-            style = TextStyle(
-                fontFamily = Crystal.Mono,
-                fontWeight = FontWeight.Bold,
-                fontSize = Crystal.BodySize,
-                color = Crystal.Ink,
-            ),
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-    }
+        style = TextStyle(
+            fontFamily = Crystal.Mono,
+            fontWeight = FontWeight.Bold,
+            fontSize = Crystal.BodySize,
+            color = Crystal.Ink,
+        ),
+        maxLines = 1,
+        overflow = TextOverflow.Ellipsis,
+    )
 }

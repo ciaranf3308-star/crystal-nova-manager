@@ -19,6 +19,12 @@ import io.crystalnova.manager.importer.labels
  * override that retries under the new platform, and SKIP. DONE clears
  * the finished items and returns to the hub — or back to
  * classification when work remains.
+ *
+ * 4:3 redesign: failure rows are full-width panels — title, platform,
+ * and the failure reason each on their own line, wrapping freely,
+ * never clipped — followed by the three short actions (RETRY /
+ * PLATFORM / SKIP) on one clean row. 3 columns stay here: these
+ * labels are short and uniform, exactly the case 3 columns serve.
  */
 @Composable
 fun ImporterResultsScreen(
@@ -89,10 +95,13 @@ private fun ControllerGridContent.FailedSection(
 ) {
     val engine = graph.engine
     val chosen = platformOverride[row.itemId] ?: row.platform
+    // Full-width failure card: every line wraps freely — the reason
+    // is never clipped, however long it gets.
     panel {
         StatusLine("✗ ${row.title}", Crystal.Bad)
         val platformName = row.platform?.labels()?.long?.uppercase() ?: "UNKNOWN PLATFORM"
-        StatusLine("$platformName · ${row.reason.label()}", Crystal.InkDim)
+        StatusLine("PLATFORM: $platformName", Crystal.Ink)
+        StatusLine("REASON: ${row.reason.label()}", Crystal.InkDim)
         if (chosen != null && chosen != row.platform) {
             StatusLine(
                 "WILL RETRY AS ${chosen.labels().long.uppercase()}",
@@ -100,7 +109,7 @@ private fun ControllerGridContent.FailedSection(
             )
         }
     }
-    // One action per row: controller-simple, no nested focus grid.
+    // One action per tile: controller-simple, no nested focus grid.
     control(
         key = "retry-${row.itemId}",
         label = "RETRY",

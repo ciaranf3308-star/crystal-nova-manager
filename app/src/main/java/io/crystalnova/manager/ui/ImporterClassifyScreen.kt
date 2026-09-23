@@ -1,9 +1,14 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.sp
 import io.crystalnova.manager.importer.Confidence
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
@@ -19,6 +24,13 @@ import io.crystalnova.manager.importer.labels
  * A platform tap saves immediately and advances (no save button).
  * When nothing is left to review, DONE moves on: REVIEW when games
  * are actionable, otherwise back to the hub.
+ *
+ * 4:3 redesign: a 2-column grid with a clear three-zone hierarchy —
+ * the archive's identity in a prominent full-width panel at top
+ * (title, filename, size, friendly detector clues), the 18 platform
+ * choices as generous content-sized tiles, and SKIP / NOT A GAME as
+ * a distinct action row at the bottom. Tiles size to their content;
+ * long text ellipsizes — no fixed heights anywhere.
  */
 @Composable
 fun ImporterClassifyScreen(
@@ -39,7 +51,7 @@ fun ImporterClassifyScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null || state.needsReview.isEmpty()) {
@@ -68,32 +80,55 @@ fun ImporterClassifyScreen(
 
             val item = state.needsReview.first()
             val remaining = state.needsReview.size - 1
+            // ---- Zone 1: archive identity — the whole point of this
+            // screen is "what is THIS file", so it gets the biggest
+            // panel and the biggest type. ----
             panel {
                 StatusLine(
                     if (remaining == 0) "LAST ONE" else "$remaining MORE AFTER THIS",
                     Crystal.Joystick,
                 )
-                StatusLine(item.displayTitle)
-                StatusLine(
+                BasicText(
+                    text = item.displayTitle,
+                    style = TextStyle(
+                        fontFamily = Crystal.Mono,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 21.sp,
+                        color = Crystal.Ink,
+                    ),
+                    maxLines = 3,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                DimLine(
                     "${item.archiveName} · ${formatBytes(item.archiveBytes)} · ${item.archiveKind}",
-                    Crystal.InkDim,
                 )
                 if (item.relativePath.isNotEmpty()) {
-                    StatusLine("IN DOWNLOADS/${item.relativePath}", Crystal.InkDim)
+                    DimLine("IN DOWNLOADS/${item.relativePath}")
                 }
-                if (item.detection.signals.isNotEmpty()) {
-                    StatusLine(
-                        "CLUES: ${item.detection.signals.take(3).joinToString(" · ")}",
-                        Crystal.InkDim,
-                    )
+                // Detector clues, translated from debug evidence into
+                // plain-language hints.
+                val clues = item.detection.signals
+                    .take(3)
+                    .map { friendlyClue(it, item.detection.platform) }
+                if (clues.isNotEmpty()) {
+                    for (clue in clues) {
+                        DimLine("• $clue")
+                    }
+                } else if (item.detection.confidence == Confidence.UNKNOWN) {
+                    DimLine("THE DETECTOR FOUND NO USABLE CLUES — YOUR CALL.")
                 }
-                if (item.detection.confidence == Confidence.LIKELY && item.detection.platform != null) {
+                if (item.detection.confidence == Confidence.LIKELY &&
+                    item.detection.platform != null
+                ) {
                     StatusLine(
-                        "DETECTOR GUESSES: ${item.detection.platform.labels().long}",
-                        Crystal.InkDim,
+                        "DETECTOR'S GUESS: ${item.detection.platform.labels().long.uppercase()} — " +
+                            "TAP IT IF IT LOOKS RIGHT",
+                        Crystal.Joystick,
                     )
                 }
             }
+            // ---- Zone 2: the platform choice. Two columns of generous
+            // tiles — 18 long labels stay readable, nothing clips. ----
             panel {
                 StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
             }
@@ -108,6 +143,7 @@ fun ImporterClassifyScreen(
                     onClick = { engine.setPlatform(item.id, platform) },
                 )
             }
+            // ---- Zone 3: the escape hatches, one unmistakable row. ----
             panel {
                 StatusLine("NOT SURE? SKIP KEEPS IT FOR LATER.")
             }
@@ -124,5 +160,40 @@ fun ImporterClassifyScreen(
                 danger = true,
             )
         }
+    }
+}
+
+private val serialPattern = Regex("^[A-Z]{3,4}-?\\d{3,5}$", RegexOption.IGNORE_CASE)
+
+/**
+ * Translates raw detector evidence ("SLUS-20554", "game.iso (disc
+ * header)", "name: (?i)\bgba\b…") into a plain-language clue.
+ */
+private fun friendlyClue(signal: String, platform: PlatformId?): String {
+    val s = signal.trim()
+    val lower = s.lowercase()
+    val platformLong = platform?.labels()?.long ?: "a console"
+    val platformShort = platform?.labels()?.short ?: "?"
+    return when {
+        s.startsWith("name: ") ->
+            "the filename hints at $platformLong"
+        lower.endsWith(" (disc header)") ->
+            "disc image header matches $platformLong"
+        serialPattern.matches(s) ->
+            "$platformShort disc serial $s found"
+        lower.contains("system.cnf") ->
+            "looks like a PS1 disc image: found SYSTEM.CNF"
+        lower.contains("eboot.pbp") ->
+            "looks like a PSP game: found EBOOT.PBP"
+        lower.contains("umd_data.bin") ->
+            "looks like a PSP disc image: found UMD_DATA.BIN"
+        lower.contains("psp_game") ->
+            "looks like a PSP disc layout: found PSP_GAME"
+        lower.contains("1st_read.bin") ->
+            "looks like a Dreamcast disc image: found 1ST_READ.BIN"
+        lower == "ip.bin" || lower.endsWith("/ip.bin") || lower.endsWith("\\ip.bin") ->
+            "looks like a Dreamcast disc image: found IP.BIN"
+        else ->
+            "contains $s"
     }
 }

@@ -3,7 +3,6 @@ package io.crystalnova.manager.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
@@ -230,8 +229,7 @@ fun EsdeThemeScreen(
                     key = "esde-launch",
                     testTag = "esde-launch",
                     label = "OPEN ES-DE",
-                    onClick = onLaunchEsde,
-                    modifier = Modifier.height(88.dp),
+                    onClick = onLaunchEsde
                 )
             }
             // ---- catalog states ----
@@ -466,15 +464,13 @@ fun EsdeThemeScreen(
                         key = "home-update-app",
                         testTag = "home-update-app",
                         label = "DOWNLOAD UPDATE",
-                        onClick = onUpdateApp,
-                        modifier = Modifier.height(88.dp),
+                        onClick = onUpdateApp
                     )
                     is AppUpdateState.Downloaded -> control(
                         key = "home-update-app",
                         testTag = "home-update-app",
                         label = "INSTALL UPDATE",
-                        onClick = onUpdateApp,
-                        modifier = Modifier.height(88.dp),
+                        onClick = onUpdateApp
                     )
                     is AppUpdateState.Failed,
                     is AppUpdateState.Idle,
@@ -482,8 +478,7 @@ fun EsdeThemeScreen(
                         key = "home-check-update",
                         testTag = "home-check-update",
                         label = "CHECK FOR UPDATE",
-                        onClick = onUpdateApp,
-                        modifier = Modifier.height(88.dp),
+                        onClick = onUpdateApp
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
@@ -495,8 +490,7 @@ fun EsdeThemeScreen(
                     key = "home-open-importer",
                     testTag = "home-open-importer",
                     label = "OPEN GAME IMPORTER",
-                    onClick = onOpenImporter,
-                    modifier = Modifier.height(88.dp),
+                    onClick = onOpenImporter
                 )
             }
             // ---- GAME LIBRARY entry (u56): read-only ROM scan -> text
@@ -506,8 +500,7 @@ fun EsdeThemeScreen(
                     key = "home-open-library",
                     testTag = "home-open-library",
                     label = "EXPORT GAME LIST",
-                    onClick = onOpenLibrary,
-                    modifier = Modifier.height(88.dp),
+                    onClick = onOpenLibrary
                 )
             }
             control(
@@ -562,8 +555,7 @@ private fun ControllerGridContent.entryTiles(
             testTag = "$keyPrefix-install",
             label = "INSTALL v${entry.version} NOW",
             enabled = folderGranted && !busyElsewhere,
-            onClick = { onInstall(entry, downloadState.zip) },
-            modifier = Modifier.height(88.dp),
+            onClick = { onInstall(entry, downloadState.zip) }
         )
         downloadState is EsdeThemeDownloadState.Failed && thisEntry -> {
             panel {
@@ -585,8 +577,7 @@ private fun ControllerGridContent.entryTiles(
             testTag = "$keyPrefix-download",
             label = "$actionLabel v${entry.version}",
             enabled = !busyElsewhere,
-            onClick = { onDownload(entry) },
-            modifier = Modifier.height(88.dp),
+            onClick = { onDownload(entry) }
         )
     }
     if (!folderGranted &&
