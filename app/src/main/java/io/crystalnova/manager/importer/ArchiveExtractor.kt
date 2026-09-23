@@ -93,7 +93,10 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                                 if (files > MAX_ENTRIES) {
                                     throw ArchiveReadException("Archive has too many entries")
                                 }
-                                onProgress(bytes, total)
+                                // No post-entry onProgress here: the final
+                                // per-chunk callback already reported this
+                                // exact byte count — emitting it again would
+                                // produce a duplicate consecutive value.
                             }
                         }
                         zip.closeEntry()
@@ -151,7 +154,10 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
                                 if (files > MAX_ENTRIES) {
                                     throw ArchiveReadException("Archive has too many entries")
                                 }
-                                onProgress(bytes, total)
+                                // No post-entry onProgress here: the final
+                                // per-chunk callback already reported this
+                                // exact byte count — emitting it again would
+                                // produce a duplicate consecutive value.
                             }
                         }
                         entry = sevenZ.nextEntry
