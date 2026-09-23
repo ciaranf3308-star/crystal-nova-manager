@@ -1,6 +1,7 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -99,15 +100,16 @@ fun ImporterSettingsScreen(
         passThroughAWhen = { editorFocused },
         fallbackFocusKey = "grant-downloads",
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
-            section {
+            panel {
                 StatusLine("FOLDERS")
             }
-            section {
+            panel {
                 StatusLine("DOWNLOADS (SOURCE)")
                 StatusLine(
                     if (downloadsOk) "GRANTED" else "NOT GRANTED",
@@ -120,7 +122,7 @@ fun ImporterSettingsScreen(
                 onClick = onGrantDownloads,
             )
             if (allFilesApi) {
-                section {
+                panel {
                     StatusLine("ALL FILES ACCESS")
                     StatusLine(
                         if (allFilesGranted) "GRANTED — DIRECT SCAN" else "NOT GRANTED",
@@ -136,7 +138,7 @@ fun ImporterSettingsScreen(
                     )
                 }
             }
-            section {
+            panel {
                 StatusLine("ROM ROOT (DESTINATION)")
                 StatusLine(
                     if (romsOk) "GRANTED" else "NOT GRANTED",
@@ -148,17 +150,17 @@ fun ImporterSettingsScreen(
                 label = if (romsOk) "CHANGE ROM ROOT FOLDER" else "GRANT ROM ROOT FOLDER",
                 onClick = onGrantRoms,
             )
-            section {
+            panel {
                 StatusLine("PLATFORM FOLDERS")
                 StatusLine("NAMES ONLY — NO / OR ..", Crystal.InkDim)
             }
             for (platform in PlatformMapping.ORDERED) {
                 if (editingFolder == platform) {
-                    section {
+                    panel {
                         FolderEditor(
                             platform = platform,
                             initial = mapping.folderFor(platform),
-                            scrollModifier = scrollModifier(),
+                            scrollModifier = Modifier,
                             onFocusChange = { editorFocused = it },
                             onDone = { draft ->
                                 if (mapping.setFolder(platform, draft)) {
@@ -186,13 +188,13 @@ fun ImporterSettingsScreen(
                     )
                 }
             }
-            section {
+            panel {
                 StatusLine("ARCHIVE SUPPORT")
                 StatusLine("ZIP · 7Z", Crystal.Good)
                 StatusLine("RAR — DETECTED BUT NOT SUPPORTED", Crystal.Bad)
                 StatusLine("UNRELATED FILES ARE IGNORED", Crystal.InkDim)
             }
-            section {
+            panel {
                 StatusLine("DEFAULTS")
             }
             control(
@@ -235,7 +237,7 @@ fun ImporterSettingsScreen(
                     settings.confirmBeforeImport = confirmBeforeImport
                 },
             )
-            section {
+            panel {
                 StatusLine("IMPORTS RUN SEQUENTIALLY — ONE ARCHIVE", Crystal.InkDim)
                 StatusLine("AT A TIME. ALWAYS. NO TOGGLE.", Crystal.InkDim)
             }

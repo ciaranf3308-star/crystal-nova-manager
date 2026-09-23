@@ -3,6 +3,7 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import io.crystalnova.manager.data.EsdeThemeCatalog
@@ -95,17 +96,24 @@ class NovaHomeScreenTest : NovaUiTest() {
     @Test
     fun everyHomeControlReachableByDpadAndInViewport() {
         // Granted, ES-DE installed, catalog ready with a rollback
-        // entry, theme up to date, manager idle.
+        // entry, theme up to date, manager idle. The home is a 3-column
+        // tile grid; the walk below uses only geometrically certain
+        // moves — same-row horizontals and same-column verticals (the
+        // full-span status panels between tile rows are non-focusable,
+        // so D-pad skips straight past them).
         setHome()
 
-        assertDpadTraversalInViewport(
-            listOf(
-                { composeTestRule.onNodeWithTag("esde-grant-folder-repick") },
-                { composeTestRule.onNodeWithTag("esde-launch") },
-                { composeTestRule.onNodeWithTag("esde-current-download") },
-                { composeTestRule.onNodeWithTag("esde-rollback-download") },
-                { composeTestRule.onNodeWithTag("home-check-update") },
-                { composeTestRule.onNodeWithTag("home-exit") },
+        val tile = { tag: String -> { composeTestRule.onNodeWithTag(tag) } }
+        assertDpadGridTraversalInViewport(
+            first = tile("esde-grant-folder-repick"),
+            moves = listOf(
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("esde-launch")),
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("esde-current-download")),
+                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-launch")),
+                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-grant-folder-repick")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-rollback-download")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-check-update")),
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("home-exit")),
             ),
         )
     }
@@ -113,7 +121,8 @@ class NovaHomeScreenTest : NovaUiTest() {
     @Test
     fun grantAndRetryPathReachableByDpad() {
         // No grant, catalog down: the grant CTA and the catalog retry
-        // are the screen's two recovery actions.
+        // are the screen's two recovery actions. Tile rows here:
+        // (grant-folder / launch), (retry), (check-update / exit).
         setHome(
             catalogState = EsdeThemeCatalogState.Unavailable("OFFLINE"),
             installed = null,
@@ -122,13 +131,15 @@ class NovaHomeScreenTest : NovaUiTest() {
 
         composeTestRule.onNodeWithText("GRANT THEMES FOLDER").assertExists()
         composeTestRule.onNodeWithText("CHECK AGAIN").assertExists()
-        assertDpadTraversalInViewport(
-            listOf(
-                { composeTestRule.onNodeWithTag("esde-grant-folder") },
-                { composeTestRule.onNodeWithTag("esde-launch") },
-                { composeTestRule.onNodeWithTag("esde-retry") },
-                { composeTestRule.onNodeWithTag("home-check-update") },
-                { composeTestRule.onNodeWithTag("home-exit") },
+        val tile = { tag: String -> { composeTestRule.onNodeWithTag(tag) } }
+        assertDpadGridTraversalInViewport(
+            first = tile("esde-grant-folder"),
+            moves = listOf(
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("esde-launch")),
+                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-grant-folder")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-retry")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-check-update")),
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("home-exit")),
             ),
         )
     }

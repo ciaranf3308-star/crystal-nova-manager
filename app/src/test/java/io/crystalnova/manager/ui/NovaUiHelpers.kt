@@ -32,6 +32,10 @@ fun dpadDownKeyEvent(): ComposeKeyEvent = dpadKeyEvent(AndroidKeyEvent.KEYCODE_D
 
 fun dpadUpKeyEvent(): ComposeKeyEvent = dpadKeyEvent(AndroidKeyEvent.KEYCODE_DPAD_UP)
 
+fun dpadLeftKeyEvent(): ComposeKeyEvent = dpadKeyEvent(AndroidKeyEvent.KEYCODE_DPAD_LEFT)
+
+fun dpadRightKeyEvent(): ComposeKeyEvent = dpadKeyEvent(AndroidKeyEvent.KEYCODE_DPAD_RIGHT)
+
 /**
  * Sends a D-pad DOWN press to this node via [performKeyPress].
  *
@@ -48,6 +52,18 @@ fun SemanticsNodeInteraction.pressDpadDown(): SemanticsNodeInteraction {
 /** D-pad UP variant of [pressDpadDown]. */
 fun SemanticsNodeInteraction.pressDpadUp(): SemanticsNodeInteraction {
     performKeyPress(dpadUpKeyEvent())
+    return this
+}
+
+/** D-pad LEFT variant of [pressDpadDown]. */
+fun SemanticsNodeInteraction.pressDpadLeft(): SemanticsNodeInteraction {
+    performKeyPress(dpadLeftKeyEvent())
+    return this
+}
+
+/** D-pad RIGHT variant of [pressDpadDown]. */
+fun SemanticsNodeInteraction.pressDpadRight(): SemanticsNodeInteraction {
+    performKeyPress(dpadRightKeyEvent())
     return this
 }
 
