@@ -3,8 +3,6 @@ package io.crystalnova.manager.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -124,13 +122,16 @@ fun EsdeThemeScreen(
         footerLabel = backLabel,
         fallbackFocusKey = fallbackFocusKey,
     ) {
-        ControllerGrid(
-            state = gridState,
+        ControllerList(
+            state = listState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
             initialFocus = ::isInitialFocus,
+            // u50 home: 11 rows must fit the 960px viewport with no
+            // stranded control — the tighter rhythm is the difference
+            // between EXIT composing or not.
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            panel {
+            section {
                 BasicText(
                     text = contentHeader,
                     style = TextStyle(
@@ -142,7 +143,7 @@ fun EsdeThemeScreen(
                 )
             }
             // ---- status card ----
-            panel {
+            section {
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         val installedText = when {
@@ -184,7 +185,7 @@ fun EsdeThemeScreen(
                 }
             }
             if (folderNotice != null) {
-                panel {
+                section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         StatusLine(folderNotice.uppercase(), Crystal.Bad)
                     }
@@ -192,7 +193,7 @@ fun EsdeThemeScreen(
             }
             // ---- folder grant ----
             if (!folderGranted) {
-                panel {
+                section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusLine("GRANT THE THEMES FOLDER", Crystal.Joystick)
@@ -231,17 +232,16 @@ fun EsdeThemeScreen(
                     testTag = "esde-launch",
                     label = "OPEN ES-DE",
                     onClick = onLaunchEsde,
-                    modifier = Modifier.height(88.dp),
                 )
             }
             // ---- catalog states ----
             when (catalogState) {
-                is EsdeThemeCatalogState.Checking -> panel {
+                is EsdeThemeCatalogState.Checking -> section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         StatusLine("CHECKING THE THEME CATALOG…", Crystal.Joystick)
                     }
                 }
-                is EsdeThemeCatalogState.Unavailable -> panel {
+                is EsdeThemeCatalogState.Unavailable -> section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusLine("THEME CATALOG UNAVAILABLE", Crystal.Bad)
@@ -257,7 +257,7 @@ fun EsdeThemeScreen(
                 }
                 is EsdeThemeCatalogState.Ready -> {
                     if (current != null) {
-                        entryTiles(
+                        entryControls(
                             keyPrefix = "esde-current",
                             entry = current,
                             downloadState = downloadState,
@@ -269,7 +269,7 @@ fun EsdeThemeScreen(
                     }
                     // ---- rollback ----
                     if (rollback != null) {
-                        panel {
+                        section {
                             CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -286,7 +286,7 @@ fun EsdeThemeScreen(
                                 }
                             }
                         }
-                        entryTiles(
+                        entryControls(
                             keyPrefix = "esde-rollback",
                             entry = rollback,
                             downloadState = downloadState,
@@ -308,7 +308,7 @@ fun EsdeThemeScreen(
             }
             // ---- install outcome ----
             when (installState) {
-                is EsdeInstallUiState.Installing -> panel {
+                is EsdeInstallUiState.Installing -> section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         StatusLine(
                             installState.step.uppercase(),
@@ -317,7 +317,7 @@ fun EsdeThemeScreen(
                     }
                 }
                 is EsdeInstallUiState.Done -> {
-                    panel {
+                    section {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 StatusLine(
@@ -344,7 +344,7 @@ fun EsdeThemeScreen(
                             onClick = onLaunchEsde,
                         )
                     } else if (esdeNotice != null) {
-                        panel {
+                        section {
                             CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                                 StatusLine(esdeNotice.uppercase(), Crystal.Bad)
                             }
@@ -358,7 +358,7 @@ fun EsdeThemeScreen(
                     )
                 }
                 is EsdeInstallUiState.Failed -> {
-                    panel {
+                    section {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 StatusLine(
@@ -390,7 +390,7 @@ fun EsdeThemeScreen(
             if (showManagerSection) {
                 // MANAGER header merged into the panel: the u50 home is
                 // 11 rows and every row must fit the 960px viewport.
-                panel {
+                section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusLine("MANAGER", Crystal.Cream)
@@ -467,14 +467,12 @@ fun EsdeThemeScreen(
                         testTag = "home-update-app",
                         label = "DOWNLOAD UPDATE",
                         onClick = onUpdateApp,
-                        modifier = Modifier.height(88.dp),
                     )
                     is AppUpdateState.Downloaded -> control(
                         key = "home-update-app",
                         testTag = "home-update-app",
                         label = "INSTALL UPDATE",
                         onClick = onUpdateApp,
-                        modifier = Modifier.height(88.dp),
                     )
                     is AppUpdateState.Failed,
                     is AppUpdateState.Idle,
@@ -483,31 +481,29 @@ fun EsdeThemeScreen(
                         testTag = "home-check-update",
                         label = "CHECK FOR UPDATE",
                         onClick = onUpdateApp,
-                        modifier = Modifier.height(88.dp),
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
                 }
             }
-            // ---- GAME IMPORTER entry (u52): a hero tile on the home
-            // grid. The live status rides in the MANAGER panel.
+            // ---- GAME IMPORTER entry (u52): a single-line control between
+            // the manager update control and EXIT. Adjacent rows keep D-pad
+            // traversal simple; the live status rides in the MANAGER panel.
             if (onOpenImporter != null) {
                 control(
                     key = "home-open-importer",
                     testTag = "home-open-importer",
                     label = "OPEN GAME IMPORTER",
                     onClick = onOpenImporter,
-                    modifier = Modifier.height(88.dp),
                 )
             }
             // ---- GAME LIBRARY entry (u56): read-only ROM scan -> text
-            // export. Hero tile like the importer entry.
+            // export. Single-line control like the importer entry.
             if (onOpenLibrary != null) {
                 control(
                     key = "home-open-library",
                     testTag = "home-open-library",
                     label = "EXPORT GAME LIST",
                     onClick = onOpenLibrary,
-                    modifier = Modifier.height(88.dp),
                 )
             }
             control(
@@ -526,7 +522,7 @@ fun EsdeThemeScreen(
  * another entry is mid-download this entry's button disables instead
  * of silently no-opping.
  */
-private fun ControllerGridContent.entryTiles(
+private fun ControllerListContent.entryControls(
     keyPrefix: String,
     entry: EsdeThemeEntry,
     downloadState: EsdeThemeDownloadState,
@@ -545,7 +541,7 @@ private fun ControllerGridContent.entryTiles(
     val busyElsewhere = (downloadState is EsdeThemeDownloadState.Downloading ||
         downloadState is EsdeThemeDownloadState.Verifying) && !thisEntry
     when {
-        downloadState is EsdeThemeDownloadState.Downloading && thisEntry -> panel {
+        downloadState is EsdeThemeDownloadState.Downloading && thisEntry -> section {
             val pct = downloadState.total
                 ?.takeIf { it > 0 }
                 ?.let { (downloadState.done * 100 / it).toInt().coerceIn(0, 100) }
@@ -554,7 +550,7 @@ private fun ControllerGridContent.entryTiles(
                 Crystal.Joystick,
             )
         }
-        downloadState is EsdeThemeDownloadState.Verifying && thisEntry -> panel {
+        downloadState is EsdeThemeDownloadState.Verifying && thisEntry -> section {
             StatusLine("VERIFYING CHECKSUM…", Crystal.Joystick)
         }
         downloadState is EsdeThemeDownloadState.ReadyToInstall && thisEntry -> control(
@@ -563,10 +559,9 @@ private fun ControllerGridContent.entryTiles(
             label = "INSTALL v${entry.version} NOW",
             enabled = folderGranted && !busyElsewhere,
             onClick = { onInstall(entry, downloadState.zip) },
-            modifier = Modifier.height(88.dp),
         )
         downloadState is EsdeThemeDownloadState.Failed && thisEntry -> {
-            panel {
+            section {
                 StatusLine(
                     "DOWNLOAD FAILED: ${downloadState.message}".uppercase(),
                     Crystal.Bad,
@@ -586,13 +581,12 @@ private fun ControllerGridContent.entryTiles(
             label = "$actionLabel v${entry.version}",
             enabled = !busyElsewhere,
             onClick = { onDownload(entry) },
-            modifier = Modifier.height(88.dp),
         )
     }
     if (!folderGranted &&
         downloadState is EsdeThemeDownloadState.ReadyToInstall && thisEntry
     ) {
-        panel {
+        section {
             CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                 DimLine(
                     "GRANT THE THEMES FOLDER BEFORE INSTALLING — " +

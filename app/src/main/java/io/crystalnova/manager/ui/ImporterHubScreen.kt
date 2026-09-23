@@ -1,8 +1,6 @@
 package io.crystalnova.manager.ui
 
 import android.os.Build
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -11,9 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
-import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.crystalnova.manager.importer.AllFilesAccess
@@ -89,33 +85,27 @@ fun ImporterHubScreen(
         onBack = onBack,
         fallbackFocusKey = "scan",
     ) {
-        ControllerGrid(
-            state = gridState,
+        ControllerList(
+            state = listState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
             initialFocus = ::isInitialFocus,
         ) {
             if (uiState is ImportUiState.Error) {
                 val err = uiState as ImportUiState.Error
-                panel {
-                    StatusLine(err.message, Crystal.Bad)
+                section {
+                    notice(err.message) { engine.backToIdle() }
                 }
-                control(
-                    key = "dismiss-notice",
-                    label = "DISMISS",
-                    onClick = { engine.backToIdle() },
-                )
             }
             if (uiState is ImportUiState.Scanning) {
                 val s = uiState as ImportUiState.Scanning
-                panel {
+                section {
                     StatusLine("SCANNING DOWNLOADS… ${s.done}/${s.total}", Crystal.Joystick)
                 }
             }
             if (uiState is ImportUiState.Classifying) {
                 val s = uiState as ImportUiState.Classifying
                 if (s.actionable == 0) {
-                    panel {
+                    section {
                         StatusLine("SCAN FOUND NOTHING TO IMPORT", Crystal.InkDim)
                         if (s.unsupportedCount > 0) {
                             StatusLine(
@@ -138,7 +128,7 @@ fun ImporterHubScreen(
                     }
                 }
             }
-            panel {
+            section {
                 StatusLine("SOURCE — DOWNLOADS")
                 val (downloadsText, downloadsColor) = when {
                     downloadsOk && allFilesGranted -> "GRANTED — DIRECT SCAN" to Crystal.Good
@@ -148,7 +138,7 @@ fun ImporterHubScreen(
                 StatusLine(downloadsText, downloadsColor)
             }
             if (allFilesApi) {
-                panel {
+                section {
                     StatusLine("ALL FILES ACCESS")
                     StatusLine(
                         if (allFilesGranted) "GRANTED" else "NOT GRANTED",
@@ -156,7 +146,7 @@ fun ImporterHubScreen(
                     )
                 }
             }
-            panel {
+            section {
                 StatusLine("DESTINATION — ROM ROOT")
                 StatusLine(
                     if (romsOk) "GRANTED" else "NOT GRANTED — PICK THE FOLDER",
@@ -189,7 +179,7 @@ fun ImporterHubScreen(
                 )
             }
             if (waiting > 0) {
-                panel {
+                section {
                     StatusLine("QUEUE — $waiting WAITING")
                     if (needsReview > 0) {
                         StatusLine("$needsReview NEED${if (needsReview == 1) "S" else ""} CLASSIFICATION", Crystal.Joystick)
@@ -217,7 +207,6 @@ fun ImporterHubScreen(
                 subLabel = "ZIP + 7Z — RAR REPORTED, NOT SUPPORTED",
                 enabled = downloadsOk && uiState !is ImportUiState.Scanning,
                 onClick = { engine.scan() },
-                modifier = Modifier.height(88.dp),
             )
             if (uiState is ImportUiState.Importing) {
                 val importing = uiState as ImportUiState.Importing
@@ -229,7 +218,7 @@ fun ImporterHubScreen(
                 )
             }
             if (history.isNotEmpty()) {
-                panel {
+                section {
                     StatusLine("RECENT IMPORTS")
                     for (entry in history.take(8)) {
                         val ok = entry.outcome == ImportOutcome.SUCCESS
@@ -240,7 +229,7 @@ fun ImporterHubScreen(
                     }
                 }
             }
-            panel {
+            section {
                 StatusLine("ONE ARCHIVE AT A TIME. SOURCE DELETED ONLY")
                 StatusLine("AFTER THE DESTINATION VERIFIES.")
                 StatusLine("CANCEL MEANS “AFTER THE CURRENT GAME”.", Crystal.InkDim)

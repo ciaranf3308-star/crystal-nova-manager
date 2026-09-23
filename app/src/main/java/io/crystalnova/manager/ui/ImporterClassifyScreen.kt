@@ -1,6 +1,5 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -36,14 +35,13 @@ fun ImporterClassifyScreen(
         onBack = onBack,
         fallbackFocusKey = "done",
     ) {
-        ControllerGrid(
-            state = gridState,
+        ControllerList(
+            state = listState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null || state.needsReview.isEmpty()) {
-                panel {
+                section {
                     StatusLine("NOTHING LEFT TO CLASSIFY.", Crystal.Good)
                     val actionable = state?.actionable ?: 0
                     if (actionable > 0) {
@@ -63,12 +61,12 @@ fun ImporterClassifyScreen(
                         onClick = { onOpenHub() },
                     )
                 }
-                return@ControllerGrid
+                return@ControllerList
             }
 
             val item = state.needsReview.first()
             val remaining = state.needsReview.size - 1
-            panel {
+            section {
                 StatusLine(
                     if (remaining == 0) "LAST ONE" else "$remaining MORE AFTER THIS",
                     Crystal.Joystick,
@@ -94,7 +92,7 @@ fun ImporterClassifyScreen(
                     )
                 }
             }
-            panel {
+            section {
                 StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
             }
             for (platform in PlatformId.entries) {
@@ -108,7 +106,7 @@ fun ImporterClassifyScreen(
                     onClick = { engine.setPlatform(item.id, platform) },
                 )
             }
-            panel {
+            section {
                 StatusLine("NOT SURE? SKIP KEEPS IT FOR LATER.")
             }
             control(
