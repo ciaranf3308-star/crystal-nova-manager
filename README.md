@@ -124,11 +124,18 @@ rollback returns you to exactly what you had before the update.
 - **Scoped storage only.** The app uses the SAF tree you grant it and
   `DocumentFile` — it does not request `MANAGE_EXTERNAL_STORAGE`
   (all-files access).
-- **Theme directory only.** Inside the granted tree the app touches only
-  `crystal-nova-pegasus-theme`, `crystal-nova-pegasus-theme.new`, and
+- **Theme directory only.** Inside the granted theme tree the updater
+  touches only `crystal-nova-pegasus-theme`,
+  `crystal-nova-pegasus-theme.new`, and
   `crystal-nova-pegasus-theme.backup`. It never touches ROMs, BIOS files,
   saves, emulator or Pegasus configuration, `metadata.pegasus.txt`, or
   scraped artwork.
+- **ROM access is importer-only and grant-scoped.** The game importer
+  writes game files solely into the ROM-root folder you grant it in
+  IMPORTER SETTINGS, through its own transaction (inspect → stage →
+  validate → move → verify → clean up → delete source last). No other
+  part of the app touches ROM storage, and no broad storage permission
+  is requested anywhere.
 - **Validate-then-swap.** A release is only promoted after its
   `crystal-version.json` validates and every ZIP entry is confirmed to
   extract inside the staging directory.

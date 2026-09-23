@@ -21,7 +21,11 @@ import androidx.documentfile.provider.DocumentFile
 import io.crystalnova.manager.data.EsdeThemeEntry
 import io.crystalnova.manager.data.EsdeThemeLibrary
 import io.crystalnova.manager.data.GitHubRepository
-import io.crystalnova.manager.data.KeyValueStore
+import io.crystalnova.manager.data.PrefKeyValueStore
+import io.crystalnova.manager.importer.AndroidImporterEnvironment
+import io.crystalnova.manager.importer.ImportService
+import io.crystalnova.manager.importer.ImportStage
+import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.storage.EsdeThemeInstaller
 import io.crystalnova.manager.storage.EsdeThemeInstallResult
 import io.crystalnova.manager.storage.SafThemeFs
@@ -29,6 +33,12 @@ import io.crystalnova.manager.storage.SafThemeStorage
 import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.EsdeInstallUiState
 import io.crystalnova.manager.ui.HomeScreen
+import io.crystalnova.manager.ui.ImporterClassifyScreen
+import io.crystalnova.manager.ui.ImporterHubScreen
+import io.crystalnova.manager.ui.ImporterProgressScreen
+import io.crystalnova.manager.ui.ImporterResultsScreen
+import io.crystalnova.manager.ui.ImporterReviewScreen
+import io.crystalnova.manager.ui.ImporterSettingsScreen
 import io.crystalnova.manager.ui.Navigator
 import io.crystalnova.manager.updater.ApkInstaller
 import io.crystalnova.manager.updater.AppUpdateState
@@ -39,16 +49,6 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
-
-private class SharedPrefsStore(private val prefs: SharedPreferences) : KeyValueStore {
-    override fun getString(key: String): String? = prefs.getString(key, null)
-    override fun putString(key: String, value: String?) {
-        prefs.edit().putString(key, value).apply()
-    }
-    override fun remove(key: String) {
-        prefs.edit().remove(key)
-    }
-}
 
 /**
  * u50: one IO-thread probe of the ES-DE SAF grant — whether the
@@ -103,6 +103,12 @@ class MainActivity : ComponentActivity() {
      * in a flow).
      */
     private var esdeGrantRev: Int by mutableStateOf(0)
+    /**
+     * u52: bumped when either importer grant (Downloads / ROM root)
+     * changes so the importer screens re-probe SAF state (which lives
+     * outside Compose).
+     */
+    private var importerGrantRev: Int by mutableStateOf(0)
     private val scope = MainScope()
 
     /** Human-readable build tag, e.g. "1.2.4-u50-stripped (65)". */
@@ -153,6 +159,72 @@ class MainActivity : ComponentActivity() {
     }
 
     /**
+     * u52: the game importer's two independent SAF tree grants,
+     * following the adoptEsdeThemesDir pattern: ACTION_OPEN_DOCUMENT_TREE
+     * + takePersistableUriPermission on the exact picker URI + the URI
+     * string stored in the "crystal-nova-manager" SharedPreferences +
+     * revalidation on every run (see AndroidImporterEnvironment).
+     * Downloads is read-only; the ROM root needs read+write. No broad
+     * storage permissions anywhere.
+     */
+    private val downloadsFolderPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null &&
+                adoptImporterTreeUri(
+                    uri,
+                    AndroidImporterEnvironment.KEY_DOWNLOADS_TREE_URI,
+                    write = false,
+                )
+            ) {
+                importerGrantRev++
+            }
+        }
+
+    private val romsFolderPicker =
+        registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+            if (uri != null &&
+                adoptImporterTreeUri(
+                    uri,
+                    AndroidImporterEnvironment.KEY_ROMS_TREE_URI,
+                    write = true,
+                )
+            ) {
+                importerGrantRev++
+            }
+        }
+
+    private fun adoptImporterTreeUri(uri: Uri, key: String, write: Boolean): Boolean {
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            (if (write) Intent.FLAG_GRANT_WRITE_URI_PERMISSION else 0)
+        try {
+            contentResolver.takePersistableUriPermission(uri, flags)
+        } catch (_: SecurityException) {
+            return false
+        }
+        getSharedPreferences("crystal-nova-manager", MODE_PRIVATE)
+            .edit()
+            .putString(key, uri.toString())
+            .apply()
+        return true
+    }
+
+    /** Opens the Downloads (read) or ROM-root (read/write) picker. */
+    private fun launchImporterFolderPicker(downloads: Boolean) {
+        val initial = if (downloads) {
+            runCatching {
+                DocumentsContract.buildDocumentUri(
+                    "com.android.externalstorage.documents",
+                    "primary:Download",
+                )
+            }.getOrNull()
+        } else {
+            null
+        }
+        if (downloads) downloadsFolderPicker.launch(initial)
+        else romsFolderPicker.launch(initial)
+    }
+
+    /**
      * Adopts the ES-DE themes folder grant. The persistable permission
      * is taken on the EXACT picker-returned URI FIRST, before any
      * DocumentFile probing — the user's pick is never vetoed.
@@ -198,7 +270,7 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
-        val prefs = SharedPrefsStore(getSharedPreferences("crystal-nova-manager", MODE_PRIVATE))
+        val prefs = PrefKeyValueStore(getSharedPreferences("crystal-nova-manager", MODE_PRIVATE))
         // u50: the legacy theme-storage grant is kept only because the
         // UpdateManager still takes it as its constructor dependency;
         // nothing in the UI reads it anymore.
@@ -241,6 +313,48 @@ class MainActivity : ComponentActivity() {
             val appUpdate by manager.appUpdate.collectAsState()
             val pop: () -> Unit = { if (nav.onBack()) finish() }
 
+            // ---- u52 game importer wiring ----
+            val graph = remember { (application as CrystalManagerApp).importerGraph }
+            val importUi by graph.engine.uiState.collectAsState()
+            // Drives the importer destination stack on state-kind
+            // transitions only: per-emission progress updates must not
+            // yank the user back to the progress screen after they
+            // deliberately backed out to the hub.
+            LaunchedEffect(importUi?.let { it::class }) {
+                when (val s = importUi) {
+                    is ImportUiState.Classifying -> {
+                        if (s.needsReview.isNotEmpty()) {
+                            nav.navigate(Dest.ImportClassify)
+                        } else if (s.actionable > 0) {
+                            // Nothing to classify — move straight on.
+                            // prepareImport() is a safe no-op refresh
+                            // when there is nothing actionable.
+                            graph.engine.prepareImport()
+                        } else if (nav.current != Dest.Home &&
+                            nav.current != Dest.ImportHub
+                        ) {
+                            // Nothing to do anywhere: back to the hub,
+                            // which reports the scan outcome inline.
+                            nav.navigate(Dest.ImportHub)
+                        }
+                    }
+                    is ImportUiState.Ready,
+                    is ImportUiState.ConflictReview,
+                    -> nav.navigate(Dest.ImportReview)
+                    is ImportUiState.Importing -> nav.navigate(Dest.ImportProgress)
+                    is ImportUiState.Results -> nav.navigate(Dest.ImportResults)
+                    is ImportUiState.Error ->
+                        if (nav.current != Dest.Home && nav.current != Dest.ImportHub) {
+                            nav.navigate(Dest.ImportHub)
+                        }
+                    is ImportUiState.Idle ->
+                        if (nav.current == Dest.ImportResults) {
+                            nav.navigate(Dest.ImportHub)
+                        }
+                    else -> { /* Scanning: the hub shows it inline. */ }
+                }
+            }
+
             when (val dest = nav.current) {
                 is Dest.Home -> {
                     val esdeCatalog by esdeThemeLibrary.catalog.collectAsState()
@@ -274,6 +388,31 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     val catalog = (esdeCatalog as? io.crystalnova.manager.data.EsdeThemeCatalogState.Ready)?.catalog
+                    // u52: game importer status for the home entry.
+                    val importQueueItems by graph.queue.items.collectAsState()
+                    val importWaiting = importQueueItems.count {
+                        it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
+                    }
+                    val importerStatusLine: String
+                    val importerAttention: Boolean
+                    when (val s = importUi) {
+                        is ImportUiState.Importing -> {
+                            importerStatusLine =
+                                "IMPORTING ${s.index + 1}/${s.total} — ${s.current?.title ?: ""}"
+                            importerAttention = true
+                        }
+                        is ImportUiState.Scanning -> {
+                            importerStatusLine = "SCANNING DOWNLOADS…"
+                            importerAttention = true
+                        }
+                        else -> if (importWaiting > 0) {
+                            importerStatusLine = "$importWaiting IN QUEUE — TAP TO RESUME"
+                            importerAttention = true
+                        } else {
+                            importerStatusLine = "SCAN DOWNLOADS FOR GAME ARCHIVES"
+                            importerAttention = false
+                        }
+                    }
                     val minManagerNotice = catalog?.let { c ->
                         val want = c.minManagerVersion ?: c.minManagerVersionCode?.let { "vc$it" }
                         if (want != null && io.crystalnova.manager.data.managerBelowMinimum(
@@ -313,7 +452,62 @@ class MainActivity : ComponentActivity() {
                             esdeInstallUi = EsdeInstallUiState.Idle
                             esdeLaunchNotice = null
                         },
+                        onOpenImporter = { nav.navigate(Dest.ImportHub) },
+                        importerStatusLine = importerStatusLine,
+                        importerAttention = importerAttention,
                         onExit = pop,
+                    )
+                }
+                // ---- u52 game importer destinations ----
+                is Dest.ImportHub -> {
+                    ImporterHubScreen(
+                        graph = graph,
+                        grantRev = importerGrantRev,
+                        onBack = pop,
+                        onGrantDownloads = { launchImporterFolderPicker(downloads = true) },
+                        onGrantRoms = { launchImporterFolderPicker(downloads = false) },
+                        onViewImport = { nav.navigate(Dest.ImportProgress) },
+                        onOpenSettings = { nav.navigate(Dest.ImportSettings) },
+                    )
+                }
+                is Dest.ImportClassify -> {
+                    ImporterClassifyScreen(
+                        graph = graph,
+                        onBack = pop,
+                        onOpenHub = { nav.navigate(Dest.ImportHub) },
+                    )
+                }
+                is Dest.ImportReview -> {
+                    ImporterReviewScreen(
+                        graph = graph,
+                        onBack = pop,
+                        onStartImport = {
+                            graph.engine.startImport()
+                            ImportService.start(this@MainActivity)
+                        },
+                    )
+                }
+                is Dest.ImportProgress -> {
+                    // B leaves the run going in the foreground service;
+                    // the hub offers the way back in.
+                    ImporterProgressScreen(
+                        graph = graph,
+                        onBack = { nav.navigate(Dest.ImportHub) },
+                    )
+                }
+                is Dest.ImportResults -> {
+                    ImporterResultsScreen(
+                        graph = graph,
+                        onBack = pop,
+                    )
+                }
+                is Dest.ImportSettings -> {
+                    ImporterSettingsScreen(
+                        graph = graph,
+                        grantRev = importerGrantRev,
+                        onBack = pop,
+                        onGrantDownloads = { launchImporterFolderPicker(downloads = true) },
+                        onGrantRoms = { launchImporterFolderPicker(downloads = false) },
                     )
                 }
             }

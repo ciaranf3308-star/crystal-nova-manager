@@ -18,8 +18,8 @@ android {
         applicationId = "io.crystalnova.manager"
         minSdk = 26
         targetSdk = 34
-        versionCode = 66
-        versionName = "1.2.4-u51-managermin"
+        versionCode = 67
+        versionName = "1.2.4-u52-importer"
 
         // Retroid Pocket Nova ships Android 13; minSdk 26 keeps SAF
         // (persistable tree permissions) working on older handhelds too.
@@ -116,6 +116,10 @@ dependencies {
     implementation("androidx.compose.runtime:runtime")
     implementation("androidx.documentfile:documentfile:1.0.1")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
+    // Archive I/O for the Game Importer: 7z entry listing/extraction.
+    // ZIP is handled by java.util.zip (no dependency needed). RAR is
+    // deliberately unsupported — see ArchiveKind.RAR_UNSUPPORTED.
+    implementation("org.apache.commons:commons-compress:1.26.0")
 
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.8.1")

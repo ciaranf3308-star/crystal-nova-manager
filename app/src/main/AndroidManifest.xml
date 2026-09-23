@@ -16,6 +16,14 @@
          "install unknown apps" for this app once, in Settings. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
+    <!-- FOREGROUND_SERVICE: the game importer runs long archive imports
+         in a foreground service (type dataSync) with an ongoing
+         notification, so the run survives the app being backgrounded.
+         Storage stays SAF-only: no READ/WRITE_EXTERNAL_STORAGE, no
+         MANAGE_EXTERNAL_STORAGE. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
+
     <!-- Package visibility (Android 11+). ES-DE
          (org.es_de.frontend / the Galaxy-store variant) for the OPEN
          ES-DE launcher check. Used only for getLaunchIntentForPackage
@@ -27,6 +35,7 @@
     </queries>
 
     <application
+        android:name=".CrystalManagerApp"
         android:label="Crystal Nova Manager"
         android:theme="@style/Theme.CrystalNova"
         android:allowBackup="false"
@@ -55,6 +64,14 @@
                 android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/filepaths" />
         </provider>
+
+        <!-- Game importer: foreground dataSync service for long import
+             runs. Not exported; started only from the app's own review
+             screen. -->
+        <service
+            android:name=".importer.ImportService"
+            android:exported="false"
+            android:foregroundServiceType="dataSync" />
 
     </application>
 </manifest>

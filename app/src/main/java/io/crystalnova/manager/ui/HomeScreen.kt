@@ -12,7 +12,9 @@ import java.io.File
 /**
  * HOME (u50: THE STRIP): the whole app is one screen — the Crystal
  * ES-DE theme updater plus the MANAGER self-update route. No other
- * destinations, no dead buttons.
+ * destinations, no dead buttons. (u52 adds one deliberate exception:
+ * the GAME IMPORTER entry, which opens the importer's own
+ * destination stack.)
  *
  * The theme updater content lives in [EsdeThemeScreen]; this wrapper
  * pins it to the HOME route (B exits the app) and appends the
@@ -47,6 +49,10 @@ fun HomeScreen(
     onInstall: (EsdeThemeEntry, File) -> Unit = { _, _ -> },
     onLaunchEsde: () -> Unit = {},
     onDismissInstall: () -> Unit = {},
+    /** Opens the game importer destination stack. */
+    onOpenImporter: () -> Unit = {},
+    importerStatusLine: String = "",
+    importerAttention: Boolean = false,
     /** B on HOME exits the app. */
     onExit: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -80,6 +86,9 @@ fun HomeScreen(
         managerVersionLabel = managerVersionLabel,
         appUpdate = appUpdate,
         onUpdateApp = onUpdateApp,
+        onOpenImporter = onOpenImporter,
+        importerStatusLine = importerStatusLine,
+        importerAttention = importerAttention,
         modifier = modifier,
     )
 }
