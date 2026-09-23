@@ -170,6 +170,125 @@ class ImportEngineTest {
         assertEquals(1, results.succeeded)
     }
 
+    @Test fun `setPlatform records lastPick with title and platform label`() {
+        val env = envWith(
+            Triple("mystery.zip", "uri:mz", mapOf("mystery.gba" to ByteArray(100))),
+        )
+        val h = harness(env) { it.autoIdentify = false }
+
+        h.engine.scan()
+        var classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertTrue(classifying.lastPick == null)
+
+        val itemId = classifying.needsReview.single().id
+        h.engine.setPlatform(itemId, PlatformId.GBA)
+
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        val pick = classifying.lastPick
+        assertTrue(pick != null)
+        assertEquals(itemId, pick!!.itemId)
+        assertEquals("mystery", pick.title)
+        assertEquals("GAME BOY ADVANCE", pick.platformLabel)
+    }
+
+    @Test fun `undoLastPick returns the item to needsReview first and second call is a no-op`() {
+        val env = envWith(
+            Triple("game-a.zip", "uri:a", mapOf("a.gba" to ByteArray(10))),
+            Triple("game-b.zip", "uri:b", mapOf("b.gba" to ByteArray(10))),
+        )
+        val h = harness(env) { it.autoIdentify = false }
+
+        h.engine.scan()
+        var classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(2, classifying.needsReview.size)
+        val firstId = classifying.needsReview[0].id
+        val secondId = classifying.needsReview[1].id
+
+        h.engine.setPlatform(firstId, PlatformId.GBA)
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(listOf(secondId), classifying.needsReview.map { it.id })
+
+        h.engine.undoLastPick()
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        // Back in the queue, first, with no platform and no pick recorded.
+        assertEquals(listOf(firstId, secondId), classifying.needsReview.map { it.id })
+        assertTrue(classifying.lastPick == null)
+        val undone = classifying.needsReview.first()
+        assertTrue(undone.platform == null)
+        // The rest of the queue is untouched.
+        assertEquals(secondId, h.engine.queueItems.value[1].id)
+
+        // Second call: nothing to undo, state unchanged.
+        h.engine.undoLastPick()
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(listOf(firstId, secondId), classifying.needsReview.map { it.id })
+        assertTrue(classifying.lastPick == null)
+    }
+
+    @Test fun `reclassifyItem clears platform and moves the item to the front`() {
+        val env = envWith(
+            Triple("game-a.zip", "uri:a", mapOf("a.gba" to ByteArray(10))),
+            Triple("game-b.zip", "uri:b", mapOf("b.gba" to ByteArray(10))),
+        )
+        val h = harness(env) { it.autoIdentify = false }
+
+        h.engine.scan()
+        var classifying = h.engine.uiState.value as ImportUiState.Classifying
+        val aId = classifying.needsReview[0].id
+        val bId = classifying.needsReview[1].id
+
+        // Classify both, then send A back.
+        h.engine.setPlatform(aId, PlatformId.GBA)
+        h.engine.setPlatform(bId, PlatformId.GBC)
+        h.engine.prepareImport()
+        assertTrue(h.engine.uiState.value is ImportUiState.Ready)
+
+        h.engine.reclassifyItem(aId)
+        // Other items' platforms are intact.
+        assertEquals(PlatformId.GBC, h.engine.queueItems.value.first { it.id == bId }.platform)
+
+        h.engine.backToClassifying()
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(listOf(aId, bId), classifying.needsReview.map { it.id })
+        assertTrue(classifying.needsReview.first().platform == null)
+    }
+
+    @Test fun `full loop - classify, review, reclassify, repick, review under new console`() {
+        val env = envWith(
+            Triple("game-a.zip", "uri:a", mapOf("a.gba" to ByteArray(10))),
+            Triple("game-b.zip", "uri:b", mapOf("b.gba" to ByteArray(10))),
+        )
+        val h = harness(env) { it.autoIdentify = false }
+
+        h.engine.scan()
+        var classifying = h.engine.uiState.value as ImportUiState.Classifying
+        val aId = classifying.needsReview[0].id
+        val bId = classifying.needsReview[1].id
+
+        // Wrong pick for A on purpose.
+        h.engine.setPlatform(aId, PlatformId.GBA)
+        h.engine.setPlatform(bId, PlatformId.GBC)
+        h.engine.prepareImport()
+        var ready = h.engine.uiState.value as ImportUiState.Ready
+        assertEquals(PlatformId.GBA, ready.groups.first { g -> g.items.any { it.id == aId } }.platform)
+
+        // Fix it: back to classify, A is first again.
+        h.engine.reclassifyItem(aId)
+        h.engine.backToClassifying()
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(aId, classifying.needsReview.first().id)
+
+        // Re-pick correctly, review shows A under the new console.
+        h.engine.setPlatform(aId, PlatformId.GBC)
+        classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals("GAME BOY COLOR", classifying.lastPick!!.platformLabel)
+        h.engine.prepareImport()
+        ready = h.engine.uiState.value as ImportUiState.Ready
+        assertEquals(PlatformId.GBC, ready.groups.first { g -> g.items.any { it.id == aId } }.platform)
+        assertEquals(PlatformId.GBC, ready.groups.first { g -> g.items.any { it.id == bId } }.platform)
+        assertEquals(2, ready.totalGames)
+    }
+
     @Test fun `duplicate defaults to SKIP and keeps the source archive`() {
         val env = envWith(
             Triple("Pokemon Emerald (USA).zip", "uri:pk", mapOf("Pokemon Emerald.gba" to ByteArray(10) { 1 })),

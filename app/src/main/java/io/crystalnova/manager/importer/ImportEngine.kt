@@ -66,6 +66,13 @@ data class FailedRow(
     val reason: ImportFailureReason,
 )
 
+/** Confirmation of the most recent platform tap on the classify screen. */
+data class LastPick(
+    val itemId: String,
+    val title: String,
+    val platformLabel: String,
+)
+
 /** All UI state for the importer flow. */
 sealed interface ImportUiState {
     data object Idle : ImportUiState
@@ -77,6 +84,8 @@ sealed interface ImportUiState {
         val unreadable: List<ArchiveItem>,
         val missing: List<ArchiveItem>,
         val unsupportedCount: Int,
+        /** Most recent platform tap (null when none, or after undo). */
+        val lastPick: LastPick?,
     ) : ImportUiState {
         val actionable: Int get() = needsReview.size + autoIdentified.size
     }
@@ -154,6 +163,10 @@ class ImportEngine(
     private var scanJob: Job? = null
     private var importJob: Job? = null
     private var reviewJob: Job? = null
+
+    /** Most recent classify-screen platform pick; cleared by undo/reclassify. */
+    private var lastPickedId: String? = null
+    private var lastPick: LastPick? = null
     private var cancelAfterCurrent = false
     private var lastUnsupportedCount = 0
 
@@ -322,11 +335,13 @@ class ImportEngine(
             unreadable = items.filter { it.inspectFailed && it.stage != ImportStage.SKIPPED },
             missing = items.filter { it.sourceMissing && it.stage != ImportStage.SKIPPED && it.stage != ImportStage.COMPLETE },
             unsupportedCount = lastUnsupportedCount,
+            lastPick = lastPick,
         )
     }
 
     /** Tap-a-platform: saves immediately and advances (no save button). */
     fun setPlatform(itemId: String, platform: PlatformId) {
+        val title = queue.items.value.firstOrNull { it.id == itemId }?.displayTitle ?: itemId
         queue.update(itemId) {
             it.copy(
                 platform = platform,
@@ -337,7 +352,41 @@ class ImportEngine(
                 ),
             )
         }
+        lastPickedId = itemId
+        lastPick = LastPick(itemId, title, platform.labels().long.uppercase())
         if (_uiState.value is ImportUiState.Classifying) emitClassifying()
+    }
+
+    /**
+     * Re-asks the last platform pick: clears it and moves the item to
+     * the front of the queue so it classifies next. No-op when nothing
+     * was picked (or the item already left the flow).
+     */
+    fun undoLastPick() {
+        val id = lastPickedId ?: return
+        val item = queue.items.value.firstOrNull { it.id == id }
+        lastPickedId = null
+        lastPick = null
+        if (item != null && item.stage == ImportStage.WAITING) {
+            queue.update(id) { it.copy(platform = null) }
+            queue.moveToFront(id)
+        }
+        if (_uiState.value is ImportUiState.Classifying) emitClassifying()
+    }
+
+    /**
+     * Sends one already-classified item back to the classify screen as
+     * the first item, so a wrong console pick can be fixed. Clearing
+     * [ArchiveItem.platform] is sufficient to return it to
+     * [ArchiveItem.needsReview]; detection is left as-is (the classify
+     * screen's detector-guess hint only renders for
+     * [Confidence.LIKELY], so no stale hint appears).
+     */
+    fun reclassifyItem(itemId: String) {
+        queue.update(itemId) { it.copy(platform = null) }
+        queue.moveToFront(itemId)
+        lastPickedId = null
+        lastPick = null
     }
 
     fun skipItem(itemId: String) {

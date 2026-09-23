@@ -41,6 +41,15 @@ class ImportQueue(private val file: File) {
         persist()
     }
 
+    /** Moves the item to the front, preserving it; no-op when absent. */
+    @Synchronized
+    fun moveToFront(id: String) {
+        val current = _items.value
+        val item = current.firstOrNull { it.id == id } ?: return
+        _items.value = listOf(item) + current.filterNot { it.id == id }
+        persist()
+    }
+
     /** Removes finished/ignored rows, keeping anything still in play. */
     @Synchronized
     fun clearFinished() {

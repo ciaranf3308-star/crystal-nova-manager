@@ -59,6 +59,26 @@ class ImportQueueTest {
         assertEquals(ImportStage.EXTRACTING, reloaded.items.value.single().stage)
     }
 
+    @Test fun `moveToFront reorders and preserves the item`() {
+        val file = File.createTempFile("queue", ".json").also { it.delete() }
+        val queue = ImportQueue(file).also { it.load() }
+        queue.add(sampleItem("a"))
+        queue.add(sampleItem("b"))
+        queue.add(sampleItem("c"))
+
+        queue.moveToFront("c")
+        assertEquals(listOf("c", "a", "b"), queue.items.value.map { it.id })
+        assertEquals("Title c", queue.items.value.first().displayTitle)
+
+        // No-op for an unknown id.
+        queue.moveToFront("nope")
+        assertEquals(listOf("c", "a", "b"), queue.items.value.map { it.id })
+
+        // Persists across reload.
+        val reloaded = ImportQueue(file).also { it.load() }
+        assertEquals(listOf("c", "a", "b"), reloaded.items.value.map { it.id })
+    }
+
     @Test fun `malformed rows are dropped, good rows survive`() {
         val file = File.createTempFile("queue", ".json")
         file.writeText("""[{"id":"good","archiveUri":"u","detection":{},"stage":"WAITING"},not-json]""")

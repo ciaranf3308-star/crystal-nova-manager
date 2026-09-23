@@ -129,8 +129,19 @@ fun ImporterClassifyScreen(
             }
             // ---- Zone 2: the platform choice. Two columns of generous
             // tiles — 18 long labels stay readable, nothing clips. ----
+            // The tap confirmation lives here too, right where focus
+            // is: on the 4:3 Nova display the Zone 1 identity panel is
+            // off-screen while tapping tiles, so without this the user
+            // had to scroll up to verify a tap registered. ----
             panel {
                 StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
+                val pick = state.lastPick
+                if (pick != null) {
+                    StatusLine(
+                        "✓ ${pick.title} → ${pick.platformLabel} SAVED",
+                        Crystal.Good,
+                    )
+                }
             }
             for (platform in PlatformId.entries) {
                 val hint = if (platform == item.detection.platform &&
@@ -158,6 +169,17 @@ fun ImporterClassifyScreen(
                 subLabel = "DROPS IT — NOTHING IS DELETED",
                 onClick = { engine.ignoreNotAGame(item.id) },
                 danger = true,
+            )
+            // Undo the last platform tap: re-asks that exact console
+            // choice as the next item. Disabled (D-pad skips it) until
+            // a pick exists — same pattern as the storage-blocked
+            // IMPORT ALL control.
+            control(
+                key = "undo-last-pick",
+                label = "↩ UNDO LAST PICK",
+                subLabel = "RE-ASK THE LAST CONSOLE CHOICE",
+                enabled = state.lastPick != null,
+                onClick = { engine.undoLastPick() },
             )
         }
     }

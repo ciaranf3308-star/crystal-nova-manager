@@ -1,23 +1,11 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.remember
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.dp
 import io.crystalnova.manager.importer.DuplicatePolicy
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
@@ -121,11 +109,16 @@ private fun ControllerGridContent.ReadySection(
                 "${group.platform.labels().long.uppercase()} → /$folder",
                 Crystal.Cream,
             )
-            Column(modifier = Modifier.fillMaxWidth().padding(top = 8.dp)) {
-                for (item in group.items) {
-                    GameRow("· ${item.displayTitle} (${formatBytes(item.archiveBytes)})")
-                }
-            }
+        }
+        // One control per game: a wrong console pick goes back to the
+        // classify screen as the first item with a single tap.
+        for (item in group.items) {
+            control(
+                key = "reclassify-${item.id}",
+                label = "· ${item.displayTitle} (${formatBytes(item.archiveBytes)})",
+                subLabel = "WRONG CONSOLE? TAP TO RE-CLASSIFY",
+                onClick = { engine.reclassifyItem(item.id); engine.backToClassifying() },
+            )
         }
     }
     panel {
@@ -231,32 +224,4 @@ private fun DuplicatePolicy.label(): String = when (this) {
     DuplicatePolicy.SKIP -> "SKIP"
     DuplicatePolicy.REPLACE -> "REPLACE"
     DuplicatePolicy.KEEP_BOTH -> "KEEP BOTH"
-}
-
-/**
- * Display-only game row for the review groups: a deterministic
- * vertical stack of full-width rows inside the platform panel.
- * Filename + size, ellipsis if long — no wrapping chip soup. Not
- * focusable: there is no per-game action on this screen (IMPORT ALL /
- * conflict choices are the actions), so D-pad focus skips straight
- * past them.
- */
-@Composable
-private fun GameRow(text: String) {
-    BasicText(
-        text = text,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clip(RoundedCornerShape(2.dp))
-            .background(Crystal.TileDeep)
-            .border(2.dp, Crystal.FrameDim, RoundedCornerShape(2.dp))
-            .padding(horizontal = 10.dp, vertical = 6.dp),
-        style = TextStyle(
-            fontFamily = Crystal.Mono,
-            fontSize = Crystal.SmallSize,
-            color = Crystal.Ink,
-        ),
-        maxLines = 2,
-        overflow = TextOverflow.Ellipsis,
-    )
 }
