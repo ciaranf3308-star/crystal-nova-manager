@@ -203,25 +203,29 @@ class NovaHomeScreenTest : NovaUiTest() {
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
         )
-        fun bounds(tag: String) =
-            composeTestRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
-        fun focused(tag: String): Boolean {
-            val node = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
-            return node.config.contains(SemanticsProperties.Focused) &&
-                node.config[SemanticsProperties.Focused]
-        }
-        println("DIAG check-update bounds=${bounds("home-check-update")}")
-        println("DIAG importer bounds=${bounds("home-open-importer")}")
-        println("DIAG exit bounds=${bounds("home-exit")}")
-        println("DIAG viewport=${viewportBounds()}")
-        // Walk to home-check-update exactly like the traversal helper.
-        val steps = listOf(
+        val tags = listOf(
             "esde-grant-folder-repick",
             "esde-launch",
             "esde-current-download",
             "esde-rollback-download",
             "home-check-update",
+            "home-open-importer",
+            "home-exit",
         )
+        fun bounds(tag: String): String = runCatching {
+            val b = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot
+            "h=${b.height} t=${b.top}"
+        }.getOrDefault("NOT-COMPOSED")
+        fun focused(tag: String): String = runCatching {
+            val node = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
+            val f = node.config.contains(SemanticsProperties.Focused) &&
+                node.config[SemanticsProperties.Focused]
+            "$f"
+        }.getOrDefault("?")
+        println("DIAG viewport=${viewportBounds()}")
+        for (t in tags) println("DIAG row $t ${bounds(t)}")
+        // Walk to home-check-update exactly like the traversal helper.
+        val steps = tags.subList(0, 5)
         composeTestRule.onNodeWithTag(steps[0]).requestDpadFocus()
         composeTestRule.waitForIdle()
         var focusedTag = steps[0]
@@ -229,19 +233,16 @@ class NovaHomeScreenTest : NovaUiTest() {
             composeTestRule.onNodeWithTag(focusedTag).pressDpadDown()
             composeTestRule.waitForIdle()
             focusedTag = steps[i]
-            println("DIAG step $i focused=${focused(focusedTag)} tag=$focusedTag")
+            println("DIAG step $i tag=$focusedTag focused=${focused(focusedTag)}")
         }
         // The press under investigation.
         composeTestRule.onNodeWithTag("home-check-update").pressDpadDown()
         composeTestRule.waitForIdle()
-        println("DIAG after press: check-update focused=${focused("home-check-update")}")
-        println("DIAG after press: importer focused=${focused("home-open-importer")}")
-        println("DIAG after press: exit focused=${focused("home-exit")}")
-        println("DIAG after press: importer bounds=${bounds("home-open-importer")}")
+        for (t in tags) println("DIAG after press $t focused=${focused(t)} ${bounds(t)}")
         // Direct request for comparison.
         composeTestRule.onNodeWithTag("home-open-importer").requestDpadFocus()
         composeTestRule.waitForIdle()
-        println("DIAG direct request: importer focused=${focused("home-open-importer")}")
+        println("DIAG direct request importer focused=${focused("home-open-importer")}")
     }
 
     @Test
