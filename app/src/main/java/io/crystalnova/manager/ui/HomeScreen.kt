@@ -53,6 +53,8 @@ fun HomeScreen(
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
     importerAttention: Boolean = false,
+    /** Opens the game library export screen. Null hides the entry. */
+    onOpenLibrary: (() -> Unit)? = null,
     /** B on HOME exits the app. */
     onExit: () -> Unit = {},
     modifier: Modifier = Modifier,
@@ -89,6 +91,7 @@ fun HomeScreen(
         onOpenImporter = onOpenImporter,
         importerStatusLine = importerStatusLine,
         importerAttention = importerAttention,
+        onOpenLibrary = onOpenLibrary,
         modifier = modifier,
     )
 }

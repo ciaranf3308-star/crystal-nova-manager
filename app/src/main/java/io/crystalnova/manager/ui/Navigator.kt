@@ -29,6 +29,8 @@ sealed interface Dest {
     data object ImportResults : Dest
     /** Importer settings: grants, platform folders, defaults. */
     data object ImportSettings : Dest
+    /** Game library (u56): read-only ROM scan -> text export. */
+    data object GameLibrary : Dest
 }
 
 /**

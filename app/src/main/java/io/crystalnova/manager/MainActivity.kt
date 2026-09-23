@@ -35,6 +35,7 @@ import io.crystalnova.manager.ui.Dest
 import io.crystalnova.manager.ui.EsdeInstallUiState
 import io.crystalnova.manager.ui.HomeScreen
 import io.crystalnova.manager.ui.ImporterClassifyScreen
+import io.crystalnova.manager.ui.GameLibraryScreen
 import io.crystalnova.manager.ui.ImporterHubScreen
 import io.crystalnova.manager.ui.ImporterProgressScreen
 import io.crystalnova.manager.ui.ImporterResultsScreen
@@ -454,6 +455,7 @@ class MainActivity : ComponentActivity() {
                             esdeLaunchNotice = null
                         },
                         onOpenImporter = { nav.navigate(Dest.ImportHub) },
+                        onOpenLibrary = { nav.navigate(Dest.GameLibrary) },
                         importerStatusLine = importerStatusLine,
                         importerAttention = importerAttention,
                         onExit = pop,
@@ -517,6 +519,12 @@ class MainActivity : ComponentActivity() {
                         onOpenAllFilesSettings = {
                             startActivity(AllFilesAccess.requestIntent(this))
                         },
+                    )
+                }
+                is Dest.GameLibrary -> {
+                    GameLibraryScreen(
+                        graph = graph,
+                        onBack = pop,
                     )
                 }
             }

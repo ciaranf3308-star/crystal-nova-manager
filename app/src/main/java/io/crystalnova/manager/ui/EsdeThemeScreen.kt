@@ -86,6 +86,8 @@ fun EsdeThemeScreen(
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
     importerAttention: Boolean = false,
+    /** The game library export entry (u56 home only). Null hides it. */
+    onOpenLibrary: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val catalog = (catalogState as? EsdeThemeCatalogState.Ready)?.catalog
@@ -492,6 +494,16 @@ fun EsdeThemeScreen(
                     testTag = "home-open-importer",
                     label = "OPEN GAME IMPORTER",
                     onClick = onOpenImporter,
+                )
+            }
+            // ---- GAME LIBRARY entry (u56): read-only ROM scan -> text
+            // export. Single-line control like the importer entry.
+            if (onOpenLibrary != null) {
+                control(
+                    key = "home-open-library",
+                    testTag = "home-open-library",
+                    label = "EXPORT GAME LIST",
+                    onClick = onOpenLibrary,
                 )
             }
             control(
