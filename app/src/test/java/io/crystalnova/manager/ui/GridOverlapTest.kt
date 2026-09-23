@@ -58,6 +58,20 @@ class GridOverlapTest : NovaUiTest() {
     }
 
     /**
+     * Extreme font scale: at 4x, fixed-height tiles MUST overflow. If this
+     * passes, the test's overlap detection is broken.
+     */
+    @Test
+    fun gridPanelsAndFixedHeightControls_extremeFontScale_noTextOverlap() {
+        setNovaContent {
+            OverlapRepro(fontScale = 4f)
+        }
+        composeTestRule.waitForIdle()
+        val count = assertNoTextOverlap()
+        assertTrue("Expected text nodes in the repro, found $count", count >= 10)
+    }
+
+    /**
      * The classify screen: archive info panels + 18 platform buttons with
      * real long labels. If the u58 overlap is in this pattern, this fails.
      */
