@@ -57,6 +57,86 @@ class GridOverlapTest : NovaUiTest() {
         assertTrue("Expected text nodes in the repro, found $count", count >= 10)
     }
 
+    /**
+     * The classify screen: archive info panels + 18 platform buttons with
+     * real long labels. If the u58 overlap is in this pattern, this fails.
+     */
+    @Test
+    fun classifyPattern_noTextOverlap() {
+        val platforms = listOf(
+            "NINTENDO ENTERTAINMENT SYSTEM",
+            "SUPER NINTENDO",
+            "NINTENDO 64",
+            "GAME BOY",
+            "GAME BOY COLOR",
+            "GAME BOY ADVANCE",
+            "NINTENDO DS",
+            "NINTENDO 3DS",
+            "GAMECUBE",
+            "WII",
+            "WII U",
+            "DREAMCAST",
+            "GENESIS",
+            "MEGA DRIVE",
+            "PLAYSTATION",
+            "PLAYSTATION 2",
+            "PSP",
+            "XBOX",
+        )
+        setNovaContent {
+            ScreenScaffold(
+                routeKey = "test-classify",
+                title = "CLASSIFY GAME",
+                onBack = {},
+                fallbackFocusKey = "done",
+            ) {
+                ControllerGrid(
+                    state = gridState,
+                    dispatcher = dispatcher,
+                    columns = GridCells.Fixed(3),
+                    initialFocus = ::isInitialFocus,
+                ) {
+                    panel {
+                        StatusLine("2 MORE AFTER THIS", Crystal.Joystick)
+                        StatusLine("Super Mario Sunshine", Crystal.Ink)
+                        StatusLine(
+                            "super-mario-sunshine-usa.zip · 1.2 GB · ZIP",
+                            Crystal.InkDim,
+                        )
+                        StatusLine(
+                            "CLUES: disc image header matches GameCube",
+                            Crystal.InkDim,
+                        )
+                    }
+                    panel {
+                        StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
+                    }
+                    for ((i, name) in platforms.withIndex()) {
+                        control(
+                            key = "platform-$i",
+                            label = name,
+                            subLabel = if (i == 8) " ← DETECTOR GUESS" else null,
+                            onClick = {},
+                        )
+                    }
+                    panel {
+                        StatusLine("NOT SURE? SKIP KEEPS IT FOR LATER.")
+                    }
+                    control(key = "skip", label = "SKIP FOR NOW", onClick = {})
+                    control(
+                        key = "not-a-game",
+                        label = "NOT A GAME",
+                        subLabel = "DROPS IT — NOTHING IS DELETED",
+                        onClick = {},
+                    )
+                }
+            }
+        }
+        composeTestRule.waitForIdle()
+        val count = assertNoTextOverlap()
+        assertTrue("Expected text nodes in the repro, found $count", count >= 20)
+    }
+
     /** The u58 structural pattern, rendered at [fontScale]. */
     @androidx.compose.runtime.Composable
     private fun OverlapRepro(fontScale: Float) {
