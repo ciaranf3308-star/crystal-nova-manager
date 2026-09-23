@@ -390,6 +390,18 @@ fun EsdeThemeScreen(
             // ---- MANAGER self-update (u50 home only): surfaced here,
             // never buried behind a route. Every future manager build
             // ships through this path. ----
+            // ---- GAME IMPORTER entry (u52): a top-level two-line control
+            // before the MANAGER section. The status rides in the subLabel
+            // so the MANAGER panel stays short.
+            if (showManagerSection && onOpenImporter != null) {
+                control(
+                    key = "home-open-importer",
+                    testTag = "home-open-importer",
+                    label = "OPEN GAME IMPORTER",
+                    subLabel = importerStatusLine.ifEmpty { null },
+                    onClick = onOpenImporter,
+                )
+            }
             if (showManagerSection) {
                 // MANAGER header merged into the panel: the u50 home is
                 // 11 rows and every row must fit the 960px viewport.
@@ -452,44 +464,10 @@ fun EsdeThemeScreen(
                             // single-line control — a two-line subLabel
                             // button mis-measures (16px) on first layout in
                             // a ControllerList, breaking D-pad traversal.
-                            if (importerStatusLine.isNotEmpty()) {
-                                StatusLine(
-                                    "IMPORTER: $importerStatusLine",
-                                    if (importerAttention) Crystal.Joystick
-                                    else Crystal.InkDim,
-                                )
-                            }
+                            // Note: importer live status rides in the OPEN GAME
+                            // IMPORTER button's subLabel (u52), not here,
+                            // to keep the MANAGER panel short.
                         }
-                    }
-                    // ---- GAME IMPORTER entry (u52): a control sibling to
-                    // the panel (same lazy row, 11-row budget). Uses
-                    // CrystalButton directly with explicit D-pad DOWN
-                    // handling: the default focus search cannot skip past
-                    // the tall MANAGER panel to the update control.
-                    // SectionScope.control() is not used because its
-                    // scrollEngine/keyToIndex registration breaks incoming
-                    // D-pad focus to this in-section button (u52 CI).
-                    if (onOpenImporter != null) {
-                        CrystalButton(
-                            key = "home-open-importer",
-                            label = "OPEN GAME IMPORTER",
-                            onClick = onOpenImporter,
-                            dispatcher = dispatcher,
-                            testTag = "home-open-importer",
-                            modifier = Modifier.onPreviewKeyEvent { e ->
-                                if (
-                                    e.type == KeyEventType.KeyDown &&
-                                    e.key == Key.DirectionDown
-                                ) {
-                                    dispatcher
-                                        .focusRequesterOf("home-check-update")
-                                        ?.requestFocus()
-                                    true
-                                } else {
-                                    false
-                                }
-                            },
-                        )
                     }
                 }
                 when (appUpdate) {

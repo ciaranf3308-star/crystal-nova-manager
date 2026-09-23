@@ -195,17 +195,16 @@ class NovaHomeScreenTest : NovaUiTest() {
 
     @Test
     fun importerEntryInManagerRow() {
-        // The u52 game importer is a control sibling to the MANAGER
-        // panel (same lazy row, 11-row budget); the live status rides
-        // in the panel and D-pad reaches the entry before the update
-        // control.
+        // The u52 game importer is a two-line control before the
+        // MANAGER section; the live status rides in the subLabel and
+        // D-pad reaches the entry before the update control.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
         )
 
         composeTestRule.onNodeWithText("OPEN GAME IMPORTER").assertExists()
-        composeTestRule.onNodeWithText("IMPORTER: 2 IN QUEUE — TAP TO RESUME")
+        composeTestRule.onNodeWithText("2 IN QUEUE — TAP TO RESUME")
             .assertExists()
         assertDpadTraversalInViewport(
             listOf(
