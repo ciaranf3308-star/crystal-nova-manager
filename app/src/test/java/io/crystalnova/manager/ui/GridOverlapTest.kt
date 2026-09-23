@@ -188,24 +188,27 @@ class GridOverlapTest : NovaUiTest() {
                     control(
                         key = "retry-1",
                         label = "RETRY",
-                        subLabel = "RETRIES THIS GAME AS NINTENDO GAMECUBE EVEN IF THE " +
-                            "ARCHIVE LOOKS CORRUPT OR TRUNCATED ON FIRST INSPECTION",
+                        subLabel = "RETRIES THIS GAME AS NINTENDO GAMECUBE EVEN IF THE ARCHIVE " +
+                            "LOOKS CORRUPT OR TRUNCATED ON FIRST INSPECTION AND THE DETECTOR " +
+                            "COULD NOT CONFIRM THE PLATFORM WITH CERTAINTY FROM THE HEADER",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
                     control(
                         key = "platform-1",
                         label = "PLATFORM: GAMECUBE",
-                        subLabel = "TAP TO CYCLE THROUGH EVERY SUPPORTED PLATFORM IN " +
-                            "THE FULL LIST THEN PRESS RETRY TO TRY THE IMPORT AGAIN",
+                        subLabel = "TAP TO CYCLE THROUGH EVERY SUPPORTED PLATFORM IN THE FULL " +
+                            "LIST INCLUDING ALL NINTENDO SEGA AND SONY SYSTEMS THEN PRESS " +
+                            "RETRY TO TRY THE IMPORT AGAIN WITH THE NEW PLATFORM SELECTION",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
                     control(
                         key = "skip-1",
                         label = "SKIP",
-                        subLabel = "LEAVES THE SOURCE ARCHIVE IN DOWNLOADS UNTOUCHED " +
-                            "AND MOVES ON TO THE NEXT GAME IN THE QUEUE",
+                        subLabel = "LEAVES THE SOURCE ARCHIVE IN DOWNLOADS UNTOUCHED AND MOVES " +
+                            "ON TO THE NEXT GAME IN THE QUEUE WITHOUT DELETING OR MODIFYING " +
+                            "ANYTHING ON THE DEVICE STORAGE WHATSOEVER",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
@@ -213,8 +216,9 @@ class GridOverlapTest : NovaUiTest() {
                     control(
                         key = "scan",
                         label = "SCAN DOWNLOADS",
-                        subLabel = "FIND NEW ARCHIVES IN THE DOWNLOADS FOLDER RECURSIVELY " +
-                            "INCLUDING NESTED SUBFOLDERS UP TO FOUR LEVELS DEEP",
+                        subLabel = "FIND NEW ARCHIVES IN THE DOWNLOADS FOLDER RECURSIVELY INCLUDING " +
+                            "NESTED SUBFOLDERS UP TO FOUR LEVELS DEEP WHILE SKIPPING HIDDEN " +
+                            "DIRECTORIES AND SYSTEM FOLDERS THAT SHOULD NOT BE TOUCHED",
                         modifier = Modifier.height(88.dp),
                         onClick = {},
                     )
