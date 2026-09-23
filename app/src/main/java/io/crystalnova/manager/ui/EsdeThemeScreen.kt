@@ -6,6 +6,11 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -458,14 +463,32 @@ fun EsdeThemeScreen(
                     }
                     // ---- GAME IMPORTER entry (u52): a control sibling to
                     // the panel (same lazy row, 11-row budget). Uses
-                    // SectionScope.control for proper key registration;
-                    // a 12th top-level row is virtualized out by LazyColumn.
+                    // CrystalButton directly with explicit D-pad DOWN
+                    // handling: the default focus search cannot skip past
+                    // the tall MANAGER panel to the update control.
+                    // SectionScope.control() is not used because its
+                    // scrollEngine/keyToIndex registration breaks incoming
+                    // D-pad focus to this in-section button (u52 CI).
                     if (onOpenImporter != null) {
-                        control(
+                        CrystalButton(
                             key = "home-open-importer",
-                            testTag = "home-open-importer",
                             label = "OPEN GAME IMPORTER",
                             onClick = onOpenImporter,
+                            dispatcher = dispatcher,
+                            testTag = "home-open-importer",
+                            modifier = Modifier.onPreviewKeyEvent { e ->
+                                if (
+                                    e.type == KeyEventType.KeyDown &&
+                                    e.key == Key.DirectionDown
+                                ) {
+                                    dispatcher
+                                        .focusRequesterOf("home-check-update")
+                                        ?.requestFocus()
+                                    true
+                                } else {
+                                    false
+                                }
+                            },
                         )
                     }
                 }
