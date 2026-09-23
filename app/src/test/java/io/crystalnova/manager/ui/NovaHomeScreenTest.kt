@@ -194,11 +194,10 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
     @Test
-    fun importerEntryInManagerRowBeforeUpdateCheck() {
-        // The u52 game importer is a button inside the MANAGER panel
-        // (same lazy row) so the 11-row home budget is preserved; the
-        // live status rides above it in the panel and D-pad reaches the
-        // entry right before the manager update control.
+    fun importerEntryBeforeManagerSection() {
+        // The u52 game importer is a single-line control before the
+        // MANAGER section; the live status rides in the panel and D-pad
+        // reaches the entry right before the manager update control.
         setHome(
             onOpenImporter = {},
             importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
