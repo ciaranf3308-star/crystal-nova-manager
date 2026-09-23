@@ -442,6 +442,18 @@ fun EsdeThemeScreen(
                                     )
                                 null -> { /* CHECK FOR UPDATE button below */ }
                             }
+                            // ---- Importer status (u52): lives in the
+                            // MANAGER panel so the entry below stays a
+                            // single-line control — a two-line subLabel
+                            // button mis-measures (16px) on first layout in
+                            // a ControllerList, breaking D-pad traversal.
+                            if (importerStatusLine.isNotEmpty()) {
+                                StatusLine(
+                                    "IMPORTER: $importerStatusLine",
+                                    if (importerAttention) Crystal.Joystick
+                                    else Crystal.InkDim,
+                                )
+                            }
                         }
                     }
                 }
@@ -467,16 +479,6 @@ fun EsdeThemeScreen(
                         onClick = onUpdateApp,
                     )
                     else -> { /* Checking / Downloading / Installing: busy */ }
-                }
-                // ---- Importer status (u52): lives in the MANAGER panel so
-                // the entry below stays a single-line control — a two-line
-                // subLabel button mis-measures (16px) on first layout in a
-                // ControllerList, which breaks D-pad traversal (u52 CI).
-                if (importerStatusLine.isNotEmpty()) {
-                    StatusLine(
-                        "IMPORTER: $importerStatusLine",
-                        if (importerAttention) Crystal.Joystick else Crystal.InkDim,
-                    )
                 }
             }
             // ---- GAME IMPORTER entry (u52 home only): a single control
