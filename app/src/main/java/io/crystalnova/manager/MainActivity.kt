@@ -23,6 +23,7 @@ import io.crystalnova.manager.data.EsdeThemeLibrary
 import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.PrefKeyValueStore
 import io.crystalnova.manager.importer.AndroidImporterEnvironment
+import io.crystalnova.manager.importer.AllFilesAccess
 import io.crystalnova.manager.importer.ImportService
 import io.crystalnova.manager.importer.ImportStage
 import io.crystalnova.manager.importer.ImportUiState
@@ -466,6 +467,11 @@ class MainActivity : ComponentActivity() {
                         onBack = pop,
                         onGrantDownloads = { launchImporterFolderPicker(downloads = true) },
                         onGrantRoms = { launchImporterFolderPicker(downloads = false) },
+                        // u54: system Settings page for "All files access";
+                        // the hub re-checks the grant on resume.
+                        onOpenAllFilesSettings = {
+                            startActivity(AllFilesAccess.requestIntent(this))
+                        },
                         onViewImport = { nav.navigate(Dest.ImportProgress) },
                         onOpenSettings = { nav.navigate(Dest.ImportSettings) },
                     )
@@ -508,6 +514,9 @@ class MainActivity : ComponentActivity() {
                         onBack = pop,
                         onGrantDownloads = { launchImporterFolderPicker(downloads = true) },
                         onGrantRoms = { launchImporterFolderPicker(downloads = false) },
+                        onOpenAllFilesSettings = {
+                            startActivity(AllFilesAccess.requestIntent(this))
+                        },
                     )
                 }
             }

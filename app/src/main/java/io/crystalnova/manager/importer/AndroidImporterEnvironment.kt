@@ -18,10 +18,16 @@ import java.io.InputStream
  * takePersistableUriPermission + URI in SharedPreferences +
  * revalidate every run + SecurityException becomes "grant again" UI):
  *
- * - Downloads (read): scanned for game archives.
- * - ROM root (read/write): platform folders + staging live here.
+ * - Downloads (read): scanned for game archives — direct java.io.File
+ *   scan of the normal Downloads directory when "All files access" is
+ *   granted (see [AllFilesAccess]), otherwise the SAF tree grant
+ *   fallback (a subfolder such as Downloads/GameImport, since Android
+ *   11+ will not grant the Downloads root via the picker).
+ * - ROM root (read/write): platform folders + staging live here, always
+ *   via the SAF tree grant.
  *
- * No READ/WRITE_EXTERNAL_STORAGE, no MANAGE_EXTERNAL_STORAGE.
+ * No READ/WRITE_EXTERNAL_STORAGE. MANAGE_EXTERNAL_STORAGE is declared
+ * and used only for the direct Downloads scan above.
  */
 class AndroidImporterEnvironment(private val context: Context) : ImporterEnvironment {
 
@@ -64,7 +70,18 @@ class AndroidImporterEnvironment(private val context: Context) : ImporterEnviron
         return doc
     }
 
-    override fun downloadsListing(): DownloadsListing = object : DownloadsListing {
+    override fun downloadsListing(): DownloadsListing =
+        selectDownloadsListing(AllFilesAccess.hasAccess())
+
+    /**
+     * Download-source selection. Direct File scan when "All files
+     * access" is granted; the persisted SAF tree grant otherwise.
+     * Internal for unit tests (the grant check itself needs a device).
+     */
+    internal fun selectDownloadsListing(allFilesGranted: Boolean): DownloadsListing =
+        if (allFilesGranted) AllFilesAccess.downloadsListing() else safDownloadsListing()
+
+    private fun safDownloadsListing(): DownloadsListing = object : DownloadsListing {
         override fun listFiles(): List<DownloadFile> {
             val root = requireTree(downloadsTreeUri(), "Downloads")
             return root.listFiles().map { doc ->

@@ -2,13 +2,27 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- INTERNET: GitHub API + ZIP/APK downloads. Storage is handled
-         exclusively through the Storage Access Framework (system folder
-         picker + persisted tree URI). No READ/WRITE_EXTERNAL_STORAGE,
-         no MANAGE_EXTERNAL_STORAGE.
+         through the Storage Access Framework (system folder picker +
+         persisted tree URI) plus MANAGE_EXTERNAL_STORAGE for the game
+         importer's direct Downloads scan (see below). No
+         READ/WRITE_EXTERNAL_STORAGE.
          (AndroidX core contributes its generated
          DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION for its own internal
          dynamic receivers; the app declares nothing else.) -->
     <uses-permission android:name="android.permission.INTERNET" />
+
+    <!-- MANAGE_EXTERNAL_STORAGE ("All files access"): the game importer
+         scans the normal shared Downloads directory directly via
+         java.io.File. Android 11+ refuses to grant the Downloads root
+         through the SAF tree picker ("can't use this folder — to protect
+         your privacy"), so without this the user is forced into a
+         Downloads/GameImport subfolder workaround. The system Settings
+         page grants it; the importer UI shows GRANTED / NOT GRANTED and
+         offers an OPEN SETTINGS action. When not granted (or on
+         API < 30) the importer falls back to the SAF subfolder grant
+         automatically. ROM-root writes stay SAF-only. This is a
+         sideloaded personal utility; Play policy is irrelevant. -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
 
     <!-- REQUEST_INSTALL_PACKAGES: the self-updater hands the downloaded
          APK to Android's system package installer. The system always
@@ -19,8 +33,8 @@
     <!-- FOREGROUND_SERVICE: the game importer runs long archive imports
          in a foreground service (type dataSync) with an ongoing
          notification, so the run survives the app being backgrounded.
-         Storage stays SAF-only: no READ/WRITE_EXTERNAL_STORAGE, no
-         MANAGE_EXTERNAL_STORAGE. -->
+         Storage: SAF grants + MANAGE_EXTERNAL_STORAGE for the direct
+         Downloads scan; no READ/WRITE_EXTERNAL_STORAGE. -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC" />
 

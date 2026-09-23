@@ -23,6 +23,12 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import android.os.Build
+import io.crystalnova.manager.importer.AllFilesAccess
 import io.crystalnova.manager.importer.DuplicatePolicy
 import io.crystalnova.manager.importer.GrantProbe
 import io.crystalnova.manager.importer.ImporterGraph
@@ -48,6 +54,8 @@ fun ImporterSettingsScreen(
     onBack: () -> Unit,
     onGrantDownloads: () -> Unit,
     onGrantRoms: () -> Unit,
+    /** u54: opens the system "All files access" Settings page. */
+    onOpenAllFilesSettings: () -> Unit,
 ) {
     val engine = graph.engine
     val settings = graph.settings
@@ -63,6 +71,21 @@ fun ImporterSettingsScreen(
     }
     val downloadsOk = probe?.downloadsOk == true
     val romsOk = probe?.romsOk == true
+    // u54: "All files access" is granted in system Settings, outside
+    // the app — re-check on every resume, not just on grantRev bumps.
+    val allFilesApi = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+    var settingsTick by remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) settingsTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val allFilesGranted = remember(settingsTick) {
+        allFilesApi && AllFilesAccess.hasAccess()
+    }
     // Write-through UI state, seeded from the persisted settings.
     var deleteAfterSuccess by remember { mutableStateOf(settings.deleteAfterSuccess) }
     var autoIdentify by remember { mutableStateOf(settings.autoIdentify) }
@@ -96,6 +119,23 @@ fun ImporterSettingsScreen(
                 label = if (downloadsOk) "CHANGE DOWNLOADS FOLDER" else "GRANT DOWNLOADS FOLDER",
                 onClick = onGrantDownloads,
             )
+            if (allFilesApi) {
+                section {
+                    StatusLine("ALL FILES ACCESS")
+                    StatusLine(
+                        if (allFilesGranted) "GRANTED — DIRECT SCAN" else "NOT GRANTED",
+                        if (allFilesGranted) Crystal.Good else Crystal.Bad,
+                    )
+                }
+                if (!allFilesGranted) {
+                    control(
+                        key = "all-files-settings",
+                        label = "OPEN SETTINGS",
+                        subLabel = "ALLOW ALL FILES ACCESS FOR DIRECT SCAN",
+                        onClick = onOpenAllFilesSettings,
+                    )
+                }
+            }
             section {
                 StatusLine("ROM ROOT (DESTINATION)")
                 StatusLine(

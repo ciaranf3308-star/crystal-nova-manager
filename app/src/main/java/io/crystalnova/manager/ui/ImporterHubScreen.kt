@@ -1,12 +1,18 @@
 package io.crystalnova.manager.ui
 
+import android.os.Build
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import io.crystalnova.manager.importer.AllFilesAccess
 import io.crystalnova.manager.importer.GrantProbe
 import io.crystalnova.manager.importer.ImportOutcome
 import io.crystalnova.manager.importer.ImportUiState
@@ -32,6 +38,8 @@ fun ImporterHubScreen(
     onBack: () -> Unit,
     onGrantDownloads: () -> Unit,
     onGrantRoms: () -> Unit,
+    /** u54: opens the system "All files access" Settings page. */
+    onOpenAllFilesSettings: () -> Unit,
     onViewImport: () -> Unit,
     onOpenSettings: () -> Unit,
 ) {
@@ -47,6 +55,23 @@ fun ImporterHubScreen(
     }
     val downloadsOk = probe?.downloadsOk == true
     val romsOk = probe?.romsOk == true
+
+    // u54: "All files access" is granted in system Settings, outside
+    // the app — re-check on every resume, not just on grantRev bumps.
+    // API 30+ only; older handhelds keep the SAF subfolder fallback.
+    val allFilesApi = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
+    var settingsTick by remember { mutableStateOf(0) }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) settingsTick++
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
+    val allFilesGranted = remember(settingsTick) {
+        allFilesApi && AllFilesAccess.hasAccess()
+    }
 
     val waiting = queueItems.count {
         it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
@@ -105,10 +130,21 @@ fun ImporterHubScreen(
             }
             section {
                 StatusLine("SOURCE — DOWNLOADS")
-                StatusLine(
-                    if (downloadsOk) "GRANTED" else "NOT GRANTED — PICK THE FOLDER",
-                    if (downloadsOk) Crystal.Good else Crystal.Bad,
-                )
+                val (downloadsText, downloadsColor) = when {
+                    downloadsOk && allFilesGranted -> "GRANTED — DIRECT SCAN" to Crystal.Good
+                    downloadsOk -> "GRANTED" to Crystal.Good
+                    else -> "NOT GRANTED — PICK THE FOLDER" to Crystal.Bad
+                }
+                StatusLine(downloadsText, downloadsColor)
+            }
+            if (allFilesApi) {
+                section {
+                    StatusLine("ALL FILES ACCESS")
+                    StatusLine(
+                        if (allFilesGranted) "GRANTED" else "NOT GRANTED",
+                        if (allFilesGranted) Crystal.Good else Crystal.Bad,
+                    )
+                }
             }
             section {
                 StatusLine("DESTINATION — ROM ROOT")
@@ -117,11 +153,22 @@ fun ImporterHubScreen(
                     if (romsOk) Crystal.Good else Crystal.Bad,
                 )
             }
-            if (probe != null && !downloadsOk) {
+            // SAF subfolder grant is the fallback: only offered when the
+            // direct all-files scan is not granted.
+            if (probe != null && !downloadsOk && !allFilesGranted) {
                 control(
                     key = "grant-downloads",
                     label = "GRANT DOWNLOADS FOLDER",
+                    subLabel = "SAF FALLBACK — PICK A SUBFOLDER INSIDE DOWNLOADS",
                     onClick = onGrantDownloads,
+                )
+            }
+            if (allFilesApi && !allFilesGranted) {
+                control(
+                    key = "all-files-settings",
+                    label = "OPEN SETTINGS",
+                    subLabel = "ALLOW ALL FILES ACCESS FOR DIRECT SCAN",
+                    onClick = onOpenAllFilesSettings,
                 )
             }
             if (probe != null && !romsOk) {
