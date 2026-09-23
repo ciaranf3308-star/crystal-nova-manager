@@ -11,7 +11,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.RuntimeEnvironment
-import org.robolectric.annotation.Config
 import java.io.File
 import java.nio.file.Files
 
@@ -74,15 +73,20 @@ class AllFilesAccessTest {
     }
 
     @Test
-    @Config(sdk = [29])
     fun `no all-files access below api 30`() {
-        assertFalse(AllFilesAccess.hasAccess())
+        // Even with the manager flag set, the grant can never apply below API 30.
+        assertFalse(AllFilesAccess.hasAccess(29, true))
     }
 
     @Test
     fun `not granted by default`() {
-        // Nothing was granted in the test sandbox.
-        assertFalse(AllFilesAccess.hasAccess())
+        assertFalse(AllFilesAccess.hasAccess(34, false))
+    }
+
+    @Test
+    fun `granted on api 30+ once the user allows it`() {
+        assertTrue(AllFilesAccess.hasAccess(30, true))
+        assertTrue(AllFilesAccess.hasAccess(34, true))
     }
 
     @Test

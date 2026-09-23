@@ -29,8 +29,16 @@ object AllFilesAccess {
 
     /** True on API 30+ once the user granted "All files access". */
     fun hasAccess(): Boolean =
-        Build.VERSION.SDK_INT >= Build.VERSION_CODES.R &&
-            Environment.isExternalStorageManager()
+        hasAccess(Build.VERSION.SDK_INT, Environment.isExternalStorageManager())
+
+    /**
+     * Testable seam for [hasAccess]. The grant state is environment-
+     * dependent (a Robolectric shadow default is not a real device), so
+     * tests pin both inputs instead of depending on sandbox defaults.
+     * Production behavior is unchanged.
+     */
+    internal fun hasAccess(sdkInt: Int, isExternalStorageManager: Boolean): Boolean =
+        sdkInt >= Build.VERSION_CODES.R && isExternalStorageManager
 
     /**
      * Intent for this app's "All files access" page in system Settings.
