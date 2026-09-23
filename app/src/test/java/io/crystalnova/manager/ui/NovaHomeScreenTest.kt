@@ -220,4 +220,45 @@ class NovaHomeScreenTest : NovaUiTest() {
     }
 
 
+
+    @Test
+    fun importerOutgoingFocusDiagnostic() {
+        // TEMPORARY — CI only. Finds where D-pad DOWN from the importer lands.
+        setHome(
+            onOpenImporter = {},
+            importerStatusLine = "2 IN QUEUE — TAP TO RESUME",
+        )
+        val tags = listOf(
+            "esde-grant-folder-repick",
+            "esde-launch",
+            "esde-current-download",
+            "esde-rollback-download",
+            "home-open-importer",
+            "home-check-update",
+            "home-exit",
+        )
+        fun isFocused(tag: String): Boolean = runCatching {
+            val n = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
+            n.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.Focused) == true
+        }.getOrDefault(false)
+        fun bounds(tag: String): String = runCatching {
+            val n = composeTestRule.onNodeWithTag(tag).fetchSemanticsNode()
+            val b = n.boundsInRoot
+            "t=${b.top.toInt()} h=${b.height.toInt()}"
+        }.getOrDefault("?")
+        composeTestRule.onNodeWithTag(tags[0]).requestDpadFocus()
+        composeTestRule.waitForIdle()
+        for (i in 1..4) {
+            composeTestRule.onNodeWithTag(tags[i - 1]).pressDpadDown()
+            composeTestRule.waitForIdle()
+        }
+        println("DIAG4 at importer: " + tags.map { t -> "$t=${isFocused(t)} ${bounds(t)}" })
+        composeTestRule.onNodeWithTag("home-open-importer").pressDpadDown()
+        composeTestRule.waitForIdle()
+        println("DIAG4 after DOWN on importer: " + tags.map { t -> "$t=${isFocused(t)}" })
+        composeTestRule.onNodeWithTag("home-open-importer").pressDpadDown()
+        composeTestRule.waitForIdle()
+        println("DIAG4 after 2nd DOWN on importer: " + tags.map { t -> "$t=${isFocused(t)}" })
+    }
+
 }
