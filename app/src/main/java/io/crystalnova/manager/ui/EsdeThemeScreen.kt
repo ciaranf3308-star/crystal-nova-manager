@@ -454,22 +454,22 @@ fun EsdeThemeScreen(
                                     else Crystal.InkDim,
                                 )
                             }
+                            // ---- GAME IMPORTER entry (u52): a CrystalButton
+                            // directly in the MANAGER panel's Column (same
+                            // lazy row) so the 11-row home budget is
+                            // preserved. A 12th row pushes the bottom item
+                            // out of LazyColumn's composition window and
+                            // the entry never composes (u52 CI).
+                            if (onOpenImporter != null) {
+                                CrystalButton(
+                                    key = "home-open-importer",
+                                    label = "OPEN GAME IMPORTER",
+                                    onClick = onOpenImporter,
+                                    dispatcher = dispatcher,
+                                    testTag = "home-open-importer",
+                                )
+                            }
                         }
-                    }
-                    // ---- GAME IMPORTER entry (u52): lives inside the
-                    // MANAGER row (same lazy item) so the 11-row home
-                    // budget is preserved — a 12th row pushes the bottom
-                    // item out of LazyColumn's composition window and the
-                    // entry never composes (u52 CI). Traversal reaches it
-                    // right after the MANAGER panel, before the update
-                    // control.
-                    if (onOpenImporter != null) {
-                        control(
-                            key = "home-open-importer",
-                            testTag = "home-open-importer",
-                            label = "OPEN GAME IMPORTER",
-                            onClick = onOpenImporter,
-                        )
                     }
                 }
                 when (appUpdate) {
