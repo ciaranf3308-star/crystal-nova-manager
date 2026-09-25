@@ -35,11 +35,18 @@ class PsxChdmanIntegrationTest {
     private fun tempDir(): File =
         Files.createTempDirectory("psx-chdman-it").toFile()
 
-    /** One synthetic disc: [tracks] BINs of 8 deterministic 2352-byte sectors + its CUE. */
+    /**
+     * One synthetic disc: [tracks] BINs of 64 deterministic 2352-byte
+     * sectors + its CUE. 64 sectors/track keeps the images well above
+     * the size where chdman's own verifier rejects absurdly tiny
+     * inputs (upstream chdman 0.264 does the same on an 8-sector
+     * image); real PS1 discs are orders of magnitude larger still.
+     * chdman does not validate ECC, so generated data converts fine.
+     */
     private fun writeSyntheticDisc(dir: File, base: String, tracks: Int) {
         for (t in 1..tracks) {
             val binName = "$base (Track %02d).bin".format(t)
-            val sectors = 8
+            val sectors = 64
             val bytes = ByteArray(sectors * 2352) { i -> ((i * 31 + t * 7) % 256).toByte() }
             File(dir, binName).writeBytes(bytes)
         }
