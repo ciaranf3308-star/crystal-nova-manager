@@ -79,6 +79,43 @@ class ImportQueueTest {
         assertEquals(listOf("c", "a", "b"), reloaded.items.value.map { it.id })
     }
 
+    @Test fun `loose fields round-trip and old JSON defaults them`() {
+        val file = File.createTempFile("queue", ".json").also { it.delete() }
+        val queue = ImportQueue(file).also { it.load() }
+        queue.add(
+            sampleItem("loose").copy(
+                isLooseFile = true,
+                archiveKind = ArchiveKind.LOOSE_FILE,
+                claimedByItemId = null,
+            ),
+        )
+        queue.add(
+            sampleItem("claimed").copy(
+                isLooseFile = true,
+                archiveKind = ArchiveKind.LOOSE_FILE,
+                claimedByItemId = "loose",
+            ),
+        )
+
+        val reloaded = ImportQueue(file).also { it.load() }
+        val loose = reloaded.items.value.first { it.id == "loose" }
+        assertTrue(loose.isLooseFile)
+        assertEquals(null, loose.claimedByItemId)
+        val claimed = reloaded.items.value.first { it.id == "claimed" }
+        assertTrue(claimed.isLooseFile)
+        assertEquals("loose", claimed.claimedByItemId)
+
+        // Old queue JSON (pre-u68, no new keys) decodes with defaults.
+        val old = File.createTempFile("queue-old", ".json")
+        old.writeText(
+            """[{"id":"old","archiveUri":"uri:old","archiveName":"old.zip","displayTitle":"Old","archiveKind":"ZIP","archiveBytes":1,"detection":{"confidence":"CONFIRMED","recognizedAsGame":true},"stage":"WAITING"}]""",
+        )
+        val oldQueue = ImportQueue(old).also { it.load() }
+        val oldItem = oldQueue.items.value.single()
+        assertEquals(false, oldItem.isLooseFile)
+        assertEquals(null, oldItem.claimedByItemId)
+    }
+
     @Test fun `malformed rows are dropped, good rows survive`() {
         val file = File.createTempFile("queue", ".json")
         file.writeText("""[{"id":"good","archiveUri":"u","detection":{},"stage":"WAITING"},not-json]""")

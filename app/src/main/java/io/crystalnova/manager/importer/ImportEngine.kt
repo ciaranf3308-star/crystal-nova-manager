@@ -10,6 +10,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.ArrayDeque
 import java.util.Date
@@ -27,6 +28,15 @@ interface ImporterEnvironment {
     fun archiveExists(uri: String): Boolean
     fun deleteArchive(uri: String): Boolean
     fun romsFreeBytes(): Long
+
+    /**
+     * Opens a raw byte stream for any document in Downloads by URI
+     * (loose files, cue sheets, m3u playlists). Defaults to the
+     * archive stream opener, which already opens any Downloads
+     * document by URI — override only if the test fake needs to
+     * serve loose-file bytes.
+     */
+    fun openDownload(uri: String): InputStream = archiveOpener().openInput(uri)
 }
 
 enum class GrantKind { DOWNLOADS, ROMS }
@@ -213,9 +223,12 @@ class ImportEngine(
     // ------------------------------------------------------------------
 
     /**
-     * Lists Downloads, inspects every new archive, and classifies the
-     * complete batch before anything runs. Already-queued archives
-     * are not re-inspected; vanished ones are flagged SOURCE_MISSING.
+     * Lists Downloads, inspects every new archive, classifies every
+     * new loose game file (no inspection — name/header only), pairs
+     * `.cue`/`.m3u` descriptors with their track files, and
+     * classifies the complete batch before anything runs.
+     * Already-queued files are not re-inspected; vanished ones are
+     * flagged SOURCE_MISSING.
      */
     fun scan() {
         if (scanJob?.isActive == true || importJob?.isActive == true) return
@@ -238,17 +251,28 @@ class ImportEngine(
             }
 
             val known = queue.items.value.associateBy { it.archiveUri }.toMutableMap()
-            val scannedUris = outcome.archives.map { it.uri }.toSet()
+            val scannedUris =
+                (outcome.archives.map { it.uri } + outcome.looseFiles.map { it.uri }).toSet()
             for ((uri, item) in known) {
                 if (uri !in scannedUris && !env.archiveExists(uri)) {
                     queue.update(item.id) { it.copy(sourceMissing = true) }
+                    // A missing descriptor frees its claimed files so
+                    // they surface as independent items again.
+                    queue.items.value
+                        .filter { it.claimedByItemId == item.id }
+                        .forEach { child ->
+                            queue.update(child.id) { it.copy(claimedByItemId = null) }
+                        }
                 }
             }
 
             var done = 0
+            val total = outcome.archives.size + outcome.looseFiles.size
+            // Archives first (largest first within each kind), then
+            // loose files — the same order the queue keeps.
             for (ref in outcome.archives) {
                 done++
-                _uiState.value = ImportUiState.Scanning(done, outcome.archives.size)
+                _uiState.value = ImportUiState.Scanning(done, total)
                 if (known.containsKey(ref.uri)) continue
                 val item = try {
                     buildItem(ref)
@@ -278,6 +302,30 @@ class ImportEngine(
                 queue.add(item)
                 known[ref.uri] = item
             }
+
+            // Loose files: classified by name/header only, never
+            // inspected as archives.
+            for (ref in outcome.looseFiles) {
+                done++
+                _uiState.value = ImportUiState.Scanning(done, total)
+                if (known.containsKey(ref.uri)) continue
+                val item = try {
+                    buildLooseItem(ref)
+                } catch (_: SecurityException) {
+                    _uiState.value = ImportUiState.Error(
+                        "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
+                        GrantKind.DOWNLOADS,
+                    )
+                    return@launch
+                }
+                queue.add(item)
+                known[ref.uri] = item
+            }
+
+            // Pair .cue/.m3u descriptors with their loose sibling
+            // files so the tracks ride along with the descriptor.
+            claimLooseDescriptors()
+
             lastUnsupportedCount = outcome.unsupported.size
             emitClassifying()
         }
@@ -334,8 +382,127 @@ class ImportEngine(
         )
     }
 
+    /**
+     * Builds a queue item for a loose (non-archive) file: one synthetic
+     * [ArchiveEntryInfo], a best-effort 64-byte header window read
+     * straight from Downloads, and a trivial [ImportPlan] — the
+     * [ArchiveInspector] is never involved.
+     */
+    private fun buildLooseItem(ref: ArchiveRef): ArchiveItem {
+        val entry = ArchiveEntryInfo(ref.name, ref.size, false)
+        val window = try {
+            env.openDownload(ref.uri).use { input ->
+                val buf = ByteArray(64)
+                var n = 0
+                while (n < buf.size) {
+                    val r = input.read(buf, n, buf.size - n)
+                    if (r < 0) break
+                    n += r
+                }
+                buf.copyOf(n)
+            }
+        } catch (_: Exception) {
+            null
+        }
+        val reader = PlatformDetector.HeaderReader { index, offset, length ->
+            if (index != 0 || window == null || offset < 0 || offset >= window.size) {
+                null
+            } else {
+                val from = offset.toInt()
+                val to = minOf(window.size, from + length.coerceAtLeast(0))
+                window.copyOfRange(from, to)
+            }
+        }
+        val detection = detector.detect(ref.name, listOf(entry), reader)
+        val plan = ImportPlan(
+            target = ImportTarget.SingleFile(fileName = ref.name),
+            payloadFileCount = 1,
+            payloadBytes = ref.size,
+            unwrapDepth = 0,
+        )
+        val platform =
+            if (settings.autoIdentify && detection.confidence == Confidence.CONFIRMED) {
+                detection.platform
+            } else {
+                null
+            }
+        return ArchiveItem(
+            id = UUID.randomUUID().toString(),
+            archiveUri = ref.uri,
+            archiveName = ref.name,
+            displayTitle = cleanDisplayTitle(ref.name),
+            archiveKind = ArchiveKind.LOOSE_FILE,
+            archiveBytes = ref.size,
+            detection = detection,
+            platform = platform,
+            plan = plan,
+            isLooseFile = true,
+            relativePath = ref.relativePath,
+            addedAt = clock(),
+        )
+    }
+
+    /**
+     * Claims loose sibling files for `.cue` and `.m3u` descriptors:
+     * every track/disc the descriptor references is tagged with the
+     * descriptor's item id so it rides along instead of queueing
+     * independently. Matching is by filename, case-insensitive, among
+     * unclaimed loose queue items — a lone `.bin` with no `.cue`
+     * keeps its independence. A same-basename `.sbi` is associated
+     * with the cue at import time (it is never a queue item itself).
+     */
+    private fun claimLooseDescriptors() {
+        fun isDescriptorCandidate(item: ArchiveItem) =
+            item.isLooseFile && !item.isClaimed
+
+        fun claimUnder(descriptor: ArchiveItem, names: Collection<String>) {
+            for (name in names) {
+                val base = name.substringAfterLast('/').substringAfterLast('\\')
+                val match = queue.items.value.firstOrNull {
+                    it.isLooseFile && !it.isClaimed &&
+                        it.id != descriptor.id &&
+                        it.archiveName.equals(base, ignoreCase = true)
+                }
+                if (match != null) {
+                    queue.update(match.id) { it.copy(claimedByItemId = descriptor.id) }
+                }
+            }
+        }
+
+        // The candidate state is re-checked at the top of each body
+        // so a file claimed mid-pass never acts as (or under) two
+        // descriptors.
+        for (cue in queue.items.value.filter {
+            isDescriptorCandidate(it) && it.archiveName.lowercase().endsWith(".cue")
+        }) {
+            if (!isDescriptorCandidate(queue.items.value.firstOrNull { it.id == cue.id } ?: continue)) continue
+            val text = try {
+                env.openDownload(cue.archiveUri).bufferedReader().readText()
+            } catch (_: Exception) {
+                continue
+            }
+            claimUnder(cue, CueParser.referencedFiles(text))
+        }
+
+        for (m3u in queue.items.value.filter {
+            isDescriptorCandidate(it) && it.archiveName.lowercase().endsWith(".m3u")
+        }) {
+            if (!isDescriptorCandidate(queue.items.value.firstOrNull { it.id == m3u.id } ?: continue)) continue
+            val lines = try {
+                env.openDownload(m3u.archiveUri).bufferedReader().readLines()
+            } catch (_: Exception) {
+                continue
+            }
+            val names = lines.map { it.trim() }
+                .filter { it.isNotEmpty() && !it.startsWith("#") }
+            claimUnder(m3u, names)
+        }
+    }
+
     private fun emitClassifying() {
-        val items = queue.items.value
+        // Claimed files (cue/m3u tracks) ride along with their
+        // descriptor and never surface independently.
+        val items = queue.items.value.filter { !it.isClaimed }
         _uiState.value = ImportUiState.Classifying(
             needsReview = items.filter { it.needsReview },
             autoIdentified = items.filter { it.importable && !it.needsReview && it.stage == ImportStage.WAITING },
@@ -398,12 +565,14 @@ class ImportEngine(
     }
 
     fun skipItem(itemId: String) {
+        releaseClaims(itemId)
         queue.update(itemId) { it.copy(stage = ImportStage.SKIPPED, failure = null, failureDetail = null) }
         if (_uiState.value is ImportUiState.Classifying) emitClassifying()
     }
 
     /** "Not a game" — drops the item from the flow without deleting anything. */
     fun ignoreNotAGame(itemId: String) {
+        releaseClaims(itemId)
         queue.update(itemId) {
             it.copy(
                 stage = ImportStage.SKIPPED,
@@ -414,8 +583,22 @@ class ImportEngine(
     }
 
     fun removeItem(itemId: String) {
+        releaseClaims(itemId)
         queue.remove(itemId)
         if (_uiState.value is ImportUiState.Classifying) emitClassifying()
+    }
+
+    /**
+     * Frees files claimed by a descriptor so they queue as
+     * independent items again. Used when the descriptor leaves the
+     * flow without importing (removed, skipped, not-a-game).
+     */
+    private fun releaseClaims(itemId: String) {
+        queue.items.value
+            .filter { it.claimedByItemId == itemId }
+            .forEach { child ->
+                queue.update(child.id) { it.copy(claimedByItemId = null) }
+            }
     }
 
     fun backToClassifying() = emitClassifying()
@@ -539,7 +722,7 @@ class ImportEngine(
     }
 
     // ------------------------------------------------------------------
-    // The import run: strictly sequential, one archive at a time.
+    // The import run: strictly sequential, one item at a time.
     // ------------------------------------------------------------------
 
     fun startImport() {
@@ -887,6 +1070,20 @@ class ImportEngine(
                             } else {
                                 logLine("Could not delete source ${item.archiveName} — delete it by hand")
                             }
+                            // Claimed track/disc files ride along with
+                            // their descriptor: their sources go only
+                            // after the descriptor import verified.
+                            queue.items.value
+                                .filter { it.claimedByItemId == item.id }
+                                .forEach { child ->
+                                    queue.update(child.id) { it.copy(stage = ImportStage.COMPLETE) }
+                                    if (env.deleteArchive(child.archiveUri)) {
+                                        deletedSources++
+                                        logLine("Deleted source ${child.archiveName}")
+                                    } else {
+                                        logLine("Could not delete source ${child.archiveName} — delete it by hand")
+                                    }
+                                }
                         } catch (_: SecurityException) {
                             logLine("Source delete denied for ${item.archiveName} — keeping it")
                         } catch (_: Exception) {
@@ -980,6 +1177,11 @@ class ImportEngine(
         log: (String) -> Unit,
     ): ItemResult {
         val platform = item.platform ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no platform")
+        // Loose files first: they stream straight from Downloads —
+        // never inspected, never extracted.
+        if (item.isLooseFile) {
+            return importLooseFile(roms, platformDir, item, setStage, onBytes, onNormProgress, log)
+        }
         // PS1 goes through the CHD-normalize pipeline instead of the
         // generic extract-and-place flow (see importPsxGame): raw
         // CUE/BIN track dumps are what produced the broken multi-entry
@@ -1261,6 +1463,34 @@ class ImportEngine(
             )
         }
 
+        // Steps 3+: normalize the populated temp dir and place the
+        // validated artifacts — shared with the loose-file PS1 path.
+        return normalizeAndPlacePsx(roms, dir, item, tempDir, setStage, onBytes, onNormProgress, log)
+    }
+
+    /**
+     * Shared tail of the PS1 pipeline: normalizes a populated
+     * private temp dir (filled by extraction for archives, by direct
+     * Downloads copies for loose files), then duplicate-aware places
+     * the validated artifacts into psx/. Live psx/ is untouched
+     * until every artifact verifies.
+     */
+    private fun normalizeAndPlacePsx(
+        roms: ThemeFs,
+        dir: FsNode,
+        item: ArchiveItem,
+        tempDir: File,
+        setStage: (ImportStage, String?) -> Unit,
+        onBytes: (Long) -> Unit,
+        onNormProgress: (Float, String) -> Unit,
+        log: (String) -> Unit,
+    ): ItemResult {
+        val support = psxSupport
+            ?: return ItemResult.Failed(ImportFailureReason.PSX_CHDMAN_MISSING, "PS1 support unavailable")
+        fun discardTemp() {
+            runCatching { tempDir.deleteRecursively() }
+        }
+
         // 3. Normalize: validate CUEs, convert discs, assemble layout.
         var lastNormLabel: String? = null
         var lastNormEmitted = -1f
@@ -1405,6 +1635,264 @@ class ImportEngine(
                 if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.WRITE_FAILED,
                 e.message,
             )
+        }
+    }
+
+    // ------------------------------------------------------------------
+    // Loose files: stream straight from Downloads, never extracted.
+    // ------------------------------------------------------------------
+
+    /**
+     * Loose-file import: the file streams from Downloads directly
+     * into the platform folder — the archive extractor is never
+     * invoked. PS1 files go through the normalizer (shared tail with
+     * the archive path); everything else moves as-is.
+     */
+    private fun importLooseFile(
+        roms: ThemeFs,
+        platformDir: (PlatformId) -> FsNode,
+        item: ArchiveItem,
+        setStage: (ImportStage, String?) -> Unit,
+        onBytes: (Long) -> Unit,
+        onNormProgress: (Float, String) -> Unit,
+        log: (String) -> Unit,
+    ): ItemResult {
+        val platform = item.platform ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no platform")
+        return if (platform == PlatformId.PSX) {
+            importLoosePsx(roms, platformDir, item, setStage, onBytes, onNormProgress, log)
+        } else {
+            importLooseDirect(roms, platformDir, item, setStage, onBytes, log)
+        }
+    }
+
+    /**
+     * Non-PS1 loose file: verify the source, stream it into the
+     * platform folder under a dot-prefixed temp name, apply the
+     * duplicate policy, rename into place, and verify by size. The
+     * source is deleted only after success, by the caller's
+     * existing rule.
+     */
+    private fun importLooseDirect(
+        roms: ThemeFs,
+        platformDir: (PlatformId) -> FsNode,
+        item: ArchiveItem,
+        setStage: (ImportStage, String?) -> Unit,
+        onBytes: (Long) -> Unit,
+        log: (String) -> Unit,
+    ): ItemResult {
+        val platform = item.platform ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no platform")
+        if (!env.archiveExists(item.archiveUri)) {
+            return ItemResult.Failed(ImportFailureReason.SOURCE_MISSING, "File no longer in Downloads")
+        }
+        val dir = try {
+            platformDir(platform)
+        } catch (e: SecurityException) {
+            throw e
+        } catch (e: Exception) {
+            return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, e.message)
+        }
+
+        // Duplicate-aware placement, same policy as the generic
+        // single-file path.
+        val policy = item.duplicatePolicy ?: settings.duplicateDefault
+        val baseName = item.archiveName
+        val existing = try {
+            roms.find(dir, baseName)
+        } catch (e: SecurityException) {
+            throw e
+        }
+        if (existing != null && policy == DuplicatePolicy.SKIP) {
+            return ItemResult.SkippedDuplicate
+        }
+        val finalName = if (existing != null && policy == DuplicatePolicy.KEEP_BOTH) {
+            try {
+                uniqueName(roms, dir, baseName, isFile = true)
+            } catch (e: Exception) {
+                return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, e.message)
+            }
+        } else {
+            baseName
+        }
+
+        var backup: FsNode? = null
+        val tmpName = TMP_PREFIX + item.id.take(8)
+        fun rollback() {
+            runCatching { roms.find(dir, tmpName) }.getOrNull()
+                ?.let { cleanupQuietly(roms, it) }
+            // If the temp was already renamed into place, the
+            // unverified final file is debris too.
+            if (finalName != tmpName) {
+                runCatching { roms.find(dir, finalName) }.getOrNull()
+                    ?.let { cleanupQuietly(roms, it) }
+            }
+            backup?.let { runCatching { roms.rename(it, baseName) } }
+        }
+        try {
+            // REPLACE: park the existing file aside first so a failed
+            // write rolls back instead of losing it.
+            if (existing != null && policy == DuplicatePolicy.REPLACE) {
+                val backupName = BACKUP_PREFIX + baseName
+                roms.find(dir, backupName)?.let { roms.deleteRecursively(it) }
+                if (!roms.rename(existing, backupName)) {
+                    return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not park the existing game")
+                }
+                backup = roms.find(dir, backupName)
+            }
+            // Drop any stale temp from an interrupted run; the name is
+            // ours by construction, so nothing of the user's is at risk.
+            roms.find(dir, tmpName)?.let { roms.deleteRecursively(it) }
+
+            // Stream straight from Downloads under a dot-prefixed temp
+            // name, then rename into place.
+            setStage(ImportStage.COPYING, "Writing to ${mapping.folderFor(platform)}")
+            val node = roms.createFile(dir, tmpName)
+            try {
+                env.openDownload(item.archiveUri).use { input ->
+                    roms.openOutput(node).use { output -> input.copyTo(output) }
+                }
+            } catch (e: SecurityException) {
+                throw e
+            } catch (e: Exception) {
+                rollback()
+                return ItemResult.Failed(
+                    if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.WRITE_FAILED,
+                    e.message,
+                )
+            }
+            onBytes(item.archiveBytes)
+            if (!roms.rename(node, finalName)) {
+                rollback()
+                return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not finalize the game file")
+            }
+
+            // Verify the landed file by size before anything else.
+            setStage(ImportStage.VERIFYING, "Verifying")
+            val landed = roms.find(dir, finalName)
+            if (landed == null || roms.isDirectory(landed) ||
+                roms.length(landed) != item.archiveBytes || item.archiveBytes <= 0
+            ) {
+                rollback()
+                return ItemResult.Failed(
+                    ImportFailureReason.VERIFICATION_FAILED,
+                    "Destination did not match the source file",
+                )
+            }
+
+            setStage(ImportStage.CLEANING, "Tidying up")
+            backup?.let { cleanupQuietly(roms, it) }
+            log("Imported loose file ${item.archiveName} to ${mapping.folderFor(platform)}")
+            return ItemResult.Success
+        } catch (e: SecurityException) {
+            rollback()
+            throw e
+        } catch (e: Exception) {
+            rollback()
+            return ItemResult.Failed(
+                if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.WRITE_FAILED,
+                e.message,
+            )
+        }
+    }
+
+    /**
+     * PS1 loose file: gathers the descriptor, its claimed track/disc
+     * files, and a same-basename `.sbi` into the private temp dir,
+     * then runs the existing normalizer on it — no fork of the
+     * normalizer. `.bin`/`.iso`/`.pbp`/`.chd` install as-is (a lone
+     * `.chd` still passes chdman verification); `.cue` gets converted
+     * to CHD; `.m3u` assembles the multi-disc directory.
+     */
+    private fun importLoosePsx(
+        roms: ThemeFs,
+        platformDir: (PlatformId) -> FsNode,
+        item: ArchiveItem,
+        setStage: (ImportStage, String?) -> Unit,
+        onBytes: (Long) -> Unit,
+        onNormProgress: (Float, String) -> Unit,
+        log: (String) -> Unit,
+    ): ItemResult {
+        val support = psxSupport
+            ?: return ItemResult.Failed(ImportFailureReason.PSX_CHDMAN_MISSING, "PS1 support unavailable")
+        if (!env.archiveExists(item.archiveUri)) {
+            return ItemResult.Failed(ImportFailureReason.SOURCE_MISSING, "File no longer in Downloads")
+        }
+        val dir = try {
+            platformDir(PlatformId.PSX)
+        } catch (e: SecurityException) {
+            throw e
+        } catch (e: Exception) {
+            return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, e.message)
+        }
+
+        // Claimed track/disc files ride along with their descriptor.
+        val claimed = queue.items.value.filter { it.claimedByItemId == item.id }
+        val totalBytes = item.archiveBytes + claimed.sumOf { it.archiveBytes }
+
+        // Temp preflight: conversion needs the payload and the CHD
+        // output side by side.
+        if (support.tempFreeBytes() < totalBytes * 5 / 2) {
+            return ItemResult.Failed(
+                ImportFailureReason.NOT_ENOUGH_STORAGE,
+                "Not enough temp space for PS1 conversion",
+            )
+        }
+        val tempDir = try {
+            support.newTempDir(item.id)
+        } catch (e: Exception) {
+            return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
+        }
+        fun discardTemp() {
+            runCatching { tempDir.deleteRecursively() }
+        }
+
+        // Populate the temp dir straight from Downloads.
+        setStage(ImportStage.EXTRACTING, "Gathering files")
+        try {
+            copyDownloadToFile(item.archiveUri, File(tempDir, item.archiveName))
+            for (track in claimed) {
+                if (!env.archiveExists(track.archiveUri)) {
+                    discardTemp()
+                    return ItemResult.Failed(
+                        ImportFailureReason.SOURCE_MISSING,
+                        "${track.archiveName} no longer in Downloads",
+                    )
+                }
+                copyDownloadToFile(track.archiveUri, File(tempDir, track.archiveName))
+            }
+            if (item.archiveName.lowercase().endsWith(".cue")) {
+                // A same-basename .sbi rides along (it is never a
+                // queue item itself).
+                val sbiName = item.archiveName.substringBeforeLast('.') + ".sbi"
+                val sbi = try {
+                    env.downloadsListing().listFiles()
+                } catch (_: Exception) {
+                    emptyList()
+                }.firstOrNull { !it.isDirectory && it.name.equals(sbiName, ignoreCase = true) }
+                if (sbi != null) {
+                    copyDownloadToFile(sbi.uri, File(tempDir, sbi.name))
+                }
+            }
+            // A loose .m3u's own playlist file is intentionally not
+            // copied: the normalizer regenerates the playlist for the
+            // normalized discs.
+        } catch (e: SecurityException) {
+            discardTemp()
+            throw e
+        } catch (e: Exception) {
+            discardTemp()
+            return ItemResult.Failed(
+                if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.EXTRACTION_FAILED,
+                e.message,
+            )
+        }
+
+        return normalizeAndPlacePsx(roms, dir, item, tempDir, setStage, onBytes, onNormProgress, log)
+    }
+
+    /** Streams one Downloads document into a real file (PS1 temp staging). */
+    private fun copyDownloadToFile(uri: String, dest: File) {
+        env.openDownload(uri).use { input ->
+            dest.outputStream().use { output -> input.copyTo(output) }
         }
     }
 

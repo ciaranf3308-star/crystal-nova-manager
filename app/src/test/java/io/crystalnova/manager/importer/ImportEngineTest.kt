@@ -1,5 +1,6 @@
 package io.crystalnova.manager.importer
 
+import io.crystalnova.manager.storage.FsNode
 import io.crystalnova.manager.storage.InMemoryThemeFs
 import io.crystalnova.manager.storage.ThemeFs
 import kotlinx.coroutines.CoroutineScope
@@ -8,7 +9,9 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.InputStream
 import java.nio.file.Files
 
 /**
@@ -23,6 +26,7 @@ class ImportEngineTest {
     private class FakeEnv(
         var downloads: List<DownloadFile> = emptyList(),
         val zips: MutableMap<String, ByteArray> = mutableMapOf(),
+        val loose: MutableMap<String, ByteArray> = mutableMapOf(),
         val roms: InMemoryThemeFs = InMemoryThemeFs(),
         var freeBytes: Long = 100L * 1024 * 1024 * 1024,
         var deleteHook: ((String) -> Unit)? = null,
@@ -35,6 +39,9 @@ class ImportEngineTest {
 
         override fun archiveOpener() = ArchiveTestFixtures.FakeOpener(zips.toMap())
 
+        override fun openDownload(uri: String): InputStream =
+            ByteArrayInputStream(loose[uri] ?: throw ArchiveReadException("no loose bytes for $uri"))
+
         override fun romsFs(): ThemeFs = roms
 
         override fun archiveExists(uri: String): Boolean =
@@ -45,6 +52,7 @@ class ImportEngineTest {
             deleted += uri
             downloads = downloads.filterNot { it.uri == uri }
             zips.remove(uri)
+            loose.remove(uri)
             return true
         }
 
@@ -63,6 +71,7 @@ class ImportEngineTest {
     private fun harness(
         env: FakeEnv,
         psxSupport: PsxImportSupport? = null,
+        extractor: ArchiveExtractor? = null,
         settingsBlock: (ImporterSettings) -> Unit = {},
     ): Harness {
         val prefs = MapKeyValueStore()
@@ -79,7 +88,7 @@ class ImportEngineTest {
             queue = queue,
             inspector = ArchiveInspector(env.archiveOpener()),
             detector = PlatformDetector(),
-            extractor = ArchiveExtractor(env.archiveOpener()),
+            extractor = extractor ?: ArchiveExtractor(env.archiveOpener()),
             mapping = PlatformMapping(prefs),
             settings = settings,
             history = history,
@@ -98,6 +107,17 @@ class ImportEngineTest {
             bytesByUri[uri] = bytes
         }
         return FakeEnv(downloads = downloads, zips = bytesByUri)
+    }
+
+    private fun envWithLoose(vararg files: Pair<String, ByteArray>): FakeEnv {
+        val downloads = mutableListOf<DownloadFile>()
+        val bytesByUri = mutableMapOf<String, ByteArray>()
+        for ((name, bytes) in files) {
+            val uri = "uri:$name"
+            downloads += DownloadFile(name, bytes.size.toLong(), uri, false)
+            bytesByUri[uri] = bytes
+        }
+        return FakeEnv(downloads = downloads, loose = bytesByUri)
     }
 
     private fun romFile(env: FakeEnv, folder: String, name: String) =
@@ -771,5 +791,232 @@ class ImportEngineTest {
         assertEquals(listOf("Crash Bandicoot.chd"), env.roms.children(psxDir).map { it.first })
         assertTrue(psx.tempDirs.all { !it.exists() })
         assertEquals(listOf("uri:Crash Bandicoot.zip"), env.deleted)
+    }
+
+    // ------------------------------------------------------------------
+    // Loose files (u68): scan/classify/import without extraction
+    // ------------------------------------------------------------------
+
+    /** Fails the test if the archive extractor runs at all. */
+    private fun noExtractSpy(env: FakeEnv): ArchiveExtractor =
+        object : ArchiveExtractor(env.archiveOpener()) {
+            override fun extract(
+                fs: ThemeFs,
+                ref: ArchiveRef,
+                stagingDir: FsNode,
+                plan: ImportPlan,
+                directFileName: String?,
+                onProgress: (Long, Long) -> Unit,
+            ): ExtractReport = throw AssertionError("extractor invoked for loose item ${ref.name}")
+        }
+
+    @Test fun `loose gba builds confirmed item with SingleFile plan`() {
+        val env = envWithLoose("Pokemon Emerald.gba" to ByteArray(512) { 1 })
+        val h = harness(env, extractor = noExtractSpy(env))
+
+        h.engine.scan()
+        val item = h.engine.queueItems.value.single()
+        assertTrue(item.isLooseFile)
+        assertEquals(ArchiveKind.LOOSE_FILE, item.archiveKind)
+        assertEquals(PlatformId.GBA, item.detection.platform)
+        assertEquals(Confidence.CONFIRMED, item.detection.confidence)
+        assertTrue(item.detection.recognizedAsGame)
+        assertEquals(ImportTarget.SingleFile("Pokemon Emerald.gba"), item.plan!!.target)
+        assertEquals(1, item.plan!!.payloadFileCount)
+        assertEquals(512L, item.plan!!.payloadBytes)
+
+        val classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(1, classifying.autoIdentified.size)
+        assertTrue(classifying.needsReview.isEmpty())
+    }
+
+    @Test fun `loose gba imports straight into gba without extraction`() {
+        val romBytes = ByteArray(2048) { 42 }
+        val env = envWithLoose("Pokemon Emerald.gba" to romBytes)
+        val h = harness(env, extractor = noExtractSpy(env))
+
+        h.engine.scan()
+        h.engine.prepareImport()
+        assertTrue(h.engine.uiState.value is ImportUiState.Ready)
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.succeeded)
+        assertTrue(results.failed.isEmpty())
+        assertEquals(1, results.deletedSources)
+
+        // Destination has the game with intact bytes.
+        val dest = romFile(env, "gba", "Pokemon Emerald.gba")!!
+        assertEquals(2048L, env.roms.length(dest))
+        assertTrue(env.roms.openInput(dest).readBytes().all { it == 42.toByte() })
+
+        // No dot-prefixed temp leftovers.
+        val gbaDir = env.roms.find(env.roms.rootNode, "gba")!!
+        assertTrue(env.roms.children(gbaDir).none { (n, _) -> n.startsWith(".") })
+
+        // Source deleted only after the verified write.
+        assertEquals(listOf("uri:Pokemon Emerald.gba"), env.deleted)
+        assertEquals(ImportStage.COMPLETE, h.engine.queueItems.value.single().stage)
+    }
+
+    @Test fun `loose bin is recognized but needs review`() {
+        val env = envWithLoose("game.bin" to ByteArray(64))
+        val h = harness(env)
+
+        h.engine.scan()
+        val item = h.engine.queueItems.value.single()
+        assertTrue(item.isLooseFile)
+        assertTrue(item.detection.recognizedAsGame)
+        assertEquals(null, item.detection.platform)
+
+        val classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(1, classifying.needsReview.size)
+        assertTrue(classifying.autoIdentified.isEmpty())
+    }
+
+    @Test fun `cue claims its bins; lone bin stays independent`() {
+        val cue = "FILE \"Game (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"
+        val env = envWithLoose(
+            "Game.cue" to cue.toByteArray(),
+            "Game (Track 1).bin" to ByteArray(32),
+            "lone.bin" to ByteArray(16),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        val items = h.engine.queueItems.value
+        assertEquals(3, items.size)
+        val cueItem = items.first { it.archiveName == "Game.cue" }
+        val track = items.first { it.archiveName == "Game (Track 1).bin" }
+        val lone = items.first { it.archiveName == "lone.bin" }
+        assertTrue(track.isClaimed)
+        assertEquals(cueItem.id, track.claimedByItemId)
+        assertEquals(null, lone.claimedByItemId)
+        assertFalse(track.needsReview)
+        assertFalse(track.importable)
+
+        // The classify screen shows only the descriptor and the lone bin.
+        val classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(2, classifying.needsReview.size)
+        assertTrue(
+            classifying.needsReview.map { it.archiveName }
+                .containsAll(listOf("Game.cue", "lone.bin")),
+        )
+    }
+
+    @Test fun `m3u claims its discs`() {
+        val env = envWithLoose(
+            "Game.m3u" to "#EXTM3U\nDisc 1.chd\nDisc 2.chd\n".toByteArray(),
+            "Disc 1.chd" to ByteArray(48),
+            "Disc 2.chd" to ByteArray(48),
+            "Other.chd" to ByteArray(48),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        val items = h.engine.queueItems.value
+        assertEquals(4, items.size)
+        val m3uItem = items.first { it.archiveName == "Game.m3u" }
+        assertEquals(m3uItem.id, items.first { it.archiveName == "Disc 1.chd" }.claimedByItemId)
+        assertEquals(m3uItem.id, items.first { it.archiveName == "Disc 2.chd" }.claimedByItemId)
+        assertEquals(null, items.first { it.archiveName == "Other.chd" }.claimedByItemId)
+
+        val classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(2, classifying.needsReview.size)
+    }
+
+    @Test fun `removing a descriptor frees its claimed files`() {
+        val cue = "FILE \"Game (Track 1).bin\" BINARY\n"
+        val env = envWithLoose(
+            "Game.cue" to cue.toByteArray(),
+            "Game (Track 1).bin" to ByteArray(32),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        val cueId = h.engine.queueItems.value.first { it.archiveName == "Game.cue" }.id
+        h.engine.removeItem(cueId)
+
+        val items = h.engine.queueItems.value
+        assertEquals(1, items.size)
+        assertEquals(null, items.single().claimedByItemId)
+        val classifying = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(1, classifying.needsReview.size)
+    }
+
+    @Test fun `loose psx bin installs as-is`() {
+        val env = envWithLoose("Crash.bin" to ByteArray(128) { 9 })
+        val psx = FakePsxSupport(converter = FakeChdConverter())
+        val h = harness(env, psxSupport = psx, extractor = noExtractSpy(env))
+
+        h.engine.scan()
+        val item = h.engine.queueItems.value.single()
+        h.engine.setPlatform(item.id, PlatformId.PSX)
+        h.engine.prepareImport()
+        assertTrue(h.engine.uiState.value is ImportUiState.Ready)
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.succeeded)
+        assertTrue(results.failed.isEmpty())
+        val psxDir = env.roms.find(env.roms.rootNode, "psx")!!
+        assertEquals(listOf("Crash.bin"), env.roms.children(psxDir).map { it.first })
+        assertEquals(128L, env.roms.length(romFile(env, "psx", "Crash.bin")!!))
+        assertTrue(psx.tempDirs.all { !it.exists() })
+        assertEquals(listOf("uri:Crash.bin"), env.deleted)
+    }
+
+    @Test fun `loose psx cue converts to chd and deletes claimed sources`() {
+        val cue = "FILE \"Game (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"
+        val env = envWithLoose(
+            "Game.cue" to cue.toByteArray(),
+            "Game (Track 1).bin" to ByteArray(64),
+        )
+        val psx = FakePsxSupport(converter = FakeChdConverter())
+        val h = harness(env, psxSupport = psx, extractor = noExtractSpy(env))
+
+        h.engine.scan()
+        val cueItem = h.engine.queueItems.value.first { it.archiveName == "Game.cue" }
+        h.engine.setPlatform(cueItem.id, PlatformId.PSX)
+        h.engine.prepareImport()
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.succeeded)
+        assertTrue(results.failed.isEmpty())
+        assertEquals(2, results.deletedSources)
+        val psxDir = env.roms.find(env.roms.rootNode, "psx")!!
+        assertEquals(listOf("Game.chd"), env.roms.children(psxDir).map { it.first })
+        assertTrue(psx.tempDirs.all { !it.exists() })
+        // Both the descriptor and the claimed track left Downloads.
+        assertEquals(setOf("uri:Game.cue", "uri:Game (Track 1).bin"), env.deleted.toSet())
+        // The claimed track is consumed, not left waiting.
+        assertEquals(ImportStage.COMPLETE, h.engine.queueItems.value.first { it.archiveName == "Game (Track 1).bin" }.stage)
+    }
+
+    @Test fun `loose psx broken cue fails typed, sources kept, temp cleaned`() {
+        val env = envWithLoose(
+            "Game.cue" to "FILE \"Missing.bin\" BINARY\n".toByteArray(),
+        )
+        val psx = FakePsxSupport(converter = FakeChdConverter())
+        val h = harness(env, psxSupport = psx, extractor = noExtractSpy(env))
+
+        h.engine.scan()
+        val item = h.engine.queueItems.value.single()
+        h.engine.setPlatform(item.id, PlatformId.PSX)
+        h.engine.prepareImport()
+        assertTrue(h.engine.uiState.value is ImportUiState.Ready)
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.failed.size)
+        assertEquals(ImportFailureReason.PSX_CUE_TRACKS_MISSING, results.failed.single().reason)
+        // Atomicity: psx/ holds nothing, the temp dir is gone, the
+        // source stays in Downloads.
+        val psxDir = env.roms.find(env.roms.rootNode, "psx")!!
+        assertTrue(env.roms.children(psxDir).isEmpty())
+        assertTrue(psx.tempDirs.all { !it.exists() })
+        assertTrue(env.deleted.isEmpty())
+        assertEquals(1, env.downloads.size)
     }
 }

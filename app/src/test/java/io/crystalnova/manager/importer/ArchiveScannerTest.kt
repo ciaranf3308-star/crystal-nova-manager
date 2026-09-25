@@ -54,7 +54,37 @@ class ArchiveScannerTest {
     @Test fun `empty downloads scans clean`() {
         val outcome = ArchiveScanner(listing()).scan()
         assertTrue(outcome.archives.isEmpty())
+        assertTrue(outcome.looseFiles.isEmpty())
         assertTrue(outcome.unsupported.isEmpty())
+    }
+
+    @Test fun `loose game files listed, largest first, others ignored`() {
+        val scanner = ArchiveScanner(
+            listing(
+                file("Pokemon Emerald.gba", 100),
+                file("game.bin", 4_000_000_000L),
+                file("movie.iso", 500),
+                file("disc.chd", 700),
+                file("playlist.m3u", 10),
+                file("notes.txt"),
+                file("photo.jpg"),
+                file("game.sbi"),
+                file("game.rar"),
+            ),
+        )
+        val outcome = scanner.scan()
+        assertEquals(
+            listOf("game.bin", "disc.chd", "movie.iso", "Pokemon Emerald.gba", "playlist.m3u"),
+            outcome.looseFiles.map { it.name },
+        )
+        assertTrue(outcome.looseFiles.all { it.kind == ArchiveKind.LOOSE_FILE })
+        assertTrue(outcome.archives.isEmpty())
+        assertEquals(listOf("game.rar"), outcome.unsupported.map { it.name })
+    }
+
+    @Test fun `loose extensions are case insensitive`() {
+        val outcome = ArchiveScanner(listing(file("ROM.GBA"), file("DISC.CHD"))).scan()
+        assertEquals(setOf("ROM.GBA", "DISC.CHD"), outcome.looseFiles.map { it.name }.toSet())
     }
 
     @Test fun `relative path flows from listing to archive ref`() {

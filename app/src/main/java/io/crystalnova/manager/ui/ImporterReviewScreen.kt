@@ -122,7 +122,7 @@ private fun ControllerGridContent.ReadySection(
         }
     }
     panel {
-        StatusLine("SEQUENTIAL — ONE ARCHIVE AT A TIME", Crystal.InkDim)
+        StatusLine("SEQUENTIAL — ONE ITEM AT A TIME", Crystal.InkDim)
         StatusLine("SOURCE DELETED ONLY AFTER VERIFY", Crystal.InkDim)
     }
     panel {

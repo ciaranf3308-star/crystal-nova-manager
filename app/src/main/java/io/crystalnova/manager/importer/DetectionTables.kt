@@ -68,6 +68,20 @@ object DetectionTables {
     )
 
     /**
+     * Extensions eligible as loose (non-archive) game files in
+     * Downloads: everything the detector can confirm directly, plus
+     * the ambiguous disc containers, plus `.m3u` (a multi-disc
+     * descriptor whose discs get claimed at scan time). Anything
+     * else — docs, images, `.sbi`, etc. — stays ignored exactly as
+     * before.
+     *
+     * This set does not feed [PlatformDetector.detect], so
+     * [DETECTION_TABLES_VERSION] is unchanged.
+     */
+    val looseFileExtension: Set<String> =
+        directExtension.keys + ambiguousDiscExtension + "m3u"
+
+    /**
      * Extensions that are never game content: docs, images, audio,
      * tools, patches. An archive containing ONLY these (and no other
      * signal) is NOT_RECOGNIZED_AS_GAME rather than UNKNOWN.

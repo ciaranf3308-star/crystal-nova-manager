@@ -98,6 +98,12 @@ enum class ArchiveKind {
      * skipped, and never attempted. The UI explains why.
      */
     RAR_UNSUPPORTED,
+
+    /**
+     * A loose (non-archive) game file in Downloads — moved, never
+     * extracted. Produced by the scanner, not by [archiveKindOf].
+     */
+    LOOSE_FILE,
     UNKNOWN,
 }
 
@@ -287,13 +293,30 @@ data class ArchiveItem(
      * (transient across scans, persisted so a restart keeps the flag).
      */
     val sourceMissing: Boolean = false,
+    /**
+     * True for loose (non-archive) files: the import path streams the
+     * file directly instead of inspecting/extracting it.
+     */
+    val isLooseFile: Boolean = false,
+    /**
+     * Id of the descriptor item (a loose `.cue` or `.m3u`) this file
+     * was claimed by at scan time. Claimed files ride along with
+     * their descriptor and never appear independently in the
+     * classify/import lists.
+     */
+    val claimedByItemId: String? = null,
     val addedAt: Long = 0L,
 ) {
+    /** True when this file was claimed by a `.cue`/`.m3u` descriptor. */
+    val isClaimed: Boolean
+        get() = claimedByItemId != null
+
     /** True when the item still needs a human decision. */
     val needsReview: Boolean
         get() = stage == ImportStage.WAITING &&
             !inspectFailed &&
             !sourceMissing &&
+            !isClaimed &&
             detection.recognizedAsGame &&
             platform == null
 
@@ -301,6 +324,7 @@ data class ArchiveItem(
     val importable: Boolean
         get() = !inspectFailed &&
             !sourceMissing &&
+            !isClaimed &&
             detection.recognizedAsGame &&
             platform != null &&
             plan != null &&

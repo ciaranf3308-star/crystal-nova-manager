@@ -20,8 +20,10 @@ import java.util.zip.ZipInputStream
  *   multi-file units are kept together, never split or flattened.
  * - One archive at a time — the engine never runs two extractions
  *   concurrently (see [ImportEngine]).
+ *
+ * Open so unit tests can spy on (never-)invocation.
  */
-class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
+open class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
 
     data class ExtractReport(
         val fileCount: Int,
@@ -29,7 +31,7 @@ class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
     )
 
     @Throws(ArchiveReadException::class)
-    fun extract(
+    open fun extract(
         fs: ThemeFs,
         ref: ArchiveRef,
         stagingDir: FsNode,

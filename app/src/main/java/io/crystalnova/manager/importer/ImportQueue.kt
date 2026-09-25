@@ -113,6 +113,8 @@ class ImportQueue(private val file: File) {
         "duplicatePolicy" to item.duplicatePolicy?.name,
         "extractedBytes" to item.extractedBytes,
         "sourceMissing" to item.sourceMissing,
+        "isLooseFile" to item.isLooseFile,
+        "claimedByItemId" to item.claimedByItemId,
         "addedAt" to item.addedAt,
     )
 
@@ -158,6 +160,8 @@ class ImportQueue(private val file: File) {
                 duplicatePolicy = (map["duplicatePolicy"] as? String)?.let { runCatching { enumValueOf<DuplicatePolicy>(it) }.getOrNull() },
                 extractedBytes = (map["extractedBytes"] as? Number)?.toLong() ?: 0L,
                 sourceMissing = (map["sourceMissing"] as? Boolean) ?: false,
+                isLooseFile = (map["isLooseFile"] as? Boolean) ?: false,
+                claimedByItemId = map["claimedByItemId"] as? String,
                 addedAt = (map["addedAt"] as? Number)?.toLong() ?: 0L,
             )
         } catch (_: Exception) {

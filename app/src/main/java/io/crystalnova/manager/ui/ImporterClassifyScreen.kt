@@ -10,14 +10,24 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.sp
 import io.crystalnova.manager.importer.Confidence
+import io.crystalnova.manager.importer.ArchiveKind
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.PlatformId
 import io.crystalnova.manager.importer.formatBytes
 import io.crystalnova.manager.importer.labels
 
+/** Human-readable container label for the classify identity line. */
+private fun kindLabel(kind: ArchiveKind): String = when (kind) {
+    ArchiveKind.ZIP -> "ZIP"
+    ArchiveKind.SEVEN_Z -> "7Z"
+    ArchiveKind.LOOSE_FILE -> "LOOSE FILE"
+    ArchiveKind.RAR_UNSUPPORTED -> "RAR (UNSUPPORTED)"
+    ArchiveKind.UNKNOWN -> "FILE"
+}
+
 /**
- * One-at-a-time platform classification. Only archives the detector
+ * One-at-a-time platform classification. Only items the detector
  * could not place arrive here — everything certain skipped this
  * screen entirely.
  *
@@ -26,7 +36,7 @@ import io.crystalnova.manager.importer.labels
  * are actionable, otherwise back to the hub.
  *
  * 4:3 redesign: a 2-column grid with a clear three-zone hierarchy —
- * the archive's identity in a prominent full-width panel at top
+ * the item's identity in a prominent full-width panel at top
  * (title, filename, size, friendly detector clues), the 18 platform
  * choices as generous content-sized tiles, and SKIP / NOT A GAME as
  * a distinct action row at the bottom. Tiles size to their content;
@@ -80,7 +90,7 @@ fun ImporterClassifyScreen(
 
             val item = state.needsReview.first()
             val remaining = state.needsReview.size - 1
-            // ---- Zone 1: archive identity — the whole point of this
+            // ---- Zone 1: item identity — the whole point of this
             // screen is "what is THIS file", so it gets the biggest
             // panel and the biggest type. ----
             panel {
@@ -100,7 +110,7 @@ fun ImporterClassifyScreen(
                     overflow = TextOverflow.Ellipsis,
                 )
                 DimLine(
-                    "${item.archiveName} · ${formatBytes(item.archiveBytes)} · ${item.archiveKind}",
+                    "${item.archiveName} · ${formatBytes(item.archiveBytes)} · ${kindLabel(item.archiveKind)}",
                 )
                 if (item.relativePath.isNotEmpty()) {
                     DimLine("IN DOWNLOADS/${item.relativePath}")

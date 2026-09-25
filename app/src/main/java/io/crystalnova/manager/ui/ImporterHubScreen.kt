@@ -82,7 +82,7 @@ fun ImporterHubScreen(
     }
 
     val waiting = queueItems.count {
-        it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
+        it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED && !it.isClaimed
     }
     val needsReview = queueItems.count { it.needsReview }
     val failed = queueItems.count { it.stage == ImportStage.FAILED }
@@ -135,7 +135,7 @@ fun ImporterHubScreen(
                         }
                         if (s.unreadable.isNotEmpty()) {
                             StatusLine(
-                                "${s.unreadable.size} UNREADABLE ARCHIVES",
+                                "${s.unreadable.size} UNREADABLE FILES",
                                 Crystal.Bad,
                             )
                         }
@@ -220,7 +220,7 @@ fun ImporterHubScreen(
             control(
                 key = "scan",
                 label = "SCAN DOWNLOADS",
-                subLabel = "ZIP + 7Z — RAR REPORTED, NOT SUPPORTED",
+                subLabel = "ZIP + 7Z + LOOSE GAME FILES — RAR REPORTED, NOT SUPPORTED",
                 enabled = downloadsOk && uiState !is ImportUiState.Scanning,
                 onClick = { engine.scan() },
             )
@@ -246,7 +246,7 @@ fun ImporterHubScreen(
                 }
             }
             panel {
-                StatusLine("ONE ARCHIVE AT A TIME. SOURCE DELETED ONLY")
+                StatusLine("ONE FILE AT A TIME. SOURCE DELETED ONLY")
                 StatusLine("AFTER THE DESTINATION VERIFIES.")
                 StatusLine("CANCEL MEANS “AFTER THE CURRENT GAME”.", Crystal.InkDim)
             }
