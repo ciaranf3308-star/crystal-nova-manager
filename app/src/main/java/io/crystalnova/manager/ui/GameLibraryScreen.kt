@@ -21,30 +21,34 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import io.crystalnova.manager.importer.LibrarySystem
 import androidx.compose.ui.text.AnnotatedString
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.LibraryScan
-import io.crystalnova.manager.importer.labels
 import io.crystalnova.manager.importer.scanGameLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * GAME LIBRARY (u56): read-only export of the ROM collection as a
- * plain-text list grouped by console. COPY ALL puts the whole list on
- * the clipboard for pasting into ChatGPT. No database, no metadata,
- * no management UI: scan -> text -> copy.
+ * GAME LIBRARY (u66): read-only export of the ROM collection as JSON
+ * that mirrors the real folder structure under the ROM root. COPY ALL
+ * puts the JSON on the clipboard for pasting into ChatGPT. No
+ * database, no metadata, no management UI: scan -> JSON -> copy.
+ *
+ * The export walks the ACTUAL children of the ROM root — no
+ * platform→folder mapping, no guessing, no filtering beyond hidden
+ * entries. Every real folder appears under its real name, files keep
+ * their full names and extensions, and empty folders are included.
+ * What you see in your file manager is what you get.
  *
  * Pure function of the graph: the scan runs on IO and is strictly
  * read-only (see [scanGameLibrary]). A null scan means the ROM root
  * is not granted — the screen says so and points at the importer.
  *
  * 4:3 redesign: COPY ALL stays the big primary tile through its
- * two-line sublabel (content-sized, no fixed height). The system
+ * two-line sublabel (content-sized, no fixed height). The folder
  * chips are a deterministic vertical stack of full-width rows —
- * short name + game count, ellipsis if long — instead of a FlowRow
+ * folder name + file count, ellipsis if long — instead of a FlowRow
  * whose wrapping is unpredictable on the handheld.
  */
 @Composable
@@ -61,7 +65,7 @@ fun GameLibraryScreen(
     LaunchedEffect(refreshTick) {
         scanning = true
         scan = withContext(Dispatchers.IO) {
-            scanGameLibrary(graph.mapping, graph.env.romsFs())
+            scanGameLibrary(graph.env.romsFs())
         }
         scanning = false
     }
@@ -95,11 +99,10 @@ fun GameLibraryScreen(
                     DimLine("GRANT THE ROM ROOT IN THE GAME IMPORTER FIRST.")
                 }
             } else {
-                val total = result.totalGames
-                val systems = result.systemCount
+                val total = result.totalFiles
+                val folders = result.folderCount
                 panel {
-                    StatusLine("$total ${if (total == 1) "game" else "games"} found")
-                    StatusLine("$systems ${if (systems == 1) "system" else "systems"}")
+                    StatusLine("$total FILES IN $folders FOLDERS")
                 }
                 if (scanning) {
                     panel {
@@ -114,7 +117,7 @@ fun GameLibraryScreen(
                 control(
                     key = "copy-all",
                     label = "COPY ALL",
-                    subLabel = "COPY THE FULL LIST TO THE CLIPBOARD",
+                    subLabel = "COPY THE REAL FOLDER STRUCTURE AS JSON",
                     enabled = total > 0,
                     onClick = {
                         clipboard.setText(AnnotatedString(result.exportText))
@@ -128,14 +131,13 @@ fun GameLibraryScreen(
                 }
                 if (total == 0) {
                     panel {
-                        DimLine("NO GAMES FOUND IN THE MAPPED ROM FOLDERS.")
+                        DimLine("NO FILES FOUND IN THE ROM FOLDER.")
                     }
                 } else {
                     panel {
                         Column(modifier = Modifier.fillMaxWidth()) {
-                            for (system in result.systems) {
-                                val label = system.platform.labels()
-                                SystemRow("${label.short} — ${system.games.size} GAME${if (system.games.size == 1) "" else "S"}")
+                            for (folder in result.folders) {
+                                SystemRow("${folder.name} — ${folder.files.size} FILES")
                             }
                         }
                     }
@@ -146,8 +148,8 @@ fun GameLibraryScreen(
 }
 
 /**
- * Display-only system rows: a deterministic vertical stack of
- * full-width rows inside the panel. Not focusable: tapping a system
+ * Display-only folder rows: a deterministic vertical stack of
+ * full-width rows inside the panel. Not focusable: tapping a folder
  * to see its filenames is explicitly out of scope for this build, so
  * D-pad focus moves straight between REFRESH and COPY ALL.
  */

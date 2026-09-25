@@ -1,129 +1,124 @@
 package io.crystalnova.manager.importer
 
 import io.crystalnova.manager.storage.InMemoryThemeFs
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * Game List Export tests: extension stripping, .bin/.cue dedup,
- * grouping/order, and the exact export-text format. The scan glue is
- * exercised against [InMemoryThemeFs]; nothing here touches disk.
+ * Game List Export tests: the scan is a faithful dump of the REAL
+ * folder tree — no mapping, no guessing, no filtering beyond hidden
+ * entries. Exercised against [InMemoryThemeFs]; nothing here touches
+ * disk.
  */
 class GameLibraryExportTest {
 
-    @Test fun `display name strips only the last extension`() {
-        assertEquals("Pokemon Emerald", GameLibraryExport.displayName("Pokemon Emerald.zip"))
-        assertEquals(
-            "Mario Golf - Advance Tour",
-            GameLibraryExport.displayName("Mario Golf - Advance Tour.gba"),
-        )
-        assertEquals("archive.tar", GameLibraryExport.displayName("archive.tar.gz"))
-        assertEquals("noextension", GameLibraryExport.displayName("noextension"))
-    }
-
-    @Test fun `bin is dropped when a matching cue exists`() {
-        val names = GameLibraryExport.gameNames(
-            listOf("Dark Cloud 2.bin", "Dark Cloud 2.cue", "Gran Turismo 4.iso"),
-        )
-        assertEquals(listOf("Dark Cloud 2", "Gran Turismo 4"), names)
-    }
-
-    @Test fun `bin dedup is case-insensitive`() {
-        val names = GameLibraryExport.gameNames(listOf("Rogue Disc.BIN", "rogue disc.CUE"))
-        assertEquals(listOf("rogue disc"), names)
-    }
-
-    @Test fun `lone bin and lone cue are both kept`() {
-        assertEquals(listOf("Rogue Disc"), GameLibraryExport.gameNames(listOf("Rogue Disc.bin")))
-        assertEquals(listOf("Rogue Disc"), GameLibraryExport.gameNames(listOf("Rogue Disc.cue")))
-    }
-
-    @Test fun `render matches the exact export format`() {
-        val systems = listOf(
-            LibrarySystem(
-                PlatformId.GBA,
-                listOf("Pokemon Emerald", "Mario Golf - Advance Tour", "Golden Sun"),
-            ),
-            LibrarySystem(
-                PlatformId.PS2,
-                listOf("Metal Gear Solid 2 - Sons of Liberty", "Dark Cloud 2", "Gran Turismo 4"),
-            ),
-            LibrarySystem(
-                PlatformId.GAMECUBE,
-                listOf("Mario Kart - Double Dash", "Resident Evil 4"),
-            ),
-        )
-        assertEquals(
-            "GAME BOY ADVANCE\n" +
-                "Pokemon Emerald\n" +
-                "Mario Golf - Advance Tour\n" +
-                "Golden Sun\n" +
-                "\n" +
-                "PLAYSTATION 2\n" +
-                "Metal Gear Solid 2 - Sons of Liberty\n" +
-                "Dark Cloud 2\n" +
-                "Gran Turismo 4\n" +
-                "\n" +
-                "GAMECUBE\n" +
-                "Mario Kart - Double Dash\n" +
-                "Resident Evil 4",
-            GameLibraryExport.render(systems),
-        )
-    }
-
-    @Test fun `render of an empty library is empty`() {
-        assertEquals("", GameLibraryExport.render(emptyList()))
-        assertEquals("", LibraryScan(emptyList()).exportText)
-    }
-
     private fun romTree(): InMemoryThemeFs {
         val fs = InMemoryThemeFs()
-        val gba = fs.mkdir(fs.rootNode, "gba")
-        fs.createFile(gba, "Pokemon Emerald.zip")
-        fs.createFile(gba, "Golden Sun.gba")
-        fs.createFile(gba, ".hidden.zip")
-        val sub = fs.mkdir(gba, "subfolder")
-        fs.createFile(sub, "nested.zip")
-        val ps2 = fs.mkdir(fs.rootNode, "ps2")
-        fs.createFile(ps2, "Dark Cloud 2.bin")
-        fs.createFile(ps2, "Dark Cloud 2.cue")
-        fs.createFile(ps2, "Gran Turismo 4.iso")
-        // Genesis/Mega Drive share one default folder: counted once.
-        val genesis = fs.mkdir(fs.rootNode, "genesis")
-        fs.createFile(genesis, "Sonic.zip")
+        val n3ds = fs.mkdir(fs.rootNode, "3ds")
+        fs.createFile(n3ds, "a.3ds")
+        val nested = fs.mkdir(n3ds, "nested")
+        fs.createFile(nested, "b.3ds")
+        val gc = fs.mkdir(fs.rootNode, "gc")
+        fs.createFile(gc, "game.iso")
+        fs.createFile(gc, "Celebrity Deathmatch.xiso")
+        // Hidden entries never appear: neither the dir nor the file.
+        val hidden = fs.mkdir(fs.rootNode, ".hidden")
+        fs.createFile(hidden, "secret.3ds")
+        fs.createFile(fs.rootNode, ".dotfile")
+        fs.createFile(fs.rootNode, "readme.txt")
+        // Empty folders are included, not omitted.
+        fs.mkdir(fs.rootNode, "empty")
         return fs
     }
 
-    @Test fun `scan groups by console in mapping order and skips empties`() {
-        val scan = scanGameLibrary(PlatformMapping(MapKeyValueStore()), romTree())!!
-        assertEquals(
-            listOf(PlatformId.GBA, PlatformId.GENESIS, PlatformId.PS2),
-            scan.systems.map { it.platform },
+    private fun folderOf(scan: LibraryScan, name: String): LibraryFolder =
+        scan.folders.first { it.name == name }
+
+    @Test fun `scan dumps the real folder tree as json`() {
+        val scan = scanGameLibrary(romTree())!!
+        assertEquals(setOf("3ds", "gc", "empty", "_root"), scan.folders.map { it.name }.toSet())
+        assertEquals(listOf("a.3ds", "nested/b.3ds"), folderOf(scan, "3ds").files)
+        assertEquals(listOf("Celebrity Deathmatch.xiso", "game.iso"), folderOf(scan, "gc").files)
+        assertTrue(folderOf(scan, "empty").files.isEmpty())
+        assertEquals(listOf("readme.txt"), folderOf(scan, "_root").files)
+        assertEquals(5, scan.totalFiles)
+        assertEquals(4, scan.folderCount)
+        // Full filenames with extensions: nothing stripped, nothing deduped.
+        assertTrue(scan.exportText.contains("Celebrity Deathmatch.xiso"))
+    }
+
+    @Test fun `hidden entries never appear anywhere`() {
+        val scan = scanGameLibrary(romTree())!!
+        assertTrue(scan.folders.none { it.name.startsWith('.') })
+        assertTrue(scan.exportText.lines().none { it.contains("hidden") || it.contains("dotfile") })
+    }
+
+    @Test fun `folders and files are sorted so the text is deterministic`() {
+        val scan = scanGameLibrary(romTree())!!
+        assertEquals(scan.folders.map { it.name }, scan.folders.map { it.name }.sorted())
+        for (folder in scan.folders) {
+            assertEquals(folder.files, folder.files.sorted())
+        }
+    }
+
+    @Test fun `two scans produce byte-identical text`() {
+        val first = scanGameLibrary(romTree())!!.exportText
+        val second = scanGameLibrary(romTree())!!.exportText
+        assertEquals(first, second)
+    }
+
+    @Test fun `export text matches the exact json format`() {
+        val scan = LibraryScan(
+            listOf(
+                LibraryFolder("3ds", listOf("a.3ds", "sub/b.3ds")),
+                LibraryFolder("_root", listOf("bios.bin")),
+            ),
         )
-        assertEquals(listOf("Pokemon Emerald", "Golden Sun"), scan.systems[0].games)
-        assertEquals(listOf("Sonic"), scan.systems[1].games)
-        assertEquals(listOf("Dark Cloud 2", "Gran Turismo 4"), scan.systems[2].games)
-        assertEquals(5, scan.totalGames)
-        assertEquals(3, scan.systemCount)
-        // Hidden files and subdirectory contents never appear.
-        assertTrue(scan.exportText.lines().none { it.contains("hidden") || it.contains("nested") })
+        assertEquals(
+            "{\n" +
+                "  \"3ds\": [\n" +
+                "    \"a.3ds\",\n" +
+                "    \"sub/b.3ds\"\n" +
+                "  ],\n" +
+                "  \"_root\": [\n" +
+                "    \"bios.bin\"\n" +
+                "  ]\n" +
+                "}",
+            scan.exportText,
+        )
+    }
+
+    @Test fun `empty folder renders as an empty array`() {
+        val text = LibraryScan(listOf(LibraryFolder("empty", emptyList()))).exportText
+        assertEquals("{\n  \"empty\": [\n  ]\n}", text)
+        assertEquals(0, JSONObject(text).getJSONArray("empty").length())
+    }
+
+    @Test fun `tricky filenames round-trip through a json parse`() {
+        val tricky = "He said \"hi\" \\ bye.3ds"
+        val fs = InMemoryThemeFs()
+        val n3ds = fs.mkdir(fs.rootNode, "3ds")
+        fs.createFile(n3ds, tricky)
+        val parsed = JSONObject(scanGameLibrary(fs)!!.exportText)
+        assertEquals(tricky, parsed.getJSONArray("3ds").getString(0))
     }
 
     @Test fun `scan returns null without a roms fs`() {
-        assertNull(scanGameLibrary(PlatformMapping(MapKeyValueStore()), null))
+        assertNull(scanGameLibrary(null))
     }
 
     @Test fun `scan returns null when the root is gone`() {
         val fs = romTree()
         fs.rootAvailable = false
-        assertNull(scanGameLibrary(PlatformMapping(MapKeyValueStore()), fs))
+        assertNull(scanGameLibrary(fs))
     }
 
-    @Test fun `scan of an empty tree finds nothing`() {
-        val scan = scanGameLibrary(PlatformMapping(MapKeyValueStore()), InMemoryThemeFs())!!
-        assertTrue(scan.systems.isEmpty())
-        assertEquals(0, scan.totalGames)
+    @Test fun `scan of an empty tree has only the empty root bucket`() {
+        val scan = scanGameLibrary(InMemoryThemeFs())!!
+        assertEquals(listOf(LIBRARY_ROOT_KEY), scan.folders.map { it.name })
+        assertEquals(0, scan.totalFiles)
     }
 }

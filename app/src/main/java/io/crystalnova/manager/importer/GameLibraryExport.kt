@@ -3,97 +3,122 @@ package io.crystalnova.manager.importer
 import io.crystalnova.manager.storage.ThemeFs
 
 /**
- * Game List Export (u56): a read-only scan of the configured ROM
- * folders into a plain-text list grouped by console. COPY ALL puts
- * the text on the clipboard so the user can paste it into ChatGPT.
+ * Game List Export (u66): a faithful, read-only JSON dump of the REAL
+ * ROM folder tree. COPY ALL puts the JSON on the clipboard so the user
+ * can paste it into ChatGPT.
  *
- * Deliberately minimal: no database, no metadata, no scraper, no
- * internet, no ES-DE metadata parsing, no title normalization beyond
- * dropping the file extension. The single dedup rule: a `.bin` is
- * skipped when a same-basename `.cue` exists in the same folder.
+ * The old version walked the platform→folder mapping and silently
+ * skipped every real folder the mapping didn't know (a 3DS folder
+ * vanished entirely) while relabelling folders through stale
+ * mappings. This version walks the ACTUAL children of the ROM root:
+ * no mapping, no guessing, no filtering beyond hidden entries, no
+ * title normalization, no extension stripping. What you see in your
+ * file manager is what you get.
+ *
+ * The ONLY exclusion: entries whose name starts with '.' (system
+ * temps like `.importing-*`, `.nomedia`). Everything else — every
+ * folder, every file, every extension — is exported as-is, including
+ * folders that are completely empty.
  */
 
-/** One console's games, in platform-mapping order. */
-data class LibrarySystem(
-    val platform: PlatformId,
-    val games: List<String>,
+/** One real folder under the ROM root: files are `/`-separated paths relative to it, sorted. */
+data class LibraryFolder(
+    val name: String,
+    val files: List<String>,
 )
 
-/** Read-only scan result. Systems with zero games are omitted. */
-data class LibraryScan(val systems: List<LibrarySystem>) {
-    val totalGames: Int get() = systems.sumOf { it.games.size }
-    val systemCount: Int get() = systems.size
-    val exportText: String get() = GameLibraryExport.render(systems)
-}
+/** Key under which loose files sitting directly in the ROM root are collected. */
+const val LIBRARY_ROOT_KEY = "_root"
 
-object GameLibraryExport {
-
-    /**
-     * "Pokemon Emerald.zip" -> "Pokemon Emerald". Only the LAST
-     * extension is removed; nothing else is normalized.
-     */
-    fun displayName(fileName: String): String {
-        val dot = fileName.lastIndexOf('.')
-        return if (dot > 0) fileName.substring(0, dot) else fileName
-    }
-
-    /**
-     * One folder's filenames -> game display names. Applies the
-     * single dedup rule: a `.bin` is dropped when a same-basename
-     * `.cue` exists (case-insensitive). A lone `.bin` is kept.
-     */
-    fun gameNames(fileNames: List<String>): List<String> {
-        val lower = fileNames.map { it.lowercase() }.toSet()
-        return fileNames
-            .filter { name ->
-                val l = name.lowercase()
-                !(l.endsWith(".bin") && lower.contains(l.dropLast(4) + ".cue"))
-            }
-            .map(::displayName)
-    }
-
-    /**
-     * Exact export text: system header (full display name, uppercased),
-     * one game per line, a blank line between systems, no trailing
-     * blank line.
-     */
-    fun render(systems: List<LibrarySystem>): String =
-        systems.joinToString("\n\n") { system ->
-            (listOf(system.platform.labels().long.uppercase()) + system.games)
-                .joinToString("\n")
-        }
+/** Read-only scan result: folders sorted by name, files sorted within each folder. */
+data class LibraryScan(val folders: List<LibraryFolder>) {
+    val totalFiles: Int get() = folders.sumOf { it.files.size }
+    val folderCount: Int get() = folders.size
+    val exportText: String get() = renderJson(folders)
 }
 
 /**
- * Read-only scan of every distinct mapped ROM folder under the ROM
- * root. Returns null when the ROM root is not granted or vanished
- * (the UI shows the grant hint).
+ * Pretty-prints the folder tree as JSON with 2-space indent:
  *
- * READ ONLY: only root/find/children/isDirectory are used — no
- * rename, move, delete, or write of any kind. Non-hidden files only;
- * subdirectories are not descended into. Genesis and Mega Drive share
- * one default folder: the first platform in mapping order wins so its
- * games are never double-counted.
+ *     {
+ *       "3ds": [
+ *         "Pokemon Omega Ruby (USA).3ds",
+ *         "sub/My Game.3ds"
+ *       ],
+ *       "_root": [
+ *         "bios.bin"
+ *       ]
+ *     }
+ *
+ * Keys and paths are escaped with [JsonCodec.writeString].
  */
-fun scanGameLibrary(mapping: PlatformMapping, romsFs: ThemeFs?): LibraryScan? {
+fun renderJson(folders: List<LibraryFolder>): String = buildString {
+    append("{\n")
+    folders.forEachIndexed { folderIndex, folder ->
+        append("  ").append(JsonCodec.writeString(folder.name)).append(": [\n")
+        folder.files.forEachIndexed { fileIndex, file ->
+            append("    ").append(JsonCodec.writeString(file))
+            if (fileIndex < folder.files.size - 1) append(',')
+            append('\n')
+        }
+        append("  ]")
+        if (folderIndex < folders.size - 1) append(',')
+        append('\n')
+    }
+    append('}')
+}
+
+/**
+ * Read-only scan of the REAL children of the ROM root. Returns null
+ * when the ROM root is not granted or vanished (the UI shows the grant
+ * hint).
+ *
+ * READ ONLY: only root()/children()/isDirectory() are used — no
+ * rename, move, delete, or write of any kind. Hidden entries (name
+ * starts with '.') are the only exclusion. Every real folder is
+ * included, even when empty; loose files at the root are collected
+ * under [LIBRARY_ROOT_KEY].
+ */
+fun scanGameLibrary(romsFs: ThemeFs?): LibraryScan? {
     val fs = romsFs ?: return null
     return try {
         val root = fs.root() ?: return null
-        val seenFolders = mutableSetOf<String>()
-        val systems = mutableListOf<LibrarySystem>()
-        for ((platform, folder) in mapping.snapshot()) {
-            if (!seenFolders.add(folder)) continue
-            val dir = fs.find(root, folder) ?: continue
-            if (!fs.isDirectory(dir)) continue
-            val names = fs.children(dir)
-                .filter { (name, node) -> !fs.isDirectory(node) && !name.startsWith('.') }
-                .map { it.first }
-            val games = GameLibraryExport.gameNames(names)
-            if (games.isNotEmpty()) systems.add(LibrarySystem(platform, games))
+        val folders = mutableListOf<LibraryFolder>()
+        val rootFiles = mutableListOf<String>()
+        for ((name, node) in fs.children(root).sortedBy { it.first }) {
+            if (name.startsWith('.')) continue
+            if (fs.isDirectory(node)) {
+                folders.add(LibraryFolder(name, walkFolder(fs, node)))
+            } else {
+                rootFiles.add(name)
+            }
         }
-        LibraryScan(systems)
+        // The root bucket always exists: omitting things is what
+        // caused this bug in the first place.
+        folders.add(LibraryFolder(LIBRARY_ROOT_KEY, rootFiles.sorted()))
+        LibraryScan(folders.sortedBy { it.name })
     } catch (_: SecurityException) {
         // Grant revoked mid-scan: the UI shows the grant hint.
         null
     }
+}
+
+/** Stack-based recursive walk: all files beneath [dir], as `/`-separated paths relative to it, sorted. */
+private fun walkFolder(fs: ThemeFs, dir: FsNode): List<String> {
+    val files = mutableListOf<String>()
+    val stack = ArrayDeque<Pair<FsNode, String>>()
+    stack.addLast(dir to "")
+    while (stack.isNotEmpty()) {
+        val (node, prefix) = stack.removeLast()
+        for ((name, child) in fs.children(node).sortedBy { it.first }) {
+            if (name.startsWith('.')) continue
+            val rel = if (prefix.isEmpty()) name else "$prefix/$name"
+            if (fs.isDirectory(child)) {
+                stack.addLast(child to rel)
+            } else {
+                files.add(rel)
+            }
+        }
+    }
+    return files.sorted()
 }
