@@ -54,6 +54,7 @@
         android:theme="@style/Theme.CrystalNova"
         android:allowBackup="false"
         android:supportsRtl="true"
+        android:extractNativeLibs="true"
         android:icon="@drawable/ic_launcher">
 
         <activity

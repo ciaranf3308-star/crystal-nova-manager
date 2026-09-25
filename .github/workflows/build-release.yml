@@ -74,6 +74,12 @@ jobs:
           yes | "$SDKMANAGER" --licenses > /dev/null
           "$SDKMANAGER" "platform-tools" "platforms;android-34" "build-tools;34.0.0"
 
+      - name: Assert chdman x86_64 test binary exists
+        # The PS1 integration tests shell out to the real chdman; they
+        # skip silently when it is absent, so fail loudly here instead
+        # of letting the suite pass without exercising conversion.
+        run: test -x tools/chdman-linux-x64/chdman
+
       - name: Run unit tests
         # The hardware-behavior D-pad test (NovaFocusBringsIntoViewTest)
         # cannot pass under Robolectric; it runs as a separate

@@ -40,6 +40,8 @@ class ImporterGraph(context: Context) {
 
     val settings: ImporterSettings = ImporterSettings(prefs)
 
+    val psxSupport: PsxImportSupport = AndroidPsxImportSupport(appContext)
+
     val engine: ImportEngine = ImportEngine(
         scope = scope,
         ioDispatcher = Dispatchers.IO,
@@ -51,5 +53,6 @@ class ImporterGraph(context: Context) {
         mapping = mapping,
         settings = settings,
         history = history,
+        psxSupport = psxSupport,
     )
 }

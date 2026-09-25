@@ -20,6 +20,15 @@ import io.crystalnova.manager.storage.ThemeFs
  * temps like `.importing-*`, `.nomedia`). Everything else — every
  * folder, every file, every extension — is exported as-is, including
  * folders that are completely empty.
+ *
+ * ES-DE ".m3u directory" rule: a directory whose name ends with `.m3u`
+ * (case-insensitive) is emitted as a SINGLE entry — the directory's
+ * own relative path (e.g. `Metal Gear Solid.m3u`) — and is NOT
+ * descended into. This mirrors ES-DE's "directories interpreted as
+ * files": the PS1 pipeline installs multi-disc games as
+ * `Metal Gear Solid.m3u/` containing per-disc CHDs, and ES-DE shows
+ * exactly one frontend entry for it. The export must tell the same
+ * one-game truth, so the child disc CHDs never appear as extra games.
  */
 
 /** One real folder under the ROM root: files are `/`-separated paths relative to it, sorted. */
@@ -76,9 +85,10 @@ fun renderJson(folders: List<LibraryFolder>): String = buildString {
  *
  * READ ONLY: only root()/children()/isDirectory() are used — no
  * rename, move, delete, or write of any kind. Hidden entries (name
- * starts with '.') are the only exclusion. Every real folder is
- * included, even when empty; loose files at the root are collected
- * under [LIBRARY_ROOT_KEY].
+ * starts with '.') are the only exclusion; directories ending in
+ * `.m3u` are emitted as single entries (see the file KDoc). Every
+ * real folder is included, even when empty; loose files at the root
+ * are collected under [LIBRARY_ROOT_KEY].
  */
 fun scanGameLibrary(romsFs: ThemeFs?): LibraryScan? {
     val fs = romsFs ?: return null
@@ -115,7 +125,12 @@ private fun walkFolder(fs: ThemeFs, dir: FsNode): List<String> {
             if (name.startsWith('.')) continue
             val rel = if (prefix.isEmpty()) name else "$prefix/$name"
             if (fs.isDirectory(child)) {
-                stack.addLast(child to rel)
+                // ES-DE ".m3u directory": one entry, never descended.
+                if (name.endsWith(".m3u", ignoreCase = true)) {
+                    files.add(rel)
+                } else {
+                    stack.addLast(child to rel)
+                }
             } else {
                 files.add(rel)
             }

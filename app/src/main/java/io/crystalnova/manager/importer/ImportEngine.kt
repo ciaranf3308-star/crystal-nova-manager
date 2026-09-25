@@ -152,6 +152,12 @@ class ImportEngine(
     private val settings: ImporterSettings,
     private val history: ImportHistoryRepository,
     private val clock: () -> Long = { System.currentTimeMillis() },
+    /**
+     * PS1 normalize pipeline support (temp dir + chdman). Null in
+     * unit tests that don't exercise PSX; a PSX item then fails with
+     * PSX_CHDMAN_MISSING instead of touching anything.
+     */
+    private val psxSupport: PsxImportSupport? = null,
 ) {
 
     private val _uiState = MutableStateFlow<ImportUiState>(ImportUiState.Idle)
@@ -724,6 +730,13 @@ class ImportEngine(
             }
         }
 
+        // PS1 temp dirs live in the app-private cache (never in the
+        // ROM folder); drop any left behind by a killed run.
+        try {
+            psxSupport?.cleanStaleTempDirs()
+        } catch (_: Exception) {
+        }
+
         for ((index, snapshot) in items.withIndex()) {
             if (cancelAfterCurrent) {
                 cancelled = true
@@ -943,6 +956,13 @@ class ImportEngine(
         log: (String) -> Unit,
     ): ItemResult {
         val platform = item.platform ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no platform")
+        // PS1 goes through the CHD-normalize pipeline instead of the
+        // generic extract-and-place flow (see importPsxGame): raw
+        // CUE/BIN track dumps are what produced the broken multi-entry
+        // ES-DE layout.
+        if (platform == PlatformId.PSX) {
+            return importPsxGame(roms, platformDir, item, setStage, onBytes, log)
+        }
         val plan = item.plan ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no plan")
         val ref = ArchiveRef(item.archiveName, item.archiveUri, item.archiveBytes, item.archiveKind)
 
@@ -1125,6 +1145,228 @@ class ImportEngine(
             if (!stagingConsumed) discardWork()
             writtenTarget?.let { cleanupQuietly(roms, it) }
             backup?.let { runCatching { roms.rename(it, baseName) } }
+            return ItemResult.Failed(
+                if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.WRITE_FAILED,
+                e.message,
+            )
+        }
+    }
+
+    /**
+     * PS1 pipeline: extract into a PRIVATE temp dir (never into the
+     * live `psx/` folder) -> NORMALIZING (CUE validation, chdman
+     * createcd per disc, M3U assembly) -> duplicate-aware COPYING of
+     * the validated artifacts -> VERIFYING -> CLEANING.
+     *
+     * Any failure before VERIFYING deletes the temp dir and leaves
+     * `psx/` untouched: no partial BIN/CUE/CHD debris, no broken
+     * entries. The source archive is deleted last by the caller, only
+     * on full success.
+     */
+    private fun importPsxGame(
+        roms: ThemeFs,
+        platformDir: (PlatformId) -> FsNode,
+        item: ArchiveItem,
+        setStage: (ImportStage, String?) -> Unit,
+        onBytes: (Long) -> Unit,
+        log: (String) -> Unit,
+    ): ItemResult {
+        val plan = item.plan ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no plan")
+        val support = psxSupport
+            ?: return ItemResult.Failed(ImportFailureReason.PSX_CHDMAN_MISSING, "PS1 support unavailable")
+        val ref = ArchiveRef(item.archiveName, item.archiveUri, item.archiveBytes, item.archiveKind)
+
+        // 1. Inspect source.
+        setStage(ImportStage.INSPECTING, "Checking the archive is still there")
+        if (!env.archiveExists(item.archiveUri)) {
+            return ItemResult.Failed(ImportFailureReason.SOURCE_MISSING, "Archive no longer in Downloads")
+        }
+        val dir = try {
+            platformDir(PlatformId.PSX)
+        } catch (e: SecurityException) {
+            throw e
+        } catch (e: Exception) {
+            return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, e.message)
+        }
+
+        // Temp preflight: conversion needs the extracted payload and
+        // the CHD output side by side.
+        if (support.tempFreeBytes() < plan.payloadBytes * 5 / 2) {
+            return ItemResult.Failed(
+                ImportFailureReason.NOT_ENOUGH_STORAGE,
+                "Not enough temp space for PS1 conversion",
+            )
+        }
+
+        // 2. Extract into the private temp dir — never into psx/.
+        val tempDir = try {
+            support.newTempDir(item.id)
+        } catch (e: Exception) {
+            return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
+        }
+        fun discardTemp() {
+            runCatching { tempDir.deleteRecursively() }
+        }
+        setStage(ImportStage.EXTRACTING, "Extracting")
+        val tempFs = FileThemeFs(tempDir)
+        val tempRoot = tempFs.root()
+            ?: run {
+                discardTemp()
+                return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, "Temp dir unavailable")
+            }
+        try {
+            extractor.extract(
+                tempFs,
+                ref,
+                tempRoot,
+                plan,
+                onProgress = { done, _ -> onBytes(done) },
+            )
+        } catch (e: ArchiveReadException) {
+            discardTemp()
+            return ItemResult.Failed(ImportFailureReason.EXTRACTION_FAILED, e.message)
+        } catch (e: SecurityException) {
+            discardTemp()
+            throw e
+        } catch (e: Exception) {
+            discardTemp()
+            return ItemResult.Failed(
+                if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.EXTRACTION_FAILED,
+                e.message,
+            )
+        }
+
+        // 3. Normalize: validate CUEs, convert discs, assemble layout.
+        var lastNormLabel: String? = null
+        val outcome = PsxNormalizer.normalize(
+            tempDir = tempDir,
+            displayTitle = item.displayTitle,
+            converter = support.converter(),
+            onProgress = { label, _ ->
+                // Queue writes persist JSON; forward label changes
+                // only, never per-percent ticks.
+                if (label != lastNormLabel) {
+                    lastNormLabel = label
+                    setStage(ImportStage.NORMALIZING, label)
+                }
+            },
+            // Responsive cancel: a multi-minute conversion stops now
+            // instead of at the end of the game.
+            isCancelled = { cancelAfterCurrent },
+        )
+        val normalized = when (outcome) {
+            is PsxNormalizeOutcome.Failure -> {
+                discardTemp()
+                return ItemResult.Failed(outcome.reason, outcome.detail)
+            }
+            is PsxNormalizeOutcome.Success -> outcome
+        }
+        log("Normalized ${item.displayTitle}: ${normalized.files.size} file(s)")
+
+        // 4. Duplicate-aware placement against the FINAL top-level
+        // artifact ("<Base>.chd" or the "<Base>.m3u" directory).
+        val policy = item.duplicatePolicy ?: settings.duplicateDefault
+        val topName = normalized.files.first().destRelPath.substringBefore('/')
+        val existing = try {
+            roms.find(dir, topName)
+        } catch (e: SecurityException) {
+            discardTemp()
+            throw e
+        }
+        if (existing != null && policy == DuplicatePolicy.SKIP) {
+            discardTemp()
+            return ItemResult.SkippedDuplicate
+        }
+        // KEEP_BOTH: "Base (2).chd" / "Base (2).m3u", applied to every
+        // artifact path under the renamed top level.
+        val finalTop = if (existing != null && policy == DuplicatePolicy.KEEP_BOTH) {
+            uniqueName(roms, dir, topName, isFile = true)
+        } else {
+            topName
+        }
+        val finalFiles = if (finalTop != topName) {
+            normalized.files.map {
+                it.copy(destRelPath = finalTop + it.destRelPath.removePrefix(topName))
+            }
+        } else {
+            normalized.files
+        }
+
+        // REPLACE: park the existing game aside first, like the
+        // generic flow, so a failed write rolls back instead of
+        // losing it.
+        var backup: FsNode? = null
+        val written = mutableListOf<FsNode>()
+        fun rollback() {
+            written.forEach { cleanupQuietly(roms, it) }
+            written.clear()
+            // A half-written "<Base>.m3u" dir with all children
+            // deleted is itself debris: drop the empty dir.
+            runCatching { roms.find(dir, finalTop) }
+                .getOrNull()
+                ?.takeIf { roms.isDirectory(it) }
+                ?.let { cleanupQuietly(roms, it) }
+            backup?.let { runCatching { roms.rename(it, topName) } }
+            discardTemp()
+        }
+        try {
+            if (existing != null && policy == DuplicatePolicy.REPLACE) {
+                val backupName = BACKUP_PREFIX + topName
+                roms.find(dir, backupName)?.let { roms.deleteRecursively(it) }
+                if (!roms.rename(existing, backupName)) {
+                    discardTemp()
+                    return ItemResult.Failed(ImportFailureReason.WRITE_FAILED, "Could not park the existing game")
+                }
+                backup = roms.find(dir, backupName)
+            }
+
+            // 5. Copy the validated artifacts into psx/.
+            setStage(ImportStage.COPYING, "Writing to ${mapping.folderFor(PlatformId.PSX)}")
+            var bytesCopied = 0L
+            for (f in finalFiles) {
+                val segments = f.destRelPath.split('/')
+                var parent = dir
+                for (seg in segments.dropLast(1)) {
+                    parent = roms.find(parent, seg)?.takeIf { roms.isDirectory(it) }
+                        ?: roms.mkdir(parent, seg)
+                }
+                val node = roms.createFile(parent, segments.last())
+                f.source.inputStream().use { input ->
+                    roms.openOutput(node).use { output -> input.copyTo(output) }
+                }
+                written += node
+                bytesCopied += f.source.length()
+                onBytes(bytesCopied)
+            }
+
+            // 6. Verify every destination file by size.
+            setStage(ImportStage.VERIFYING, "Verifying")
+            val verified = finalFiles.all { f ->
+                var node: FsNode? = dir
+                for (seg in f.destRelPath.split('/')) {
+                    node = node?.let { roms.find(it, seg) } ?: break
+                }
+                node != null && !roms.isDirectory(node) &&
+                    roms.length(node) == f.source.length() && f.source.length() > 0
+            }
+            if (!verified) {
+                rollback()
+                return ItemResult.Failed(
+                    ImportFailureReason.VERIFICATION_FAILED,
+                    "Destination did not match the normalized payload",
+                )
+            }
+
+            // 7. Clean up.
+            setStage(ImportStage.CLEANING, "Tidying up")
+            discardTemp()
+            backup?.let { cleanupQuietly(roms, it) }
+            return ItemResult.Success
+        } catch (e: SecurityException) {
+            rollback()
+            throw e
+        } catch (e: Exception) {
+            rollback()
             return ItemResult.Failed(
                 if (isNoSpace(e)) ImportFailureReason.NOT_ENOUGH_STORAGE else ImportFailureReason.WRITE_FAILED,
                 e.message,

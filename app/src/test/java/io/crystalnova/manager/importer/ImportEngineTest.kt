@@ -9,6 +9,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
+import java.nio.file.Files
 
 /**
  * End-to-end engine tests on the JVM: real ZIP bytes through the
@@ -62,6 +63,7 @@ class ImportEngineTest {
     private fun harness(
         env: FakeEnv,
         settingsBlock: (ImporterSettings) -> Unit = {},
+        psxSupport: PsxImportSupport? = null,
     ): Harness {
         val prefs = MapKeyValueStore()
         val settings = ImporterSettings(prefs).also(settingsBlock)
@@ -82,6 +84,7 @@ class ImportEngineTest {
             settings = settings,
             history = history,
             clock = { 0L },
+            psxSupport = psxSupport,
         )
         return Harness(env, engine, queue, history, queueFile, historyFile)
     }
@@ -673,5 +676,100 @@ class ImportEngineTest {
         assertEquals(1, results.succeeded)
         // The stale temp is gone; only the imported game remains.
         assertEquals(listOf("Pokemon Emerald.gba"), env.roms.children(gbaDir).map { it.first })
+    }
+
+    // ------------------------------------------------------------------
+    // PS1 pipeline (CHD normalization)
+    // ------------------------------------------------------------------
+
+    /** Fake PSX device surface: temp under a real dir, fake chdman. */
+    private class FakePsxSupport(
+        val cacheBase: File = Files.createTempDirectory("psx-eng-test").toFile(),
+        var converter: ChdConverter? = null,
+    ) : PsxImportSupport {
+        val tempDirs = mutableListOf<File>()
+        override fun newTempDir(itemId: String): File =
+            File(cacheBase, "psx-$itemId").also {
+                it.deleteRecursively()
+                it.mkdirs()
+                tempDirs += it
+            }
+
+        override fun converter(): ChdConverter? = converter
+        override fun tempFreeBytes(): Long = Long.MAX_VALUE
+        override fun cleanStaleTempDirs() {}
+    }
+
+    private class FakeChdConverter : ChdConverter {
+        override val available: Boolean = true
+        override fun createcd(cueFile: File, outChd: File, onProgress: (Float) -> Unit): Boolean {
+            onProgress(1f)
+            outChd.writeBytes(ByteArray(64) { 7 })
+            return true
+        }
+
+        override fun verify(chdFile: File): Boolean = chdFile.isFile && chdFile.length() > 0
+        override fun cancel() {}
+    }
+
+    private fun psxCueZip(name: String, cueName: String, cueText: String, bins: Map<String, ByteArray>) =
+        Triple(name, "uri:$name", mapOf(cueName to cueText.toByteArray()) + bins)
+
+    @Test fun `psx broken cue fails typed and leaves psx untouched`() {
+        val env = envWith(
+            psxCueZip(
+                "Game.zip", "Game.cue",
+                "FILE \"Game (Track 01).bin\" BINARY\nFILE \"Game (Track 02).bin\" BINARY\n",
+                mapOf("Game (Track 01).bin" to ByteArray(16)),
+            ),
+        )
+        val psx = FakePsxSupport(converter = FakeChdConverter())
+        val h = harness(env, psxSupport = psx)
+
+        h.engine.scan()
+        val item = h.engine.queueItems.value.single()
+        h.engine.setPlatform(item.id, PlatformId.PSX)
+        h.engine.prepareImport()
+        assertTrue(h.engine.uiState.value is ImportUiState.Ready)
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.failed.size)
+        assertEquals(ImportFailureReason.PSX_CUE_TRACKS_MISSING, results.failed.single().reason)
+        // Atomicity: psx/ holds nothing, the temp dir is gone, the
+        // source archive is kept for a fixed re-download.
+        val psxDir = env.roms.find(env.roms.rootNode, "psx")!!
+        assertTrue(env.roms.children(psxDir).isEmpty())
+        assertTrue(psx.tempDirs.all { !it.exists() })
+        assertTrue(env.deleted.isEmpty())
+        assertTrue(env.zips.containsKey("uri:Game.zip"))
+    }
+
+    @Test fun `psx single-disc cue normalizes to one chd in psx`() {
+        val env = envWith(
+            psxCueZip(
+                "Crash Bandicoot.zip", "Crash Bandicoot.cue",
+                "FILE \"Crash Bandicoot (Track 01).bin\" BINARY\n" +
+                    "  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n",
+                mapOf("Crash Bandicoot (Track 01).bin" to ByteArray(32)),
+            ),
+        )
+        val psx = FakePsxSupport(converter = FakeChdConverter())
+        val h = harness(env, psxSupport = psx)
+
+        h.engine.scan()
+        val item = h.engine.queueItems.value.single()
+        h.engine.setPlatform(item.id, PlatformId.PSX)
+        h.engine.prepareImport()
+        h.engine.startImport()
+
+        val results = h.engine.uiState.value as ImportUiState.Results
+        assertEquals(1, results.succeeded)
+        assertTrue(results.failed.isEmpty())
+        // Exactly one artifact: no CUE/BIN debris in the live folder.
+        val psxDir = env.roms.find(env.roms.rootNode, "psx")!!
+        assertEquals(listOf("Crash Bandicoot.chd"), env.roms.children(psxDir).map { it.first })
+        assertTrue(psx.tempDirs.all { !it.exists() })
+        assertEquals(listOf("uri:Crash Bandicoot.zip"), env.deleted)
     }
 }

@@ -116,6 +116,56 @@ class GameLibraryExportTest {
         assertNull(scanGameLibrary(fs))
     }
 
+    @Test fun `m3u directory exports as exactly one entry`() {
+        // The required regression: psx/Metal Gear Solid.m3u/ exports
+        // ONLY "Metal Gear Solid.m3u" — the child disc CHDs and the
+        // internal playlist never appear.
+        val fs = InMemoryThemeFs()
+        val psx = fs.mkdir(fs.rootNode, "psx")
+        // Multi-disc layout installed by the PS1 pipeline: ES-DE's
+        // "directories interpreted as files" -> one frontend entry.
+        val mgs = fs.mkdir(psx, "Metal Gear Solid.m3u")
+        fs.createFile(mgs, "Metal Gear Solid (Disc 1).chd")
+        fs.createFile(mgs, "Metal Gear Solid (Disc 2).chd")
+        fs.createFile(mgs, "Metal Gear Solid.m3u")
+        fs.createFile(psx, "Crash Bandicoot.chd")
+
+        assertEquals(
+            listOf("Crash Bandicoot.chd", "Metal Gear Solid.m3u"),
+            folderOf(scanGameLibrary(fs)!!, "psx").files,
+        )
+    }
+
+    @Test fun `m3u directory rule is case-insensitive and depth-safe without over-collapsing`() {
+        val fs = InMemoryThemeFs()
+        val psx = fs.mkdir(fs.rootNode, "psx")
+        fs.createFile(psx, "Crash Bandicoot.chd")
+        // A normal multi-file folder still lists every file: the m3u
+        // rule must not over-collapse ordinary directories.
+        val doom = fs.mkdir(psx, "Doom")
+        fs.createFile(doom, "doom.wad")
+        fs.createFile(doom, "readme.txt")
+        // The rule applies at any depth, case-insensitively.
+        val sub = fs.mkdir(psx, "sub")
+        val ff = fs.mkdir(sub, "Final Fantasy VII.M3U")
+        fs.createFile(ff, "Final Fantasy VII (Disc 1).chd")
+        fs.createFile(ff, "Final Fantasy VII.m3u")
+
+        val psxFiles = folderOf(scanGameLibrary(fs)!!, "psx").files
+        assertEquals(
+            listOf(
+                "Crash Bandicoot.chd",
+                "Doom/doom.wad",
+                "Doom/readme.txt",
+                "sub/Final Fantasy VII.M3U",
+            ),
+            psxFiles,
+        )
+        // Exactly one entry per game: no child CHDs anywhere.
+        assertEquals(1, psxFiles.count { it.contains("Final Fantasy VII") })
+        assertTrue(psxFiles.none { it.endsWith(".chd") && it.contains("(Disc") })
+    }
+
     @Test fun `scan of an empty tree has only the empty root bucket`() {
         val scan = scanGameLibrary(InMemoryThemeFs())!!
         assertEquals(listOf(LIBRARY_ROOT_KEY), scan.folders.map { it.name })

@@ -174,6 +174,13 @@ enum class ImportStage {
     /** Mid-run: decompressing into the staging dir. */
     EXTRACTING,
 
+    /**
+     * Mid-run (PS1 only): CUE validation + chdman conversion + M3U
+     * assembly inside the private temp dir. Other systems never enter
+     * this stage.
+     */
+    NORMALIZING,
+
     /** Mid-run: moving the verified payload into the platform folder. */
     COPYING,
 
@@ -206,6 +213,14 @@ enum class ImportFailureReason {
     SOURCE_MISSING,
     CANCELLED,
     INTERNAL_ERROR,
+    /** PS1: a CUE references track files missing from the archive. */
+    PSX_CUE_TRACKS_MISSING,
+    /** PS1: chdman conversion or verification failed. */
+    PSX_CHDMAN_FAILED,
+    /** PS1: the archive held no usable disc image at all. */
+    PSX_NO_VALID_DISCS,
+    /** PS1: chdman is unavailable and conversion was required. */
+    PSX_CHDMAN_MISSING,
 }
 
 fun ImportFailureReason.message(): String = when (this) {
@@ -223,6 +238,10 @@ fun ImportFailureReason.message(): String = when (this) {
     ImportFailureReason.SOURCE_MISSING -> "ARCHIVE NO LONGER IN DOWNLOADS"
     ImportFailureReason.CANCELLED -> "CANCELLED"
     ImportFailureReason.INTERNAL_ERROR -> "UNEXPECTED ERROR"
+    ImportFailureReason.PSX_CUE_TRACKS_MISSING -> "PS1 CUE IS MISSING TRACK FILES"
+    ImportFailureReason.PSX_CHDMAN_FAILED -> "PS1 CHD CONVERSION FAILED"
+    ImportFailureReason.PSX_NO_VALID_DISCS -> "NO VALID PS1 DISC IMAGE"
+    ImportFailureReason.PSX_CHDMAN_MISSING -> "CHDMAN NOT AVAILABLE ON THIS DEVICE"
 }
 
 /** What to do when the destination already holds the game. */
@@ -363,6 +382,10 @@ fun ImportFailureReason.label(): String = when (this) {
     ImportFailureReason.SOURCE_MISSING -> "ARCHIVE GONE"
     ImportFailureReason.CANCELLED -> "CANCELLED"
     ImportFailureReason.INTERNAL_ERROR -> "UNEXPECTED ERROR"
+    ImportFailureReason.PSX_CUE_TRACKS_MISSING -> "PS1 CUE MISSING TRACKS"
+    ImportFailureReason.PSX_CHDMAN_FAILED -> "PS1 CONVERT FAILED"
+    ImportFailureReason.PSX_NO_VALID_DISCS -> "NO PS1 DISC FOUND"
+    ImportFailureReason.PSX_CHDMAN_MISSING -> "NO CHDMAN"
 }
 
 /** Controller-oriented display strings for import stages. */
@@ -370,6 +393,7 @@ fun ImportStage.label(): String = when (this) {
     ImportStage.WAITING -> "QUEUED"
     ImportStage.INSPECTING -> "CHECKING ARCHIVE"
     ImportStage.EXTRACTING -> "EXTRACTING"
+    ImportStage.NORMALIZING -> "NORMALIZING"
     ImportStage.COPYING -> "WRITING GAME"
     ImportStage.VERIFYING -> "VERIFYING"
     ImportStage.CLEANING -> "TIDYING UP"
