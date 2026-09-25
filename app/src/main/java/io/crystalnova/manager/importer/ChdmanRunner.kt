@@ -16,7 +16,7 @@ import java.io.File
  */
 class ChdmanRunner(
     appNativeLibDir: File,
-    supportedAbis: List<String> = Build.SUPPORTED_ABIS.toList(),
+    private val supportedAbis: List<String> = Build.SUPPORTED_ABIS.toList(),
 ) : ProcessChdConverter(File(appNativeLibDir, "libchdman.so")) {
 
     /** arm64-v8a only: that is the single ABI we ship chdman for. */
