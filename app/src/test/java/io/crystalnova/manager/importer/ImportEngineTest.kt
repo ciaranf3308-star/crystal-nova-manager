@@ -874,7 +874,7 @@ class ImportEngineTest {
         assertTrue(classifying.autoIdentified.isEmpty())
     }
 
-    @Test fun `cue claims its bins; lone bin stays independent`() {
+    @Test fun `cue claims its bins and lone bin stays independent`() {
         val cue = "FILE \"Game (Track 1).bin\" BINARY\n  TRACK 01 MODE1/2352\n    INDEX 01 00:00:00\n"
         val env = envWithLoose(
             "Game.cue" to cue.toByteArray(),
