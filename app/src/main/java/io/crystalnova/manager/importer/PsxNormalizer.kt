@@ -60,7 +60,9 @@ object PsxNormalizer {
      * @param converter the chdman backend, or null when unavailable —
      * CUE inputs then fail with PSX_CHDMAN_MISSING while already-valid
      * CHD/PBP/lone inputs still install as-is.
-     * @param onProgress (label, 0..1 or null) for the NORMALIZING UI.
+     * @param onProgress (label, overall 0..1 or null) for the
+     * NORMALIZING UI — the fraction already spans all discs, so the
+     * caller can drive the progress bar directly.
      */
     fun normalize(
         tempDir: File,
@@ -162,7 +164,11 @@ object PsxNormalizer {
             val chdName = if (total == 1) "$baseTitle.chd" else "$baseTitle (Disc ${disc.discNumber}).chd"
             val outChd = File(tempDir, chdName)
             if (outChd.exists()) outChd.delete()
-            onProgress("CONVERTING DISC ${index + 1}/$total", 0f)
+            val discLabel = "CONVERTING DISC ${index + 1}/$total"
+            // Overall fraction across all discs — the caller drives
+            // the NORMALIZING progress bar straight from this.
+            val overall = { f: Float -> ((index + f) / total).coerceIn(0f, 1f) }
+            onProgress(discLabel, overall(0f))
             val ok = conv.createcd(cueFile, outChd) { fraction ->
                 if (isCancelled()) {
                     // Destroy the process; createcd returns false.
@@ -171,7 +177,7 @@ object PsxNormalizer {
                     // typed CANCELLED outcome is raised just below.
                     conv.cancel()
                 } else {
-                    onProgress("CONVERTING DISC ${index + 1}/$total", fraction)
+                    onProgress(discLabel, overall(fraction))
                 }
             }
             if (isCancelled()) throw Cancelled()

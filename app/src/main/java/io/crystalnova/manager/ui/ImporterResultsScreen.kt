@@ -102,6 +102,7 @@ private fun ControllerGridContent.FailedSection(
         val platformName = row.platform?.labels()?.long?.uppercase() ?: "UNKNOWN PLATFORM"
         StatusLine("PLATFORM: $platformName", Crystal.Ink)
         StatusLine("REASON: ${row.reason.label()}", Crystal.InkDim)
+        row.detail?.let { StatusLine(it, Crystal.InkDim) }
         if (chosen != null && chosen != row.platform) {
             StatusLine(
                 "WILL RETRY AS ${chosen.labels().long.uppercase()}",

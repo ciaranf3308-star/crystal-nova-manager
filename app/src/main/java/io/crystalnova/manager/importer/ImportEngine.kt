@@ -64,6 +64,8 @@ data class FailedRow(
     val title: String,
     val platform: PlatformId?,
     val reason: ImportFailureReason,
+    /** User-actionable detail, e.g. which CUE track file is missing. */
+    val detail: String? = null,
 )
 
 /** Confirmation of the most recent platform tap on the classify screen. */
@@ -620,6 +622,7 @@ class ImportEngine(
                     it.displayTitle,
                     it.platform,
                     it.failure ?: ImportFailureReason.INTERNAL_ERROR,
+                    it.failureDetail,
                 )
             },
             skipped = queue.items.value.count { it.stage == ImportStage.SKIPPED },
@@ -812,8 +815,27 @@ class ImportEngine(
                 }
             }
 
+            // NORMALIZING progress for the PS1 pipeline: the
+            // normalizer reports an overall 0..1 fraction across all
+            // discs. Emission-only (the queue is not rewritten per
+            // tick); the stage label itself persists via setStage.
+            val onNormProgress: (Float, String) -> Unit = { fraction, detail ->
+                val platform = queue.items.value.firstOrNull { it.id == item.id }?.platform
+                    ?: item.platform!!
+                emit(
+                    ImportingGame(
+                        title = item.displayTitle,
+                        platform = platform,
+                        stage = ImportStage.NORMALIZING,
+                        progress = fraction.coerceIn(0f, 1f),
+                        detail = detail,
+                    ),
+                    index,
+                )
+            }
+
             val result = try {
-                importOne(roms, ::platformDir, item, setStage, onBytes, ::logLine)
+                importOne(roms, ::platformDir, item, setStage, onBytes, onNormProgress, ::logLine)
             } catch (e: SecurityException) {
                 queue.update(item.id) {
                     it.copy(stage = ImportStage.FAILED, failure = ImportFailureReason.PERMISSION_DENIED)
@@ -914,6 +936,7 @@ class ImportEngine(
                         ),
                     )
                     logLine("FAILED ${item.displayTitle}: ${result.reason.label()}")
+                    result.detail?.let { logLine("  $it") }
                     if (result.reason == ImportFailureReason.NOT_ENOUGH_STORAGE) {
                         logLine("Storage exhausted — stopping the run.")
                         break
@@ -928,7 +951,7 @@ class ImportEngine(
         _uiState.value = ImportUiState.Results(
             succeeded = final.count { it.stage == ImportStage.COMPLETE },
             failed = final.filter { it.stage == ImportStage.FAILED }.map {
-                FailedRow(it.id, it.displayTitle, it.platform, it.failure ?: ImportFailureReason.INTERNAL_ERROR)
+                FailedRow(it.id, it.displayTitle, it.platform, it.failure ?: ImportFailureReason.INTERNAL_ERROR, it.failureDetail)
             },
             skipped = final.count { it.stage == ImportStage.SKIPPED },
             deletedSources = deletedSources,
@@ -953,6 +976,7 @@ class ImportEngine(
         item: ArchiveItem,
         setStage: (ImportStage, String?) -> Unit,
         onBytes: (Long) -> Unit,
+        onNormProgress: (Float, String) -> Unit,
         log: (String) -> Unit,
     ): ItemResult {
         val platform = item.platform ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no platform")
@@ -961,7 +985,7 @@ class ImportEngine(
         // CUE/BIN track dumps are what produced the broken multi-entry
         // ES-DE layout.
         if (platform == PlatformId.PSX) {
-            return importPsxGame(roms, platformDir, item, setStage, onBytes, log)
+            return importPsxGame(roms, platformDir, item, setStage, onBytes, onNormProgress, log)
         }
         val plan = item.plan ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no plan")
         val ref = ArchiveRef(item.archiveName, item.archiveUri, item.archiveBytes, item.archiveKind)
@@ -1169,6 +1193,7 @@ class ImportEngine(
         item: ArchiveItem,
         setStage: (ImportStage, String?) -> Unit,
         onBytes: (Long) -> Unit,
+        onNormProgress: (Float, String) -> Unit,
         log: (String) -> Unit,
     ): ItemResult {
         val plan = item.plan ?: return ItemResult.Failed(ImportFailureReason.INTERNAL_ERROR, "no plan")
@@ -1238,16 +1263,25 @@ class ImportEngine(
 
         // 3. Normalize: validate CUEs, convert discs, assemble layout.
         var lastNormLabel: String? = null
+        var lastNormEmitted = -1f
         val outcome = PsxNormalizer.normalize(
             tempDir = tempDir,
             displayTitle = item.displayTitle,
             converter = support.converter(),
-            onProgress = { label, _ ->
+            onProgress = { label, fraction ->
                 // Queue writes persist JSON; forward label changes
                 // only, never per-percent ticks.
                 if (label != lastNormLabel) {
                     lastNormLabel = label
                     setStage(ImportStage.NORMALIZING, label)
+                }
+                // The progress bar is emission-only (no queue
+                // persistence): throttled so a long conversion shows
+                // movement without UI churn.
+                val f = fraction
+                if (f != null && (f - lastNormEmitted >= 0.02f || f >= 1f)) {
+                    lastNormEmitted = f
+                    onNormProgress(f, label)
                 }
             },
             // Responsive cancel: a multi-minute conversion stops now

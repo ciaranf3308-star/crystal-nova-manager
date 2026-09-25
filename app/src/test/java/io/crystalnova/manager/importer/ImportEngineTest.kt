@@ -62,8 +62,8 @@ class ImportEngineTest {
 
     private fun harness(
         env: FakeEnv,
-        settingsBlock: (ImporterSettings) -> Unit = {},
         psxSupport: PsxImportSupport? = null,
+        settingsBlock: (ImporterSettings) -> Unit = {},
     ): Harness {
         val prefs = MapKeyValueStore()
         val settings = ImporterSettings(prefs).also(settingsBlock)
