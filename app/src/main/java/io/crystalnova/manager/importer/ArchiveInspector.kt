@@ -179,7 +179,7 @@ class ArchiveInspector(
                 val ext2 = e.path.substringAfterLast('.', "").lowercase()
                 if (ext2 !in headerCandidates || headers.size >= MAX_HEADER_ENTRIES) continue
                 val window = ext.runner.readFirstBytes(archive.file, e.path, HEADER_WINDOW_BYTES)
-                if (!window.isNullOrEmpty()) headers[e.path] = window
+                if (window != null && window.isNotEmpty()) headers[e.path] = window
             }
             val infos = entries.map {
                 ArchiveEntryInfo(
