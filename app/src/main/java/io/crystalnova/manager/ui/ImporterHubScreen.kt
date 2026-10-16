@@ -20,27 +20,35 @@ import androidx.lifecycle.LifecycleEventObserver
 import io.crystalnova.manager.importer.AllFilesAccess
 import io.crystalnova.manager.importer.GrantProbe
 import io.crystalnova.manager.importer.ImportOutcome
+import io.crystalnova.manager.importer.ImportStage
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
-import io.crystalnova.manager.importer.ImportStage
+import io.crystalnova.manager.importer.headline
 import io.crystalnova.manager.importer.hubQueueDecision
+import io.crystalnova.manager.importer.hubSummary
+import io.crystalnova.manager.importer.label
 import io.crystalnova.manager.importer.labels
 import io.crystalnova.manager.importer.shortUnreadableReason
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * GAME IMPORTER hub: grant status, queue status, scan/resume, recent
- * history, settings entry. The engine's [ImportUiState] drives the
- * status lines; navigation side effects live in MainActivity.
+ * GAME IMPORTER hub — u77 redesign.
  *
- * u70: single-column [ControllerList], not a grid. The old 2-column
- * grid squeezed the long-labeled action buttons (DISMISS n MISSING,
- * RESUME QUEUE, SCAN DOWNLOADS) into half-width cells and the Nova
- * rendered them clipped/overlapping with cut-off text (photo-proven).
- * Every action is now full-width with breathing room; status blocks
- * get CrystalPanel chrome so the screen reads top-down: what am I
- * looking at → what's the primary action.
+ * Information architecture (top to bottom, no scroll simulator):
+ *   1. STATUS — one headline ("5 TO REVIEW • 2 FAILED") + the next step.
+ *   2. PROGRESS — when scanning/importing: big bar, counts, current file.
+ *   3. PRIMARY ACTIONS — SCAN always; RESUME only when actionable, with
+ *      an honest label (CLASSIFY / REVIEW FAILURES / IMPORT).
+ *   4. ACTIONABLE QUEUE — needs-review rows (tap to classify), failed
+ *      rows (retry all / review each).
+ *   5. PROBLEM LISTS — unreadable / not-recognized as collapsed counted
+ *      rows that expand on demand; each item actionable inline.
+ *   6. GRANTS — one dim line when all OK; buttons only on problems.
+ *   7. HISTORY — collapsed. SETTINGS.
+ *
+ * Terminal/console style, ALL-CAPS, blue/cyan + small yellow accents,
+ * no purple. D-pad first via the control() focus system.
  */
 @Composable
 fun ImporterHubScreen(
@@ -85,20 +93,54 @@ fun ImporterHubScreen(
         allFilesApi && AllFilesAccess.hasAccess()
     }
 
-    val waiting = queueItems.count {
-        it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED && !it.isClaimed
-    }
-    val needsReview = queueItems.count { it.needsReview }
-    val failed = queueItems.count { it.stage == ImportStage.FAILED }
-    val missing = queueItems.count {
-        it.sourceMissing && it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
-    }
-    // u73: the resume decision is centralized in hubQueueDecision() —
-    // a queue of only unreadable items must never offer a dead RESUME.
+    // ---- u77: pure status model drives the whole screen ----
+    val summary = hubSummary(queueItems)
     val queueDecision = hubQueueDecision(queueItems)
+    val liveItems = queueItems.filter {
+        it.stage != ImportStage.COMPLETE &&
+            it.stage != ImportStage.SKIPPED &&
+            !it.isClaimed
+    }
+    val reviewItems = liveItems.filter { it.needsReview }
+    val failedItems = liveItems.filter { it.stage == ImportStage.FAILED }
+    val notRecognizedItems = liveItems.filter {
+        !it.inspectFailed && !it.sourceMissing && !it.detection.recognizedAsGame
+    }
+    val missingCount = liveItems.count { it.sourceMissing }
 
-    // u70: an error notice owns initial focus so the feedback is in
-    // the viewport immediately — otherwise the primary scan action.
+    // Collapsed problem lists — remember at screen level (the list
+    // content lambda is not a @Composable context).
+    var unreadableExpanded by remember { mutableStateOf(false) }
+    var notRecognizedExpanded by remember { mutableStateOf(false) }
+    var historyExpanded by remember { mutableStateOf(false) }
+
+    val headlineColor = when {
+        summary.waiting == 0 -> Crystal.Good
+        summary.failed > 0 || summary.unreadable > 0 -> Crystal.Bad
+        summary.toReview > 0 || summary.notRecognized > 0 -> Crystal.Joystick
+        else -> Crystal.Good
+    }
+    val hint = when {
+        uiState is ImportUiState.Scanning -> "WORKING THROUGH YOUR DOWNLOADS…"
+        uiState is ImportUiState.Importing -> "IMPORT RUNNING — SEE BELOW"
+        summary.waiting == 0 -> "SCAN DOWNLOADS TO ADD GAMES"
+        summary.toReview > 0 -> "TAP A GAME TO CLASSIFY IT"
+        summary.failed > 0 -> "RETRY THEM ALL OR REVIEW EACH ONE"
+        summary.unreadable > 0 && !queueDecision.canResume ->
+            "NOTHING HERE CAN BE IMPORTED — CLEAR THEM OUT"
+        summary.importable > 0 -> "READY — START THE IMPORT"
+        summary.notRecognized > 0 -> "SCAN RETRIES THESE — OR DROP THEM"
+        summary.missing > 0 -> "THOSE FILES ARE GONE — DISMISS THEM"
+        else -> ""
+    }
+    // Honest resume label: name the actual next step.
+    val resumeLabel: String? = when {
+        !queueDecision.canResume -> null
+        summary.toReview > 0 -> "CLASSIFY GAMES (${summary.toReview})"
+        summary.failed > 0 -> "REVIEW FAILURES (${summary.failed})"
+        else -> "IMPORT (${summary.importable})"
+    }
+
     val fallbackFocusKey: Any? =
         if (uiState is ImportUiState.Error) "dismiss-notice" else "scan"
 
@@ -113,6 +155,7 @@ fun ImporterHubScreen(
             dispatcher = dispatcher,
             initialFocus = ::isInitialFocus,
         ) {
+            // ---- 0. error notice ----
             if (uiState is ImportUiState.Error) {
                 val err = uiState as ImportUiState.Error
                 section {
@@ -127,112 +170,69 @@ fun ImporterHubScreen(
                     onClick = { engine.backToIdle() },
                 )
             }
+            // ---- 1. status: what needs Ciaran, at a glance ----
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine(summary.headline(), headlineColor)
+                        if (hint.isNotEmpty()) {
+                            DimLine(hint)
+                        }
+                    }
+                }
+            }
+            // ---- 2. progress: unmissable, in the viewport ----
             if (uiState is ImportUiState.Scanning) {
                 val s = uiState as ImportUiState.Scanning
                 section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        StatusLine("SCANNING DOWNLOADS… ${s.done}/${s.total}", Crystal.Joystick)
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("SCANNING DOWNLOADS", Crystal.Joystick)
+                            CrystalProgressBar(
+                                if (s.total > 0) s.done.toFloat() / s.total else 0f,
+                            )
+                            StatusLine(
+                                "${s.done} / ${s.total} FILES",
+                                Crystal.InkDim,
+                            )
+                        }
                     }
                 }
             }
-            if (uiState is ImportUiState.Classifying) {
-                val s = uiState as ImportUiState.Classifying
-                if (s.actionable == 0) {
-                    section {
-                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StatusLine("SCAN FOUND NOTHING TO IMPORT", Crystal.InkDim)
-                                if (s.unsupportedCount > 0) {
+            if (uiState is ImportUiState.Importing) {
+                val imp = uiState as ImportUiState.Importing
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine(
+                                "IMPORTING — GAME ${(imp.index + 1).coerceAtMost(imp.total)} OF ${imp.total}",
+                                Crystal.Joystick,
+                            )
+                            imp.current?.let { current ->
+                                StatusLine(current.title)
+                                current.progress?.let { p ->
+                                    CrystalProgressBar(p)
                                     StatusLine(
-                                        "${s.unsupportedCount} RAR — NOT SUPPORTED",
-                                        Crystal.Bad,
-                                    )
-                                }
-                                if (s.notRecognized.isNotEmpty()) {
-                                    StatusLine(
-                                        "${s.notRecognized.size} NOT RECOGNIZED AS GAMES",
+                                        "${(p * 100).toInt()}% · ${current.stage.label()}",
                                         Crystal.InkDim,
                                     )
-                                }
-                                if (s.unreadable.isNotEmpty()) {
-                                    StatusLine(
-                                        "${s.unreadable.size} UNREADABLE FILES",
-                                        Crystal.Bad,
-                                    )
-                                    // u72: name the files and why — a bare
-                                    // count left the user guessing which of
-                                    // their downloads was at fault. Filename
-                                    // stays intact and wraps; the reason is
-                                    // the terse human form (never the raw
-                                    // engine dump). Rows are plain text, so
-                                    // D-pad focus order is unchanged.
-                                    for (item in s.unreadable) {
-                                        StatusLine("✗ ${item.archiveName}", Crystal.Bad)
-                                        DimLine(shortUnreadableReason(item.failureDetail))
-                                    }
-                                }
+                                } ?: StatusLine(
+                                    current.stage.label(),
+                                    Crystal.InkDim,
+                                )
                             }
                         }
                     }
                 }
-            }
-            // ---- grants: one panel, three groups ----
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("SOURCE — DOWNLOADS")
-                        val (downloadsText, downloadsColor) = when {
-                            downloadsOk && allFilesGranted -> "GRANTED — DIRECT SCAN" to Crystal.Good
-                            downloadsOk -> "GRANTED" to Crystal.Good
-                            else -> "NOT GRANTED — PICK THE FOLDER" to Crystal.Bad
-                        }
-                        StatusLine(downloadsText, downloadsColor)
-                        if (allFilesApi) {
-                            CrystalDivider()
-                            StatusLine("ALL FILES ACCESS")
-                            StatusLine(
-                                if (allFilesGranted) "GRANTED" else "NOT GRANTED",
-                                if (allFilesGranted) Crystal.Good else Crystal.Bad,
-                            )
-                        }
-                        CrystalDivider()
-                        StatusLine("DESTINATION — ROM ROOT")
-                        StatusLine(
-                            if (romsOk) "GRANTED" else "NOT GRANTED — PICK THE FOLDER",
-                            if (romsOk) Crystal.Good else Crystal.Bad,
-                        )
-                    }
-                }
-            }
-            // SAF subfolder grant is the fallback: only offered when the
-            // direct all-files scan is not granted.
-            if (probe != null && !downloadsOk && !allFilesGranted) {
                 control(
-                    key = "grant-downloads",
-                    testTag = "hub-grant-downloads",
-                    label = "GRANT DOWNLOADS FOLDER",
-                    subLabel = "SAF FALLBACK — PICK A SUBFOLDER INSIDE DOWNLOADS",
-                    onClick = onGrantDownloads,
+                    key = "view-import",
+                    testTag = "hub-view-import",
+                    label = "VIEW IMPORT",
+                    subLabel = "THE RUN CONTINUES IN THE BACKGROUND",
+                    onClick = onViewImport,
                 )
             }
-            if (allFilesApi && !allFilesGranted) {
-                control(
-                    key = "all-files-settings",
-                    testTag = "hub-all-files-settings",
-                    label = "OPEN SETTINGS",
-                    subLabel = "ALLOW ALL FILES ACCESS FOR DIRECT SCAN",
-                    onClick = onOpenAllFilesSettings,
-                )
-            }
-            if (probe != null && !romsOk) {
-                control(
-                    key = "grant-roms",
-                    testTag = "hub-grant-roms",
-                    label = "GRANT ROM ROOT FOLDER",
-                    onClick = onGrantRoms,
-                )
-            }
-            // ---- primary action: full-width, nothing squeezed ----
+            // ---- 3. primary actions ----
             control(
                 key = "scan",
                 testTag = "hub-scan",
@@ -241,120 +241,226 @@ fun ImporterHubScreen(
                 enabled = downloadsOk && uiState !is ImportUiState.Scanning,
                 onClick = { engine.scan() },
             )
-            // ---- queue ----
-            if (waiting > 0) {
+            if (resumeLabel != null) {
+                control(
+                    key = "resume",
+                    testTag = "hub-resume",
+                    label = resumeLabel,
+                    subLabel = when {
+                        summary.toReview > 0 -> "PICK A PLATFORM FOR EACH GAME"
+                        summary.failed > 0 -> "DECIDE WHAT HAPPENS TO EACH FAILURE"
+                        else -> "REVIEW + START THE IMPORT RUN"
+                    },
+                    onClick = {
+                        when {
+                            summary.toReview > 0 -> engine.backToClassifying()
+                            summary.failed > 0 -> engine.reviewFailures()
+                            else -> engine.prepareImport()
+                        }
+                    },
+                )
+            }
+            // ---- 4a. needs review: tap a row to classify it ----
+            if (reviewItems.isNotEmpty()) {
                 section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("QUEUE — $waiting WAITING")
-                            if (needsReview > 0) {
-                                StatusLine(
-                                    "$needsReview NEED${if (needsReview == 1) "S" else ""} CLASSIFICATION",
-                                    Crystal.Joystick,
-                                )
-                            }
-                            if (failed > 0) {
-                                StatusLine("$failed FAILED — RETRY OR SKIP", Crystal.Bad)
-                            }
-                            if (missing > 0) {
-                                StatusLine(
-                                    "$missing SOURCE MISSING — FILE IS GONE",
-                                    Crystal.Bad,
-                                )
-                            }
-                            // u73: honesty — when nothing in the queue can
-                            // move forward, say so instead of offering a
-                            // dead RESUME that loops back to "nothing to
-                            // import".
-                            if (!queueDecision.canResume) {
-                                StatusLine(
-                                    "$waiting IN QUEUE — NOTHING CAN BE IMPORTED",
-                                    Crystal.Bad,
-                                )
-                            }
-                        }
+                        StatusLine(
+                            "NEEDS REVIEW (${reviewItems.size}) — TAP TO CLASSIFY",
+                            Crystal.Joystick,
+                        )
                     }
                 }
-                if (queueDecision.canResume) {
+                for (item in reviewItems) {
+                    val guess = item.detection.platform?.labels()?.short
                     control(
-                        key = "resume",
-                        testTag = "hub-resume",
-                        label = "RESUME QUEUE ($waiting)",
-                        subLabel = "CLASSIFICATION AND PLANS SURVIVED THE RESTART",
+                        key = "classify-${item.id}",
+                        label = "▸ ${item.displayTitle}",
+                        subLabel = if (guess != null) "DETECTOR GUESS: $guess — TAP TO CONFIRM"
+                        else "TAP TO PICK THE PLATFORM",
                         onClick = {
-                            when {
-                                needsReview > 0 -> engine.backToClassifying()
-                                failed > 0 -> engine.reviewFailures()
-                                else -> engine.prepareImport()
-                            }
+                            engine.reclassifyItem(item.id)
+                            engine.backToClassifying()
                         },
                     )
                 }
-                // u73 escape hatch: unreadable items can neither be
-                // imported nor classified, and no screen offered a way
-                // out — each gets a REMOVE so a bricked queue can be
-                // cleared. Queue entry only; Downloads is never touched.
-                for (item in queueDecision.unreadable) {
-                    section {
-                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StatusLine("✗ ${item.archiveName}", Crystal.Bad)
-                                DimLine(shortUnreadableReason(item.failureDetail))
-                            }
-                        }
-                    }
-                    control(
-                        key = "remove-unreadable-${item.id}",
-                        testTag = "hub-remove-unreadable",
-                        label = "REMOVE THIS FILE",
-                        subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
-                        danger = true,
-                        onClick = { engine.removeItem(item.id) },
-                    )
-                }
-                if (missing > 0) {
-                    control(
-                        key = "dismiss-missing",
-                        testTag = "hub-dismiss-missing",
-                        label = "DISMISS $missing MISSING",
-                        subLabel = "DROPS THEM FROM THE QUEUE — NOTHING IS DELETED",
-                        onClick = { engine.dismissMissingItems() },
-                        danger = true,
-                    )
-                }
             }
-            if (uiState is ImportUiState.Importing) {
-                val importing = uiState as ImportUiState.Importing
-                control(
-                    key = "view-import",
-                    testTag = "hub-view-import",
-                    label = "VIEW IMPORT — ${importing.index + 1}/${importing.total}",
-                    subLabel = "THE RUN CONTINUES IN THE BACKGROUND",
-                    onClick = onViewImport,
-                )
-            }
-            if (history.isNotEmpty()) {
+            // ---- 4b. failed: retry all inline, or review each ----
+            if (failedItems.isNotEmpty()) {
                 section {
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("RECENT IMPORTS")
-                            for (entry in history.take(8)) {
-                                val ok = entry.outcome == ImportOutcome.SUCCESS
-                                val mark = if (ok) "✓" else "✗"
-                                val color = if (ok) Crystal.Good else Crystal.Bad
-                                val platform = entry.platform?.labels()?.short ?: "—"
-                                StatusLine("$mark $platform · ${entry.title}", color)
+                            StatusLine("FAILED (${failedItems.size})", Crystal.Bad)
+                            for (item in failedItems) {
+                                DimLine("✗ ${item.displayTitle}")
                             }
                         }
                     }
                 }
+                control(
+                    key = "retry-all-failed",
+                    label = "RETRY ALL FAILED (${failedItems.size})",
+                    subLabel = "RESETS THEM AND STARTS THE IMPORT",
+                    onClick = { engine.retryFailed() },
+                )
+                control(
+                    key = "review-failures",
+                    label = "REVIEW EACH FAILURE",
+                    subLabel = "RETRY · CHANGE PLATFORM · SKIP PER GAME",
+                    onClick = { engine.reviewFailures() },
+                )
             }
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("ONE FILE AT A TIME. SOURCE DELETED ONLY")
-                        StatusLine("AFTER THE DESTINATION VERIFIES.")
-                        StatusLine("CANCEL MEANS “AFTER THE CURRENT GAME”.", Crystal.InkDim)
+            // ---- 5a. unreadable: collapsed, expandable, removable ----
+            if (queueDecision.unreadable.isNotEmpty()) {
+                control(
+                    key = "toggle-unreadable",
+                    label = "UNREADABLE (${queueDecision.unreadable.size}) " +
+                        if (unreadableExpanded) "▾" else "▸",
+                    subLabel = "THE SCAN COULDN'T READ THESE FILES",
+                    onClick = { unreadableExpanded = !unreadableExpanded },
+                )
+                if (unreadableExpanded) {
+                    for (item in queueDecision.unreadable) {
+                        section {
+                            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    StatusLine("✗ ${item.archiveName}", Crystal.Bad)
+                                    DimLine(shortUnreadableReason(item.failureDetail))
+                                }
+                            }
+                        }
+                        control(
+                            key = "remove-unreadable-${item.id}",
+                            testTag = "hub-remove-unreadable",
+                            label = "REMOVE THIS FILE",
+                            subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
+                            danger = true,
+                            onClick = { engine.removeItem(item.id) },
+                        )
+                    }
+                }
+            }
+            // ---- 5b. not recognized: collapsed, expandable, actionable ----
+            if (notRecognizedItems.isNotEmpty()) {
+                control(
+                    key = "toggle-notrecognized",
+                    label = "NOT RECOGNIZED (${notRecognizedItems.size}) " +
+                        if (notRecognizedExpanded) "▾" else "▸",
+                    subLabel = "SCAN RETRIES THESE — OR DROP THEM",
+                    onClick = { notRecognizedExpanded = !notRecognizedExpanded },
+                )
+                if (notRecognizedExpanded) {
+                    for (item in notRecognizedItems) {
+                        section {
+                            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                                Column(
+                                    verticalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    StatusLine("· ${item.archiveName}", Crystal.Ink)
+                                    DimLine("THE SCAN COULDN'T IDENTIFY THIS FILE")
+                                }
+                            }
+                        }
+                        control(
+                            key = "notgame-${item.id}",
+                            label = "NOT A GAME",
+                            subLabel = "DROPS IT — NOTHING IS DELETED",
+                            onClick = { engine.ignoreNotAGame(item.id) },
+                        )
+                        control(
+                            key = "remove-notrecognized-${item.id}",
+                            label = "REMOVE",
+                            subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
+                            danger = true,
+                            onClick = { engine.removeItem(item.id) },
+                        )
+                    }
+                }
+            }
+            // ---- 5c. missing sources ----
+            if (missingCount > 0) {
+                control(
+                    key = "dismiss-missing",
+                    testTag = "hub-dismiss-missing",
+                    label = "DISMISS $missingCount MISSING",
+                    subLabel = "DROPS THEM FROM THE QUEUE — NOTHING IS DELETED",
+                    onClick = { engine.dismissMissingItems() },
+                    danger = true,
+                )
+            }
+            // ---- 6. grants: one quiet line when all OK ----
+            val grantsOk = downloadsOk && romsOk && (!allFilesApi || allFilesGranted)
+            if (grantsOk) {
+                section {
+                    DimLine("GRANTS OK — DOWNLOADS + ROMS READY")
+                }
+            } else {
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("GRANTS NEED ATTENTION", Crystal.Bad)
+                            if (!downloadsOk && !allFilesGranted) {
+                                DimLine("DOWNLOADS: NOT GRANTED")
+                            }
+                            if (allFilesApi && !allFilesGranted) {
+                                DimLine("ALL FILES ACCESS: NOT GRANTED")
+                            }
+                            if (!romsOk) {
+                                DimLine("ROM ROOT: NOT GRANTED")
+                            }
+                        }
+                    }
+                }
+                if (probe != null && !downloadsOk && !allFilesGranted) {
+                    control(
+                        key = "grant-downloads",
+                        testTag = "hub-grant-downloads",
+                        label = "GRANT DOWNLOADS FOLDER",
+                        subLabel = "SAF FALLBACK — PICK A SUBFOLDER INSIDE DOWNLOADS",
+                        onClick = onGrantDownloads,
+                    )
+                }
+                if (allFilesApi && !allFilesGranted) {
+                    control(
+                        key = "all-files-settings",
+                        testTag = "hub-all-files-settings",
+                        label = "OPEN SETTINGS",
+                        subLabel = "ALLOW ALL FILES ACCESS FOR DIRECT SCAN",
+                        onClick = onOpenAllFilesSettings,
+                    )
+                }
+                if (probe != null && !romsOk) {
+                    control(
+                        key = "grant-roms",
+                        testTag = "hub-grant-roms",
+                        label = "GRANT ROM ROOT FOLDER",
+                        onClick = onGrantRoms,
+                    )
+                }
+            }
+            // ---- 7. history: collapsed ----
+            if (history.isNotEmpty()) {
+                control(
+                    key = "toggle-history",
+                    label = "RECENT IMPORTS (${history.size}) " +
+                        if (historyExpanded) "▾" else "▸",
+                    onClick = { historyExpanded = !historyExpanded },
+                )
+                if (historyExpanded) {
+                    section {
+                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                for (entry in history.take(8)) {
+                                    val ok = entry.outcome == ImportOutcome.SUCCESS
+                                    val mark = if (ok) "✓" else "✗"
+                                    val color = if (ok) Crystal.Good else Crystal.Bad
+                                    val platform =
+                                        entry.platform?.labels()?.short ?: "—"
+                                    StatusLine("$mark $platform · ${entry.title}", color)
+                                }
+                            }
+                        }
                     }
                 }
             }

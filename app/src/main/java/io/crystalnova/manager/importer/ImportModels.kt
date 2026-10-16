@@ -409,6 +409,55 @@ fun hubQueueDecision(items: List<ArchiveItem>): HubQueueDecision {
 }
 
 /**
+ * u77: compact hub status — pure and unit-testable. The hub used to
+ * bury the queue state in a scrolling wall of panels; now one
+ * headline says what's waiting and what needs Ciaran, and the hub
+ * renders actions from these counts. Colors and next-step hints are
+ * UI decisions; this is just the numbers.
+ */
+data class HubSummary(
+    val waiting: Int,
+    val toReview: Int,
+    val failed: Int,
+    val unreadable: Int,
+    val notRecognized: Int,
+    val missing: Int,
+    val importable: Int,
+)
+
+fun hubSummary(items: List<ArchiveItem>): HubSummary {
+    val live = items.filter {
+        it.stage != ImportStage.COMPLETE &&
+            it.stage != ImportStage.SKIPPED &&
+            !it.isClaimed
+    }
+    return HubSummary(
+        waiting = live.size,
+        toReview = live.count { it.needsReview },
+        failed = live.count { it.stage == ImportStage.FAILED },
+        unreadable = live.count { it.inspectFailed },
+        notRecognized = live.count {
+            !it.inspectFailed && !it.sourceMissing && !it.detection.recognizedAsGame
+        },
+        missing = live.count { it.sourceMissing },
+        importable = live.count { it.importable && it.stage == ImportStage.WAITING },
+    )
+}
+
+/** One-line status, e.g. "5 TO REVIEW • 2 FAILED • 13 UNREADABLE". */
+fun HubSummary.headline(): String {
+    if (waiting == 0) return "READY — NOTHING WAITING"
+    val parts = mutableListOf<String>()
+    if (toReview > 0) parts += "$toReview TO REVIEW"
+    if (importable > 0) parts += "$importable READY"
+    if (failed > 0) parts += "$failed FAILED"
+    if (unreadable > 0) parts += "$unreadable UNREADABLE"
+    if (notRecognized > 0) parts += "$notRecognized NOT RECOGNIZED"
+    if (missing > 0) parts += "$missing MISSING"
+    return parts.joinToString(" • ")
+}
+
+/**
  * Filesystem-safe folder/file name derived from a title. ROM filenames
  * themselves are kept intact — this is only for generated game-folder
  * names and staging dirs.

@@ -76,7 +76,7 @@ class HubLayoutTest : NovaUiTest() {
         assertButtonTextContained("hub-scan")
     }
 
-    /** The u70 hub structure: status panels + full-width actions. */
+    /** The u77 hub structure: status headline + primary actions + collapsible problem lists. */
     @Composable
     private fun HubRepro(fontScale: Float) {
         CompositionLocalProvider(LocalDensity provides Density(1f, fontScale = fontScale)) {
@@ -91,17 +91,26 @@ class HubLayoutTest : NovaUiTest() {
                     dispatcher = dispatcher,
                     initialFocus = ::isInitialFocus,
                 ) {
+                    // 1. status strip
                     section {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StatusLine("SOURCE — DOWNLOADS")
-                                StatusLine("GRANTED — DIRECT SCAN", Crystal.Good)
-                                CrystalDivider()
-                                StatusLine("DESTINATION — ROM ROOT")
-                                StatusLine("GRANTED", Crystal.Good)
+                                StatusLine("2 TO REVIEW • 1 FAILED", Crystal.Joystick)
+                                DimLine("TAP A GAME TO CLASSIFY IT")
                             }
                         }
                     }
+                    // 2. progress
+                    section {
+                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatusLine("SCANNING DOWNLOADS", Crystal.Joystick)
+                                CrystalProgressBar(0.5f)
+                                StatusLine("3 / 6 FILES", Crystal.InkDim)
+                            }
+                        }
+                    }
+                    // 3. primary actions
                     control(
                         key = "scan",
                         testTag = "hub-scan",
@@ -109,21 +118,36 @@ class HubLayoutTest : NovaUiTest() {
                         subLabel = "ZIP + 7Z + LOOSE GAME FILES — RAR REPORTED, NOT SUPPORTED",
                         onClick = {},
                     )
-                    section {
-                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                StatusLine("QUEUE — 2 WAITING")
-                                StatusLine("2 SOURCE MISSING — FILE IS GONE", Crystal.Bad)
-                            }
-                        }
-                    }
                     control(
                         key = "resume",
                         testTag = "hub-resume",
-                        label = "RESUME QUEUE (2)",
-                        subLabel = "CLASSIFICATION AND PLANS SURVIVED THE RESTART",
+                        label = "CLASSIFY GAMES (2)",
+                        subLabel = "PICK A PLATFORM FOR EACH GAME",
                         onClick = {},
                     )
+                    // 4. actionable rows
+                    section {
+                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                            StatusLine("NEEDS REVIEW (2) — TAP TO CLASSIFY", Crystal.Joystick)
+                        }
+                    }
+                    control(
+                        key = "classify-a",
+                        label = "▸ MARIO GOLF",
+                        subLabel = "TAP TO CLASSIFY ▸",
+                        onClick = {},
+                    )
+                    // 5. collapsed problem list toggle
+                    control(
+                        key = "toggle-unreadable",
+                        label = "UNREADABLE (1) ▸",
+                        subLabel = "THE SCAN COULDN'T READ THESE FILES",
+                        onClick = {},
+                    )
+                    // 6. grants OK collapses to one line
+                    section {
+                        DimLine("GRANTS OK — DOWNLOADS + ROMS READY")
+                    }
                     control(
                         key = "dismiss-missing",
                         testTag = "hub-dismiss-missing",

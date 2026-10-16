@@ -302,8 +302,7 @@ fun Keycap(
 }
 
 @Composable
-fun SectionLabel(text: String, modifier: Modifier = Modifier) {
-    BasicText(
+fun SectionLabel(text: String, modifier: Modifier = Modifier) {    BasicText(
         text = text,
         modifier = modifier,
         style = TextStyle(
@@ -324,4 +323,29 @@ fun CrystalDivider(modifier: Modifier = Modifier) {
             .height(2.dp)
             .background(Crystal.FrameDim),
     )
+}
+
+/**
+ * u77: shared chunky progress bar — scan and import progress must be
+ * unmissable at Nova handheld distance, so the bar is tall with a
+ * joystick-yellow fill on the deep tile.
+ */
+@Composable
+fun CrystalProgressBar(
+    progress: Float,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(20.dp)
+            .background(Crystal.TileDeep),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                .height(20.dp)
+                .background(Crystal.Joystick),
+        )
+    }
 }

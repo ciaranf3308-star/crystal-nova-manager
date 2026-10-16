@@ -1,11 +1,8 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -65,7 +62,7 @@ fun ImporterProgressScreen(
                             )
                             current.detail?.let { StatusLine(it, Crystal.InkDim) }
                             current.progress?.let { p ->
-                                ProgressBar(p)
+                                CrystalProgressBar(p)
                                 StatusLine("${(p * 100).toInt()}%", Crystal.InkDim)
                             }
                         }
@@ -81,28 +78,28 @@ fun ImporterProgressScreen(
             section {
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("QUEUE")
-                        for (row in state.rows) {
-                            val (mark, color) = when (row.state) {
-                                RowState.DONE -> "✓" to Crystal.Good
-                                RowState.FAILED -> "✗" to Crystal.Bad
-                                RowState.ACTIVE -> "▶" to Crystal.Joystick
-                                RowState.SKIPPED -> "–" to Crystal.InkDim
-                                RowState.PENDING -> "·" to Crystal.Ink
-                            }
-                            StatusLine("$mark ${row.title}", color)
-                        }
-                    }
-                }
-            }
-            if (state.log.isNotEmpty()) {
-                section {
-                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("LOG")
-                            for (line in state.log.takeLast(10)) {
-                                StatusLine(line, Crystal.InkDim)
-                            }
+                        // u77: compact queue summary — the full per-row
+                        // list and the technical log tail pushed the
+                        // actual progress below the fold on the Nova.
+                        // What matters: how many done, what's active,
+                        // what's left, what failed.
+                        val done = state.rows.count { it.state == RowState.DONE }
+                        val failed = state.rows.count { it.state == RowState.FAILED }
+                        val skipped =
+                            state.rows.count { it.state == RowState.SKIPPED }
+                        val pending =
+                            state.rows.count { it.state == RowState.PENDING }
+                        StatusLine(
+                            "✓ $done DONE · · $pending LEFT" +
+                                if (failed > 0) " · ✗ $failed FAILED" else "" +
+                                if (skipped > 0) " · – $skipped SKIPPED" else "",
+                            Crystal.Ink,
+                        )
+                        val failedTitles = state.rows
+                            .filter { it.state == RowState.FAILED }
+                            .take(3)
+                        for (row in failedTitles) {
+                            StatusLine("✗ ${row.title}", Crystal.Bad)
                         }
                     }
                 }
@@ -126,22 +123,5 @@ fun ImporterProgressScreen(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun ProgressBar(progress: Float) {
-    Box(
-        modifier = Modifier
-            .fillMaxWidth()
-            .height(18.dp)
-            .background(Crystal.TileDeep),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth(progress.coerceIn(0f, 1f))
-                .height(18.dp)
-                .background(Crystal.Joystick),
-        )
     }
 }

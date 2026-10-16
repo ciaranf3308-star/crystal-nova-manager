@@ -56,12 +56,18 @@ fun ImporterClassifyScreen(
     val engine = graph.engine
     val uiState by engine.uiState.collectAsState()
     val state = uiState as? ImportUiState.Classifying
+    // u77: when the detector has a LIKELY guess, focus it — one A press
+    // confirms instead of hunting through 18 tiles.
+    val guessKey: Any? = state?.needsReview?.firstOrNull()
+        ?.takeIf { it.detection.confidence == Confidence.LIKELY }
+        ?.detection?.platform
+        ?.let { "platform-${it.name}" }
 
     ScreenScaffold(
         routeKey = "import-classify",
         title = "CLASSIFY GAME",
         onBack = onBack,
-        fallbackFocusKey = "done",
+        fallbackFocusKey = guessKey ?: "done",
     ) {
         ControllerGrid(
             state = gridState,
