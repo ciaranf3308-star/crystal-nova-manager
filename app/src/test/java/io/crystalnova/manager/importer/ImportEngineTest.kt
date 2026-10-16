@@ -611,6 +611,50 @@ class ImportEngineTest {
         assertEquals("poison.zip", state.unreadable.single().archiveName)
     }
 
+    @Test fun `unreadable items surface filename and reason for display`() {
+        // u72: the hub renders archiveName + failureDetail per unreadable
+        // item — assert the data the UI binds to is present and the
+        // display helper shortens the raw engine detail.
+        val env = envWith(
+            Triple("poison.zip", "uri:poison", mapOf("poison.iso" to ByteArray(100))),
+        )
+        env.oomUris += "uri:poison"
+        val h = harness(env)
+
+        h.engine.scan()
+
+        val state = h.engine.uiState.value as ImportUiState.Classifying
+        val item = state.unreadable.single()
+        assertEquals("poison.zip", item.archiveName)
+        assertTrue(item.failureDetail?.isNotBlank() == true)
+        assertEquals(
+            "RAN OUT OF MEMORY READING IT — LIKELY CORRUPT",
+            shortUnreadableReason(item.failureDetail),
+        )
+    }
+
+    @Test fun `shortUnreadableReason keeps it terse and human`() {
+        assertEquals("COULD NOT READ FILE", shortUnreadableReason(null))
+        assertEquals("COULD NOT READ FILE", shortUnreadableReason("   "))
+        assertEquals(
+            "RAN OUT OF MEMORY READING IT — LIKELY CORRUPT",
+            shortUnreadableReason(
+                "Could not inspect: Failed to allocate a 268435472 byte " +
+                    "allocation with 25165824 free bytes and 251MB until OOM",
+            ),
+        )
+        assertEquals(
+            "HEADER CRC MISMATCH",
+            shortUnreadableReason("Could not read 7z: header CRC mismatch"),
+        )
+        assertEquals(
+            "TRUNCATED ENTRY: GAME.ISO (DECLARED=100, READ=40)",
+            shortUnreadableReason("Truncated entry: game.iso (declared=100, read=40)"),
+        )
+        val long = shortUnreadableReason("Could not read ZIP: " + "x".repeat(500))
+        assertTrue(long.length <= 140)
+    }
+
     @Test fun `skip during classification drops the item from the review list`() {
         val env = envWith(
             Triple("mystery.zip", "uri:mz", mapOf("mystery.gba" to ByteArray(100))),

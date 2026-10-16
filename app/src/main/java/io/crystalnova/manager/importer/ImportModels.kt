@@ -347,6 +347,34 @@ fun cleanDisplayTitle(fileName: String): String {
 }
 
 /**
+ * u72: human-terse reason for an unreadable scan item. The raw
+ * [ArchiveItem.failureDetail] can be a long engine message (e.g. the
+ * full OOM allocation dump: "Failed to allocate a 268435472 byte
+ * allocation with …"); the hub shows this shortened form next to the
+ * intact filename so the user can tell which file to delete or
+ * re-download. Never blank, never huge, ALL-CAPS to match the
+ * terminal UI language. Display-only — the raw detail is untouched.
+ */
+fun shortUnreadableReason(detail: String?): String {
+    val raw = detail?.trim().orEmpty()
+    if (raw.isEmpty()) return "COULD NOT READ FILE"
+    // The OOM dump is long and meaningless to a human — name the
+    // condition instead.
+    if (raw.contains("Failed to allocate", ignoreCase = true) ||
+        raw.contains("OutOfMemory", ignoreCase = true)
+    ) {
+        return "RAN OUT OF MEMORY READING IT — LIKELY CORRUPT"
+    }
+    val unprefixed = raw
+        .removePrefix("Could not read 7z: ")
+        .removePrefix("Could not read ZIP: ")
+        .removePrefix("Could not inspect: ")
+        .trim()
+    if (unprefixed.isEmpty()) return "COULD NOT READ FILE"
+    return unprefixed.take(140).trim().uppercase()
+}
+
+/**
  * Filesystem-safe folder/file name derived from a title. ROM filenames
  * themselves are kept intact — this is only for generated game-folder
  * names and staging dirs.

@@ -24,6 +24,7 @@ import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.ImportStage
 import io.crystalnova.manager.importer.labels
+import io.crystalnova.manager.importer.shortUnreadableReason
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -154,6 +155,17 @@ fun ImporterHubScreen(
                                         "${s.unreadable.size} UNREADABLE FILES",
                                         Crystal.Bad,
                                     )
+                                    // u72: name the files and why — a bare
+                                    // count left the user guessing which of
+                                    // their downloads was at fault. Filename
+                                    // stays intact and wraps; the reason is
+                                    // the terse human form (never the raw
+                                    // engine dump). Rows are plain text, so
+                                    // D-pad focus order is unchanged.
+                                    for (item in s.unreadable) {
+                                        StatusLine("✗ ${item.archiveName}", Crystal.Bad)
+                                        DimLine(shortUnreadableReason(item.failureDetail))
+                                    }
                                 }
                             }
                         }
