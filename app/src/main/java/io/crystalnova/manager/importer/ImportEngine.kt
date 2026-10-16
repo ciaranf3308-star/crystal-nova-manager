@@ -276,10 +276,14 @@ class ImportEngine(
                     done++
                     _uiState.value = ImportUiState.Scanning(done, total)
                     val knownItem = known[ref.uri]
-                    // u74: previously-unreadable items retry automatically —
-                    // the external 7z backend may succeed where the in-app
-                    // inspection failed. Items that inspected fine stay skipped.
-                    if (knownItem != null && !knownItem.inspectFailed) continue
+                    // u74/u76: items retry automatically when they failed
+                    // inspection OR were never recognized as games — an
+                    // improved detector (e.g. u75's 3DS NCCH check) may
+                    // succeed where the old one found nothing. Items the
+                    // user explicitly skipped ("not a game") are never
+                    // resurrected; recognized items stay skipped.
+                    if (knownItem != null && (knownItem.stage == ImportStage.SKIPPED ||
+                        (!knownItem.inspectFailed && knownItem.detection.recognizedAsGame))) continue
                     val built = try {
                         buildItem(ref)
                     } catch (e: CancellationException) {
@@ -334,8 +338,10 @@ class ImportEngine(
                     done++
                     _uiState.value = ImportUiState.Scanning(done, total)
                     val knownItem = known[ref.uri]
-                    // u74: previously-unreadable loose files retry too.
-                    if (knownItem != null && !knownItem.inspectFailed) continue
+                    // u74/u76: previously-unreadable OR never-recognized
+                    // loose files retry too (same SKIPPED guard as above).
+                    if (knownItem != null && (knownItem.stage == ImportStage.SKIPPED ||
+                        (!knownItem.inspectFailed && knownItem.detection.recognizedAsGame))) continue
                     val built = try {
                         buildLooseItem(ref)
                     } catch (e: CancellationException) {

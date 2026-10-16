@@ -670,6 +670,75 @@ class ImportEngineTest {
         assertEquals(good.id, stillGood.id)
     }
 
+    @Test fun `rescan retries not-recognized items in place`() {
+        // u76: the user's 13 3DS 7z files inspected fine but were never
+        // recognized (pre-u75 detector). A rescan must re-run the full
+        // buildItem for them — the improved detector only helps if it
+        // actually runs — and refresh the entry in place (same id).
+        val env = envWith(
+            Triple("docs.zip", "uri:docs", mapOf("readme.txt" to ByteArray(100))),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        val first = h.queue.items.value.single()
+        assertFalse(first.inspectFailed)
+        assertFalse(first.detection.recognizedAsGame)
+
+        // Rename the download between scans: if the rescan re-runs
+        // buildItem, the refreshed entry picks up the new name.
+        env.downloads = listOf(DownloadFile("docs2.zip", 100L, "uri:docs", false))
+        h.engine.scan()
+
+        assertEquals(1, h.queue.items.value.size)
+        val retried = h.queue.items.value.single()
+        assertEquals(first.id, retried.id)
+        assertEquals("docs2.zip", retried.archiveName)
+        assertFalse(retried.inspectFailed)
+    }
+
+    @Test fun `rescan still skips recognized items`() {
+        // u76 guard: a healthy recognized item must not be re-inspected.
+        val env = envWith(
+            Triple("game.zip", "uri:game", mapOf("game.gba" to ByteArray(100))),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        val first = h.queue.items.value.single()
+        assertTrue(first.detection.recognizedAsGame)
+
+        env.downloads = listOf(DownloadFile("game2.zip", 100L, "uri:game", false))
+        h.engine.scan()
+
+        val still = h.queue.items.value.single()
+        assertEquals(first.id, still.id)
+        // Skipped, not rebuilt: the stale name survives the rescan.
+        assertEquals("game.zip", still.archiveName)
+    }
+
+    @Test fun `rescan does not resurrect user-ignored items`() {
+        // u76 SKIPPED guard: ignoreNotAGame() sets recognizedAsGame=false,
+        // which must not look like "never recognized" on the next scan.
+        val env = envWith(
+            Triple("docs.zip", "uri:docs", mapOf("readme.txt" to ByteArray(100))),
+        )
+        val h = harness(env)
+
+        h.engine.scan()
+        val first = h.queue.items.value.single()
+        h.engine.ignoreNotAGame(first.id)
+        assertEquals(ImportStage.SKIPPED, h.queue.items.value.single().stage)
+
+        env.downloads = listOf(DownloadFile("docs2.zip", 100L, "uri:docs", false))
+        h.engine.scan()
+
+        val still = h.queue.items.value.single()
+        assertEquals(first.id, still.id)
+        assertEquals(ImportStage.SKIPPED, still.stage)
+        assertEquals("docs.zip", still.archiveName)
+    }
+
     @Test fun `removeItem drops an unreadable queue entry`() {
         // u73: the escape hatch. An unreadable item could neither be
         // imported nor classified, and no screen offered a way out —
