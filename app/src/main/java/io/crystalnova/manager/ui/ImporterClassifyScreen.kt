@@ -1,13 +1,18 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.crystalnova.manager.importer.Confidence
 import io.crystalnova.manager.importer.ArchiveKind
@@ -66,10 +71,17 @@ fun ImporterClassifyScreen(
         ) {
             if (state == null || state.needsReview.isEmpty()) {
                 panel {
-                    StatusLine("NOTHING LEFT TO CLASSIFY.", Crystal.Good)
-                    val actionable = state?.actionable ?: 0
-                    if (actionable > 0) {
-                        StatusLine("$actionable GAME${if (actionable == 1) "" else "S"} READY FOR REVIEW", Crystal.Joystick)
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("NOTHING LEFT TO CLASSIFY.", Crystal.Good)
+                            val actionable = state?.actionable ?: 0
+                            if (actionable > 0) {
+                                StatusLine(
+                                    "$actionable GAME${if (actionable == 1) "" else "S"} READY FOR REVIEW",
+                                    Crystal.Joystick,
+                                )
+                            }
+                        }
                     }
                 }
                 if ((state?.actionable ?: 0) > 0) {
@@ -94,47 +106,51 @@ fun ImporterClassifyScreen(
             // screen is "what is THIS file", so it gets the biggest
             // panel and the biggest type. ----
             panel {
-                StatusLine(
-                    if (remaining == 0) "LAST ONE" else "$remaining MORE AFTER THIS",
-                    Crystal.Joystick,
-                )
-                BasicText(
-                    text = item.displayTitle,
-                    style = TextStyle(
-                        fontFamily = Crystal.Mono,
-                        fontWeight = FontWeight.Bold,
-                        fontSize = 21.sp,
-                        color = Crystal.Ink,
-                    ),
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                DimLine(
-                    "${item.archiveName} · ${formatBytes(item.archiveBytes)} · ${kindLabel(item.archiveKind)}",
-                )
-                if (item.relativePath.isNotEmpty()) {
-                    DimLine("IN DOWNLOADS/${item.relativePath}")
-                }
-                // Detector clues, translated from debug evidence into
-                // plain-language hints.
-                val clues = item.detection.signals
-                    .take(3)
-                    .map { friendlyClue(it, item.detection.platform) }
-                if (clues.isNotEmpty()) {
-                    for (clue in clues) {
-                        DimLine("• $clue")
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine(
+                            if (remaining == 0) "LAST ONE" else "$remaining MORE AFTER THIS",
+                            Crystal.Joystick,
+                        )
+                        BasicText(
+                            text = item.displayTitle,
+                            style = TextStyle(
+                                fontFamily = Crystal.Mono,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 24.sp,
+                                color = Crystal.Ink,
+                            ),
+                            maxLines = 3,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                        DimLine(
+                            "${item.archiveName} · ${formatBytes(item.archiveBytes)} · ${kindLabel(item.archiveKind)}",
+                        )
+                        if (item.relativePath.isNotEmpty()) {
+                            DimLine("IN DOWNLOADS/${item.relativePath}")
+                        }
+                        // Detector clues, translated from debug evidence into
+                        // plain-language hints.
+                        val clues = item.detection.signals
+                            .take(3)
+                            .map { friendlyClue(it, item.detection.platform) }
+                        if (clues.isNotEmpty()) {
+                            for (clue in clues) {
+                                DimLine("• $clue")
+                            }
+                        } else if (item.detection.confidence == Confidence.UNKNOWN) {
+                            DimLine("THE DETECTOR FOUND NO USABLE CLUES — YOUR CALL.")
+                        }
+                        if (item.detection.confidence == Confidence.LIKELY &&
+                            item.detection.platform != null
+                        ) {
+                            StatusLine(
+                                "DETECTOR'S GUESS: ${item.detection.platform.labels().long.uppercase()} — " +
+                                    "TAP IT IF IT LOOKS RIGHT",
+                                Crystal.Joystick,
+                            )
+                        }
                     }
-                } else if (item.detection.confidence == Confidence.UNKNOWN) {
-                    DimLine("THE DETECTOR FOUND NO USABLE CLUES — YOUR CALL.")
-                }
-                if (item.detection.confidence == Confidence.LIKELY &&
-                    item.detection.platform != null
-                ) {
-                    StatusLine(
-                        "DETECTOR'S GUESS: ${item.detection.platform.labels().long.uppercase()} — " +
-                            "TAP IT IF IT LOOKS RIGHT",
-                        Crystal.Joystick,
-                    )
                 }
             }
             // ---- Zone 2: the platform choice. Two columns of generous
@@ -144,13 +160,17 @@ fun ImporterClassifyScreen(
             // off-screen while tapping tiles, so without this the user
             // had to scroll up to verify a tap registered. ----
             panel {
-                StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
-                val pick = state.lastPick
-                if (pick != null) {
-                    StatusLine(
-                        "✓ ${pick.title} → ${pick.platformLabel} SAVED",
-                        Crystal.Good,
-                    )
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
+                        val pick = state.lastPick
+                        if (pick != null) {
+                            StatusLine(
+                                "✓ ${pick.title} → ${pick.platformLabel} SAVED",
+                                Crystal.Good,
+                            )
+                        }
+                    }
                 }
             }
             for (platform in PlatformId.entries) {
@@ -166,7 +186,9 @@ fun ImporterClassifyScreen(
             }
             // ---- Zone 3: the escape hatches, one unmistakable row. ----
             panel {
-                StatusLine("NOT SURE? SKIP KEEPS IT FOR LATER.")
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    StatusLine("NOT SURE? SKIP KEEPS IT FOR LATER.")
+                }
             }
             control(
                 key = "skip",

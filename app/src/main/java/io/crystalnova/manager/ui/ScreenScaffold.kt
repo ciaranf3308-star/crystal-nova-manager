@@ -159,7 +159,9 @@ fun ScreenScaffold(
             .fillMaxSize()
             .background(Crystal.Background)
             .controllerKeys(dispatcher, onBack, passThroughAWhen)
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            // u70: the old 12/8dp gutters crowded panels against the
+            // Nova's display edges in on-device photos.
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
             if (showMasthead) {

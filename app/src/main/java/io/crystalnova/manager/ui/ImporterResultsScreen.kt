@@ -1,10 +1,15 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.remember
 import io.crystalnova.manager.importer.FailedRow
 import io.crystalnova.manager.importer.ImportUiState
@@ -20,11 +25,12 @@ import io.crystalnova.manager.importer.labels
  * the finished items and returns to the hub — or back to
  * classification when work remains.
  *
- * 4:3 redesign: failure rows are full-width panels — title, platform,
- * and the failure reason each on their own line, wrapping freely,
- * never clipped — followed by the three short actions (RETRY /
- * PLATFORM / SKIP) on one clean row. 3 columns stay here: these
- * labels are short and uniform, exactly the case 3 columns serve.
+ * u70: 2-column grid. Failure rows are full-width panels — title,
+ * platform, and the failure reason each on their own line, wrapping
+ * freely, never clipped — followed by the four actions (RETRY /
+ * PLATFORM / SKIP / REMOVE) in a clean 2×2. The old 3-column layout
+ * left the fourth button stranded on its own row and squeezed the
+ * long sublabels ("RETRIES THIS GAME AS …") into ~270dp cells.
  */
 @Composable
 fun ImporterResultsScreen(
@@ -46,7 +52,7 @@ fun ImporterResultsScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(3),
+            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null) {
@@ -54,25 +60,29 @@ fun ImporterResultsScreen(
                 return@ControllerGrid
             }
             panel {
-                val headline = if (state.cancelled) "RUN CANCELLED" else "RUN FINISHED"
-                StatusLine(headline, Crystal.Joystick)
-                StatusLine(
-                    "${state.succeeded} IMPORTED · ${state.failed.size} FAILED · " +
-                        "${state.skipped} SKIPPED",
-                    if (state.failed.isEmpty()) Crystal.Good else Crystal.Ink,
-                )
-                if (state.deletedSources > 0) {
-                    StatusLine(
-                        "${state.deletedSources} SOURCE ARCHIVE${if (state.deletedSources == 1) "" else "S"} " +
-                            "DELETED AFTER VERIFY",
-                        Crystal.InkDim,
-                    )
-                }
-                if (state.failed.isNotEmpty()) {
-                    StatusLine(
-                        "FAILED SOURCES WERE KEPT — RETRY OR SKIP BELOW",
-                        Crystal.Bad,
-                    )
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        val headline = if (state.cancelled) "RUN CANCELLED" else "RUN FINISHED"
+                        StatusLine(headline, Crystal.Joystick)
+                        StatusLine(
+                            "${state.succeeded} IMPORTED · ${state.failed.size} FAILED · " +
+                                "${state.skipped} SKIPPED",
+                            if (state.failed.isEmpty()) Crystal.Good else Crystal.Ink,
+                        )
+                        if (state.deletedSources > 0) {
+                            StatusLine(
+                                "${state.deletedSources} SOURCE ARCHIVE${if (state.deletedSources == 1) "" else "S"} " +
+                                    "DELETED AFTER VERIFY",
+                                Crystal.InkDim,
+                            )
+                        }
+                        if (state.failed.isNotEmpty()) {
+                            StatusLine(
+                                "FAILED SOURCES WERE KEPT — RETRY OR SKIP BELOW",
+                                Crystal.Bad,
+                            )
+                        }
+                    }
                 }
             }
             for (row in state.failed) {
@@ -98,16 +108,20 @@ private fun ControllerGridContent.FailedSection(
     // Full-width failure card: every line wraps freely — the reason
     // is never clipped, however long it gets.
     panel {
-        StatusLine("✗ ${row.title}", Crystal.Bad)
-        val platformName = row.platform?.labels()?.long?.uppercase() ?: "UNKNOWN PLATFORM"
-        StatusLine("PLATFORM: $platformName", Crystal.Ink)
-        StatusLine("REASON: ${row.reason.label()}", Crystal.InkDim)
-        row.detail?.let { StatusLine(it, Crystal.InkDim) }
-        if (chosen != null && chosen != row.platform) {
-            StatusLine(
-                "WILL RETRY AS ${chosen.labels().long.uppercase()}",
-                Crystal.Joystick,
-            )
+        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusLine("✗ ${row.title}", Crystal.Bad)
+                val platformName = row.platform?.labels()?.long?.uppercase() ?: "UNKNOWN PLATFORM"
+                StatusLine("PLATFORM: $platformName", Crystal.Ink)
+                StatusLine("REASON: ${row.reason.label()}", Crystal.InkDim)
+                row.detail?.let { StatusLine(it, Crystal.InkDim) }
+                if (chosen != null && chosen != row.platform) {
+                    StatusLine(
+                        "WILL RETRY AS ${chosen.labels().long.uppercase()}",
+                        Crystal.Joystick,
+                    )
+                }
+            }
         }
     }
     // One action per tile: controller-simple, no nested focus grid.

@@ -1,6 +1,10 @@
 package io.crystalnova.manager.ui
 
-import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -23,14 +27,14 @@ import io.crystalnova.manager.importer.labels
  * is strictly sequential and always on; there is no parallelism
  * toggle to show.
  *
- * 4:3 redesign: 2-column grid. Each platform group is a full-width
+ * u70: single-column list. Each platform group is a full-width
  * panel with a clear header (platform → destination folder) and a
  * deterministic vertical stack of readable game rows (filename +
- * size, ellipsis if long) — no FlowRow chip soup. IMPORT ALL is the
- * first, biggest control after the storage summary, carrying the
- * storage numbers in its own sublabel so the go/no-go is visible on
- * the button itself. Conflict choices get an unmistakable "▸ "
- * marker plus SELECTED on the active option.
+ * size, ellipsis if long) — no FlowRow chip soup, no half-width
+ * squeeze. IMPORT ALL is the first, biggest control after the
+ * storage summary, carrying the storage numbers in its own sublabel
+ * so the go/no-go is visible on the button itself. Conflict choices
+ * get an unmistakable "▸ " marker plus SELECTED on the active option.
  */
 @Composable
 fun ImporterReviewScreen(
@@ -57,18 +61,19 @@ fun ImporterReviewScreen(
         onBack = onBack,
         fallbackFocusKey = "import-all",
     ) {
-        ControllerGrid(
-            state = gridState,
+        ControllerList(
+            state = listState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             when (val s = uiState) {
                 is ImportUiState.ConflictReview -> ConflictSection(s, graph, choices)
                 is ImportUiState.Ready -> ReadySection(s, graph, onStartImport)
                 is ImportUiState.Error -> {
-                    panel {
-                        StatusLine(s.message, Crystal.Bad)
+                    section {
+                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                            StatusLine(s.message, Crystal.Bad)
+                        }
                     }
                     control(
                         key = "dismiss-notice",
@@ -76,39 +81,47 @@ fun ImporterReviewScreen(
                         onClick = { engine.backToIdle() },
                     )
                 }
-                else -> panel {
-                    StatusLine("PREPARING…", Crystal.InkDim)
+                else -> section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        StatusLine("PREPARING…", Crystal.InkDim)
+                    }
                 }
             }
         }
     }
 }
 
-private fun ControllerGridContent.ReadySection(
+private fun ControllerListContent.ReadySection(
     s: ImportUiState.Ready,
     graph: ImporterGraph,
     onStartImport: () -> Unit,
 ) {
     val engine = graph.engine
-    panel {
-        StatusLine(
-            "${s.totalGames} GAME${if (s.totalGames == 1) "" else "S"} · " +
-                "NEED ${formatBytes(s.estimatedBytes)}",
-            Crystal.Joystick,
-        )
-        val freeLine = "FREE ${formatBytes(s.freeBytes)}"
-        StatusLine(
-            if (s.storageOk) freeLine else "$freeLine — NOT ENOUGH HEADROOM",
-            if (s.storageOk) Crystal.Good else Crystal.Bad,
-        )
+    section {
+        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusLine(
+                    "${s.totalGames} GAME${if (s.totalGames == 1) "" else "S"} · " +
+                        "NEED ${formatBytes(s.estimatedBytes)}",
+                    Crystal.Joystick,
+                )
+                val freeLine = "FREE ${formatBytes(s.freeBytes)}"
+                StatusLine(
+                    if (s.storageOk) freeLine else "$freeLine — NOT ENOUGH HEADROOM",
+                    if (s.storageOk) Crystal.Good else Crystal.Bad,
+                )
+            }
+        }
     }
     for (group in s.groups) {
-        panel {
-            val folder = graph.mapping.folderFor(group.platform)
-            StatusLine(
-                "${group.platform.labels().long.uppercase()} → /$folder",
-                Crystal.Cream,
-            )
+        section {
+            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                val folder = graph.mapping.folderFor(group.platform)
+                StatusLine(
+                    "${group.platform.labels().long.uppercase()} → /$folder",
+                    Crystal.Cream,
+                )
+            }
         }
         // One control per game: a wrong console pick goes back to the
         // classify screen as the first item with a single tap.
@@ -121,12 +134,18 @@ private fun ControllerGridContent.ReadySection(
             )
         }
     }
-    panel {
-        StatusLine("SEQUENTIAL — ONE ITEM AT A TIME", Crystal.InkDim)
-        StatusLine("SOURCE DELETED ONLY AFTER VERIFY", Crystal.InkDim)
+    section {
+        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusLine("SEQUENTIAL — ONE ITEM AT A TIME", Crystal.InkDim)
+                StatusLine("SOURCE DELETED ONLY AFTER VERIFY", Crystal.InkDim)
+            }
+        }
     }
-    panel {
-        StatusLine("▶ READY TO IMPORT", Crystal.Joystick)
+    section {
+        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+            StatusLine("▶ READY TO IMPORT", Crystal.Joystick)
+        }
     }
     // The big primary action: content-sized (two-line sublabel carries
     // the storage verdict, so the tile is naturally tall — no fixed
@@ -149,19 +168,23 @@ private fun ControllerGridContent.ReadySection(
     )
 }
 
-private fun ControllerGridContent.ConflictSection(
+private fun ControllerListContent.ConflictSection(
     s: ImportUiState.ConflictReview,
     graph: ImporterGraph,
     choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val engine = graph.engine
-    panel {
-        StatusLine(
-            "${s.conflicts.size} ALREADY IN THE LIBRARY",
-            Crystal.Joystick,
-        )
-        StatusLine("DEFAULT: ${s.default.label()}", Crystal.InkDim)
-        StatusLine("PICK PER GAME, THEN CONFIRM.", Crystal.InkDim)
+    section {
+        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusLine(
+                    "${s.conflicts.size} ALREADY IN THE LIBRARY",
+                    Crystal.Joystick,
+                )
+                StatusLine("DEFAULT: ${s.default.label()}", Crystal.InkDim)
+                StatusLine("PICK PER GAME, THEN CONFIRM.", Crystal.InkDim)
+            }
+        }
     }
     for (conflict in s.conflicts) {
         ConflictRow(conflict, choices)
@@ -184,18 +207,22 @@ private fun ControllerGridContent.ConflictSection(
     )
 }
 
-private fun ControllerGridContent.ConflictRow(
+private fun ControllerListContent.ConflictRow(
     conflict: ItemConflict,
     choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val current = choices[conflict.itemId] ?: conflict.resolution
-    panel {
-        StatusLine("⚠ ${conflict.title}", Crystal.Bad)
-        StatusLine(
-            "EXISTS AS ${conflict.existingName}",
-            Crystal.InkDim,
-        )
-        StatusLine("CHOICE: ${current.label()}", Crystal.Joystick)
+    section {
+        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                StatusLine("⚠ ${conflict.title}", Crystal.Bad)
+                StatusLine(
+                    "EXISTS AS ${conflict.existingName}",
+                    Crystal.InkDim,
+                )
+                StatusLine("CHOICE: ${current.label()}", Crystal.Joystick)
+            }
+        }
     }
     // One choice per control: controller-simple, no nested focus grid.
     // The active choice is unmistakable — "▸ " prefix on the label

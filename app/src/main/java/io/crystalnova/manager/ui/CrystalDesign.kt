@@ -186,14 +186,15 @@ object Crystal {
 
     val Mono: FontFamily = FontFamily(Font(R.font.departuremono_regular))
 
-    // Firmware type scale (sp) — compact handheld density for the
-    // 1280×960 Nova. Balanced for the small viewport, not a blind
-    // mathematical scale-down of the old XL sizes.
-    val TitleSize = 31.sp
-    val SectionSize = 17.sp
-    val BodySize = 15.sp
-    val SmallSize = 13.sp
-    val ButtonSize = 17.sp
+    // Firmware type scale (sp) — Nova handheld density for the
+    // 1280×960 display. u70: bumped a step after on-device photos
+    // proved the old sizes strained to read at arm's length. Still
+    // compact, but no more squinting.
+    val TitleSize = 34.sp
+    val SectionSize = 19.sp
+    val BodySize = 17.sp
+    val SmallSize = 14.sp
+    val ButtonSize = 19.sp
 
     // -- Custom palette persistence ----------------------------------
 

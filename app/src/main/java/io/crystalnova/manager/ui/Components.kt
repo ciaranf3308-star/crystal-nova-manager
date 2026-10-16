@@ -101,7 +101,7 @@ fun CrystalPanel(
             .clip(RoundedCornerShape(2.dp))
             .background(Crystal.Tile)
             .border(2.dp, Crystal.Frame, RoundedCornerShape(2.dp))
-            .padding(8.dp),
+            .padding(12.dp),
     ) {
         content()
         Canvas(modifier = Modifier.matchParentSize()) {
@@ -217,9 +217,11 @@ fun CrystalButton(
                 RoundedCornerShape(2.dp),
             )
             .clickable(enabled = enabled, onClick = onClick)
+            // u70: roomier rows — the old 6dp vertical padding read as
+            // cramped on the Nova and gave D-pad targets no air.
             .padding(
-                vertical = if (compact) 4.dp else 6.dp,
-                horizontal = 14.dp,
+                vertical = if (compact) 6.dp else 10.dp,
+                horizontal = 16.dp,
             ),
     ) {
         val labelSize = if (compact) 16.sp else Crystal.ButtonSize

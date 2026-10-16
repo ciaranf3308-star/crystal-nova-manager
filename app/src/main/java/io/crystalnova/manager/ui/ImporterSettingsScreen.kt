@@ -1,10 +1,11 @@
 package io.crystalnova.manager.ui
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
@@ -100,21 +101,26 @@ fun ImporterSettingsScreen(
         passThroughAWhen = { editorFocused },
         fallbackFocusKey = "grant-downloads",
     ) {
-        ControllerGrid(
-            state = gridState,
+        ControllerList(
+            state = listState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
-            panel {
-                StatusLine("FOLDERS")
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    StatusLine("FOLDERS")
+                }
             }
-            panel {
-                StatusLine("DOWNLOADS (SOURCE)")
-                StatusLine(
-                    if (downloadsOk) "GRANTED" else "NOT GRANTED",
-                    if (downloadsOk) Crystal.Good else Crystal.Bad,
-                )
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("DOWNLOADS (SOURCE)")
+                        StatusLine(
+                            if (downloadsOk) "GRANTED" else "NOT GRANTED",
+                            if (downloadsOk) Crystal.Good else Crystal.Bad,
+                        )
+                    }
+                }
             }
             control(
                 key = "grant-downloads",
@@ -122,12 +128,16 @@ fun ImporterSettingsScreen(
                 onClick = onGrantDownloads,
             )
             if (allFilesApi) {
-                panel {
-                    StatusLine("ALL FILES ACCESS")
-                    StatusLine(
-                        if (allFilesGranted) "GRANTED — DIRECT SCAN" else "NOT GRANTED",
-                        if (allFilesGranted) Crystal.Good else Crystal.Bad,
-                    )
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("ALL FILES ACCESS")
+                            StatusLine(
+                                if (allFilesGranted) "GRANTED — DIRECT SCAN" else "NOT GRANTED",
+                                if (allFilesGranted) Crystal.Good else Crystal.Bad,
+                            )
+                        }
+                    }
                 }
                 if (!allFilesGranted) {
                     control(
@@ -138,26 +148,35 @@ fun ImporterSettingsScreen(
                     )
                 }
             }
-            panel {
-                StatusLine("ROM ROOT (DESTINATION)")
-                StatusLine(
-                    if (romsOk) "GRANTED" else "NOT GRANTED",
-                    if (romsOk) Crystal.Good else Crystal.Bad,
-                )
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("ROM ROOT (DESTINATION)")
+                        StatusLine(
+                            if (romsOk) "GRANTED" else "NOT GRANTED",
+                            if (romsOk) Crystal.Good else Crystal.Bad,
+                        )
+                    }
+                }
             }
             control(
                 key = "grant-roms",
                 label = if (romsOk) "CHANGE ROM ROOT FOLDER" else "GRANT ROM ROOT FOLDER",
                 onClick = onGrantRoms,
             )
-            panel {
-                StatusLine("PLATFORM FOLDERS")
-                StatusLine("NAMES ONLY — NO / OR ..", Crystal.InkDim)
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("PLATFORM FOLDERS")
+                        StatusLine("NAMES ONLY — NO / OR ..", Crystal.InkDim)
+                    }
+                }
             }
             for (platform in PlatformMapping.ORDERED) {
                 if (editingFolder == platform) {
-                    panel {
-                        FolderEditor(
+                    section {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            FolderEditor(
                             platform = platform,
                             initial = mapping.folderFor(platform),
                             scrollModifier = Modifier,
@@ -175,6 +194,7 @@ fun ImporterSettingsScreen(
                             },
                         )
                         folderError?.let { StatusLine(it, Crystal.Bad) }
+                        }
                     }
                 } else {
                     control(
@@ -188,14 +208,20 @@ fun ImporterSettingsScreen(
                     )
                 }
             }
-            panel {
-                StatusLine("ARCHIVE SUPPORT")
-                StatusLine("ZIP · 7Z", Crystal.Good)
-                StatusLine("RAR — DETECTED BUT NOT SUPPORTED", Crystal.Bad)
-                StatusLine("UNRELATED FILES ARE IGNORED", Crystal.InkDim)
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("ARCHIVE SUPPORT")
+                        StatusLine("ZIP · 7Z", Crystal.Good)
+                        StatusLine("RAR — DETECTED BUT NOT SUPPORTED", Crystal.Bad)
+                        StatusLine("UNRELATED FILES ARE IGNORED", Crystal.InkDim)
+                    }
+                }
             }
-            panel {
-                StatusLine("DEFAULTS")
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    StatusLine("DEFAULTS")
+                }
             }
             control(
                 key = "default-duplicate",
@@ -237,9 +263,13 @@ fun ImporterSettingsScreen(
                     settings.confirmBeforeImport = confirmBeforeImport
                 },
             )
-            panel {
-                StatusLine("IMPORTS RUN SEQUENTIALLY — ONE ARCHIVE", Crystal.InkDim)
-                StatusLine("AT A TIME. ALWAYS. NO TOGGLE.", Crystal.InkDim)
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("IMPORTS RUN SEQUENTIALLY — ONE ARCHIVE", Crystal.InkDim)
+                        StatusLine("AT A TIME. ALWAYS. NO TOGGLE.", Crystal.InkDim)
+                    }
+                }
             }
         }
     }

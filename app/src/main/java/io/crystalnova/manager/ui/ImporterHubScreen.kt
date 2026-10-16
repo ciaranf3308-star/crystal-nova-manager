@@ -1,7 +1,9 @@
 package io.crystalnova.manager.ui
 
 import android.os.Build
-import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -10,7 +12,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import io.crystalnova.manager.importer.AllFilesAccess
@@ -28,15 +32,13 @@ import kotlinx.coroutines.withContext
  * history, settings entry. The engine's [ImportUiState] drives the
  * status lines; navigation side effects live in MainActivity.
  *
- * Pure function of the graph + callbacks: every side effect (SAF
- * pickers, service start, engine calls) arrives as a lambda.
- *
- * 4:3 redesign: 2-column grid — the labels here are long (grant
- * explanations, resume summaries), so 3 columns would cramp them.
- * Status lives in full-width panels; actions are generous
- * content-sized tiles. SCAN DOWNLOADS keeps its primary weight
- * through its two-line sublabel and initial focus, not a fixed
- * height.
+ * u70: single-column [ControllerList], not a grid. The old 2-column
+ * grid squeezed the long-labeled action buttons (DISMISS n MISSING,
+ * RESUME QUEUE, SCAN DOWNLOADS) into half-width cells and the Nova
+ * rendered them clipped/overlapping with cut-off text (photo-proven).
+ * Every action is now full-width with breathing room; status blocks
+ * get CrystalPanel chrome so the screen reads top-down: what am I
+ * looking at → what's the primary action.
  */
 @Composable
 fun ImporterHubScreen(
@@ -90,91 +92,108 @@ fun ImporterHubScreen(
         it.sourceMissing && it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
     }
 
+    // u70: an error notice owns initial focus so the feedback is in
+    // the viewport immediately — otherwise the primary scan action.
+    val fallbackFocusKey: Any? =
+        if (uiState is ImportUiState.Error) "dismiss-notice" else "scan"
+
     ScreenScaffold(
         routeKey = "import-hub",
         title = "GAME IMPORTER",
         onBack = onBack,
-        fallbackFocusKey = "scan",
+        fallbackFocusKey = fallbackFocusKey,
     ) {
-        ControllerGrid(
-            state = gridState,
+        ControllerList(
+            state = listState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(2),
             initialFocus = ::isInitialFocus,
         ) {
             if (uiState is ImportUiState.Error) {
                 val err = uiState as ImportUiState.Error
-                panel {
-                    StatusLine(err.message, Crystal.Bad)
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        StatusLine(err.message, Crystal.Bad)
+                    }
                 }
                 control(
                     key = "dismiss-notice",
+                    testTag = "hub-dismiss-notice",
                     label = "DISMISS",
                     onClick = { engine.backToIdle() },
                 )
             }
             if (uiState is ImportUiState.Scanning) {
                 val s = uiState as ImportUiState.Scanning
-                panel {
-                    StatusLine("SCANNING DOWNLOADS… ${s.done}/${s.total}", Crystal.Joystick)
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        StatusLine("SCANNING DOWNLOADS… ${s.done}/${s.total}", Crystal.Joystick)
+                    }
                 }
             }
             if (uiState is ImportUiState.Classifying) {
                 val s = uiState as ImportUiState.Classifying
                 if (s.actionable == 0) {
-                    panel {
-                        StatusLine("SCAN FOUND NOTHING TO IMPORT", Crystal.InkDim)
-                        if (s.unsupportedCount > 0) {
-                            StatusLine(
-                                "${s.unsupportedCount} RAR — NOT SUPPORTED",
-                                Crystal.Bad,
-                            )
-                        }
-                        if (s.notRecognized.isNotEmpty()) {
-                            StatusLine(
-                                "${s.notRecognized.size} NOT RECOGNIZED AS GAMES",
-                                Crystal.InkDim,
-                            )
-                        }
-                        if (s.unreadable.isNotEmpty()) {
-                            StatusLine(
-                                "${s.unreadable.size} UNREADABLE FILES",
-                                Crystal.Bad,
-                            )
+                    section {
+                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatusLine("SCAN FOUND NOTHING TO IMPORT", Crystal.InkDim)
+                                if (s.unsupportedCount > 0) {
+                                    StatusLine(
+                                        "${s.unsupportedCount} RAR — NOT SUPPORTED",
+                                        Crystal.Bad,
+                                    )
+                                }
+                                if (s.notRecognized.isNotEmpty()) {
+                                    StatusLine(
+                                        "${s.notRecognized.size} NOT RECOGNIZED AS GAMES",
+                                        Crystal.InkDim,
+                                    )
+                                }
+                                if (s.unreadable.isNotEmpty()) {
+                                    StatusLine(
+                                        "${s.unreadable.size} UNREADABLE FILES",
+                                        Crystal.Bad,
+                                    )
+                                }
+                            }
                         }
                     }
                 }
             }
-            panel {
-                StatusLine("SOURCE — DOWNLOADS")
-                val (downloadsText, downloadsColor) = when {
-                    downloadsOk && allFilesGranted -> "GRANTED — DIRECT SCAN" to Crystal.Good
-                    downloadsOk -> "GRANTED" to Crystal.Good
-                    else -> "NOT GRANTED — PICK THE FOLDER" to Crystal.Bad
+            // ---- grants: one panel, three groups ----
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("SOURCE — DOWNLOADS")
+                        val (downloadsText, downloadsColor) = when {
+                            downloadsOk && allFilesGranted -> "GRANTED — DIRECT SCAN" to Crystal.Good
+                            downloadsOk -> "GRANTED" to Crystal.Good
+                            else -> "NOT GRANTED — PICK THE FOLDER" to Crystal.Bad
+                        }
+                        StatusLine(downloadsText, downloadsColor)
+                        if (allFilesApi) {
+                            CrystalDivider()
+                            StatusLine("ALL FILES ACCESS")
+                            StatusLine(
+                                if (allFilesGranted) "GRANTED" else "NOT GRANTED",
+                                if (allFilesGranted) Crystal.Good else Crystal.Bad,
+                            )
+                        }
+                        CrystalDivider()
+                        StatusLine("DESTINATION — ROM ROOT")
+                        StatusLine(
+                            if (romsOk) "GRANTED" else "NOT GRANTED — PICK THE FOLDER",
+                            if (romsOk) Crystal.Good else Crystal.Bad,
+                        )
+                    }
                 }
-                StatusLine(downloadsText, downloadsColor)
-            }
-            if (allFilesApi) {
-                panel {
-                    StatusLine("ALL FILES ACCESS")
-                    StatusLine(
-                        if (allFilesGranted) "GRANTED" else "NOT GRANTED",
-                        if (allFilesGranted) Crystal.Good else Crystal.Bad,
-                    )
-                }
-            }
-            panel {
-                StatusLine("DESTINATION — ROM ROOT")
-                StatusLine(
-                    if (romsOk) "GRANTED" else "NOT GRANTED — PICK THE FOLDER",
-                    if (romsOk) Crystal.Good else Crystal.Bad,
-                )
             }
             // SAF subfolder grant is the fallback: only offered when the
             // direct all-files scan is not granted.
             if (probe != null && !downloadsOk && !allFilesGranted) {
                 control(
                     key = "grant-downloads",
+                    testTag = "hub-grant-downloads",
                     label = "GRANT DOWNLOADS FOLDER",
                     subLabel = "SAF FALLBACK — PICK A SUBFOLDER INSIDE DOWNLOADS",
                     onClick = onGrantDownloads,
@@ -183,6 +202,7 @@ fun ImporterHubScreen(
             if (allFilesApi && !allFilesGranted) {
                 control(
                     key = "all-files-settings",
+                    testTag = "hub-all-files-settings",
                     label = "OPEN SETTINGS",
                     subLabel = "ALLOW ALL FILES ACCESS FOR DIRECT SCAN",
                     onClick = onOpenAllFilesSettings,
@@ -191,34 +211,47 @@ fun ImporterHubScreen(
             if (probe != null && !romsOk) {
                 control(
                     key = "grant-roms",
+                    testTag = "hub-grant-roms",
                     label = "GRANT ROM ROOT FOLDER",
                     onClick = onGrantRoms,
                 )
             }
+            // ---- primary action: full-width, nothing squeezed ----
+            control(
+                key = "scan",
+                testTag = "hub-scan",
+                label = "SCAN DOWNLOADS",
+                subLabel = "ZIP + 7Z + LOOSE GAME FILES — RAR REPORTED, NOT SUPPORTED",
+                enabled = downloadsOk && uiState !is ImportUiState.Scanning,
+                onClick = { engine.scan() },
+            )
+            // ---- queue ----
             if (waiting > 0) {
-                panel {
-                    StatusLine("QUEUE — $waiting WAITING")
-                    if (needsReview > 0) {
-                        StatusLine("$needsReview NEED${if (needsReview == 1) "S" else ""} CLASSIFICATION", Crystal.Joystick)
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("QUEUE — $waiting WAITING")
+                            if (needsReview > 0) {
+                                StatusLine(
+                                    "$needsReview NEED${if (needsReview == 1) "S" else ""} CLASSIFICATION",
+                                    Crystal.Joystick,
+                                )
+                            }
+                            if (failed > 0) {
+                                StatusLine("$failed FAILED — RETRY OR SKIP", Crystal.Bad)
+                            }
+                            if (missing > 0) {
+                                StatusLine(
+                                    "$missing SOURCE MISSING — FILE IS GONE",
+                                    Crystal.Bad,
+                                )
+                            }
+                        }
                     }
-                    if (failed > 0) {
-                        StatusLine("$failed FAILED — RETRY OR SKIP", Crystal.Bad)
-                    }
-                    if (missing > 0) {
-                        StatusLine("$missing SOURCE MISSING — FILE IS GONE", Crystal.Bad)
-                    }
-                }
-                if (missing > 0) {
-                    control(
-                        key = "dismiss-missing",
-                        label = "DISMISS $missing MISSING",
-                        subLabel = "DROPS THEM FROM THE QUEUE — NOTHING IS DELETED",
-                        onClick = { engine.dismissMissingItems() },
-                        danger = true,
-                    )
                 }
                 control(
                     key = "resume",
+                    testTag = "hub-resume",
                     label = "RESUME QUEUE ($waiting)",
                     subLabel = "CLASSIFICATION AND PLANS SURVIVED THE RESTART",
                     onClick = {
@@ -229,44 +262,55 @@ fun ImporterHubScreen(
                         }
                     },
                 )
+                if (missing > 0) {
+                    control(
+                        key = "dismiss-missing",
+                        testTag = "hub-dismiss-missing",
+                        label = "DISMISS $missing MISSING",
+                        subLabel = "DROPS THEM FROM THE QUEUE — NOTHING IS DELETED",
+                        onClick = { engine.dismissMissingItems() },
+                        danger = true,
+                    )
+                }
             }
-            // Primary action: content-sized two-line tile (the sublabel
-            // gives it its weight), initial focus, no fixed height.
-            control(
-                key = "scan",
-                label = "SCAN DOWNLOADS",
-                subLabel = "ZIP + 7Z + LOOSE GAME FILES — RAR REPORTED, NOT SUPPORTED",
-                enabled = downloadsOk && uiState !is ImportUiState.Scanning,
-                onClick = { engine.scan() },
-            )
             if (uiState is ImportUiState.Importing) {
                 val importing = uiState as ImportUiState.Importing
                 control(
                     key = "view-import",
+                    testTag = "hub-view-import",
                     label = "VIEW IMPORT — ${importing.index + 1}/${importing.total}",
                     subLabel = "THE RUN CONTINUES IN THE BACKGROUND",
                     onClick = onViewImport,
                 )
             }
             if (history.isNotEmpty()) {
-                panel {
-                    StatusLine("RECENT IMPORTS")
-                    for (entry in history.take(8)) {
-                        val ok = entry.outcome == ImportOutcome.SUCCESS
-                        val mark = if (ok) "✓" else "✗"
-                        val color = if (ok) Crystal.Good else Crystal.Bad
-                        val platform = entry.platform?.labels()?.short ?: "—"
-                        StatusLine("$mark $platform · ${entry.title}", color)
+                section {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            StatusLine("RECENT IMPORTS")
+                            for (entry in history.take(8)) {
+                                val ok = entry.outcome == ImportOutcome.SUCCESS
+                                val mark = if (ok) "✓" else "✗"
+                                val color = if (ok) Crystal.Good else Crystal.Bad
+                                val platform = entry.platform?.labels()?.short ?: "—"
+                                StatusLine("$mark $platform · ${entry.title}", color)
+                            }
+                        }
                     }
                 }
             }
-            panel {
-                StatusLine("ONE FILE AT A TIME. SOURCE DELETED ONLY")
-                StatusLine("AFTER THE DESTINATION VERIFIES.")
-                StatusLine("CANCEL MEANS “AFTER THE CURRENT GAME”.", Crystal.InkDim)
+            section {
+                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        StatusLine("ONE FILE AT A TIME. SOURCE DELETED ONLY")
+                        StatusLine("AFTER THE DESTINATION VERIFIES.")
+                        StatusLine("CANCEL MEANS “AFTER THE CURRENT GAME”.", Crystal.InkDim)
+                    }
+                }
             }
             control(
                 key = "settings",
+                testTag = "hub-settings",
                 label = "IMPORTER SETTINGS",
                 subLabel = "GRANTS · PLATFORM FOLDERS · DEFAULTS",
                 onClick = onOpenSettings,
