@@ -65,7 +65,7 @@ object ArchiveTestFixtures {
     }
 
     /** A realistic GameCube disc header window: magic word at 0x1C. */
-    fun gcMagic(): ByteArray = ByteArray(64).also { win ->
+    fun gcMagic(): ByteArray = ByteArray(ArchiveInspector.HEADER_WINDOW_BYTES).also { win ->
         win[0x1C] = 0xC2.toByte()
         win[0x1D] = 0x33
         win[0x1E] = 0x9F.toByte()

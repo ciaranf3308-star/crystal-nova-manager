@@ -86,4 +86,12 @@ class ImporterGraph(context: Context) {
             }
         }
     }
+
+    init {
+        // The graph is created at app startup (MainActivity's root
+        // composition touches importerGraph), so this is the startup
+        // hook — and it stays lazy everywhere else, so unit tests
+        // that never build the graph never run migrations.
+        runStartupMigrations()
+    }
 }
