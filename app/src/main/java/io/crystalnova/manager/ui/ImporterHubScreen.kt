@@ -23,6 +23,7 @@ import io.crystalnova.manager.importer.ImportOutcome
 import io.crystalnova.manager.importer.ImportUiState
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.ImportStage
+import io.crystalnova.manager.importer.hubQueueDecision
 import io.crystalnova.manager.importer.labels
 import io.crystalnova.manager.importer.shortUnreadableReason
 import kotlinx.coroutines.Dispatchers
@@ -92,6 +93,9 @@ fun ImporterHubScreen(
     val missing = queueItems.count {
         it.sourceMissing && it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
     }
+    // u73: the resume decision is centralized in hubQueueDecision() —
+    // a queue of only unreadable items must never offer a dead RESUME.
+    val queueDecision = hubQueueDecision(queueItems)
 
     // u70: an error notice owns initial focus so the feedback is in
     // the viewport immediately — otherwise the primary scan action.
@@ -258,22 +262,56 @@ fun ImporterHubScreen(
                                     Crystal.Bad,
                                 )
                             }
+                            // u73: honesty — when nothing in the queue can
+                            // move forward, say so instead of offering a
+                            // dead RESUME that loops back to "nothing to
+                            // import".
+                            if (!queueDecision.canResume) {
+                                StatusLine(
+                                    "$waiting IN QUEUE — NOTHING CAN BE IMPORTED",
+                                    Crystal.Bad,
+                                )
+                            }
                         }
                     }
                 }
-                control(
-                    key = "resume",
-                    testTag = "hub-resume",
-                    label = "RESUME QUEUE ($waiting)",
-                    subLabel = "CLASSIFICATION AND PLANS SURVIVED THE RESTART",
-                    onClick = {
-                        when {
-                            needsReview > 0 -> engine.backToClassifying()
-                            failed > 0 -> engine.reviewFailures()
-                            else -> engine.prepareImport()
+                if (queueDecision.canResume) {
+                    control(
+                        key = "resume",
+                        testTag = "hub-resume",
+                        label = "RESUME QUEUE ($waiting)",
+                        subLabel = "CLASSIFICATION AND PLANS SURVIVED THE RESTART",
+                        onClick = {
+                            when {
+                                needsReview > 0 -> engine.backToClassifying()
+                                failed > 0 -> engine.reviewFailures()
+                                else -> engine.prepareImport()
+                            }
+                        },
+                    )
+                }
+                // u73 escape hatch: unreadable items can neither be
+                // imported nor classified, and no screen offered a way
+                // out — each gets a REMOVE so a bricked queue can be
+                // cleared. Queue entry only; Downloads is never touched.
+                for (item in queueDecision.unreadable) {
+                    section {
+                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                StatusLine("✗ ${item.archiveName}", Crystal.Bad)
+                                DimLine(shortUnreadableReason(item.failureDetail))
+                            }
                         }
-                    },
-                )
+                    }
+                    control(
+                        key = "remove-unreadable-${item.id}",
+                        testTag = "hub-remove-unreadable",
+                        label = "REMOVE THIS FILE",
+                        subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
+                        danger = true,
+                        onClick = { engine.removeItem(item.id) },
+                    )
+                }
                 if (missing > 0) {
                     control(
                         key = "dismiss-missing",

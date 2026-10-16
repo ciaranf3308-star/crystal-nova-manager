@@ -633,6 +633,27 @@ class ImportEngineTest {
         )
     }
 
+    @Test fun `removeItem drops an unreadable queue entry`() {
+        // u73: the escape hatch. An unreadable item could neither be
+        // imported nor classified, and no screen offered a way out —
+        // the hub's REMOVE must drop it from the queue.
+        val env = envWith(
+            Triple("poison.zip", "uri:poison", mapOf("poison.iso" to ByteArray(100))),
+        )
+        env.oomUris += "uri:poison"
+        val h = harness(env)
+
+        h.engine.scan()
+        val item = h.queue.items.value.single()
+        assertTrue(item.inspectFailed)
+
+        h.engine.removeItem(item.id)
+        assertTrue(h.queue.items.value.isEmpty())
+        // Removal forgets the queue entry only — the source archive in
+        // Downloads is untouched.
+        assertTrue(env.zips.containsKey("uri:poison"))
+    }
+
     @Test fun `shortUnreadableReason keeps it terse and human`() {
         assertEquals("COULD NOT READ FILE", shortUnreadableReason(null))
         assertEquals("COULD NOT READ FILE", shortUnreadableReason("   "))

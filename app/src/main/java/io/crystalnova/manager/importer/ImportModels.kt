@@ -375,6 +375,40 @@ fun shortUnreadableReason(detail: String?): String {
 }
 
 /**
+ * u73: hub resume decision — pure and unit-testable. The hub used to
+ * offer RESUME QUEUE whenever anything was waiting, but a queue of
+ * only unreadable (inspectFailed) items made it a dead button:
+ * prepareImport() finds zero importable candidates and lands back on
+ * "SCAN FOUND NOTHING TO IMPORT", looping the user forever. The hub
+ * now offers resume only when something can actually move forward,
+ * and always exposes the dead (unreadable) items so they can be
+ * removed instead of bricking the queue.
+ */
+data class HubQueueDecision(
+    /** True when tapping RESUME leads somewhere useful. */
+    val canResume: Boolean,
+    /** Live queue items that can never be imported or classified. */
+    val unreadable: List<ArchiveItem>,
+)
+
+fun hubQueueDecision(items: List<ArchiveItem>): HubQueueDecision {
+    val live = items.filter {
+        it.stage != ImportStage.COMPLETE &&
+            it.stage != ImportStage.SKIPPED &&
+            !it.isClaimed
+    }
+    val needsReview = live.count { it.needsReview }
+    val failed = live.count { it.stage == ImportStage.FAILED }
+    // Mirrors prepareImport()'s candidate filter exactly: resume is
+    // only honest when at least one item can enter the import run.
+    val importableCount = live.count { it.importable && it.stage == ImportStage.WAITING }
+    return HubQueueDecision(
+        canResume = needsReview > 0 || failed > 0 || importableCount > 0,
+        unreadable = live.filter { it.inspectFailed },
+    )
+}
+
+/**
  * Filesystem-safe folder/file name derived from a title. ROM filenames
  * themselves are kept intact — this is only for generated game-folder
  * names and staging dirs.
