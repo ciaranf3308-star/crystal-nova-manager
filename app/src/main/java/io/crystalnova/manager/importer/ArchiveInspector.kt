@@ -53,6 +53,24 @@ class ChannelHandle(
  * lists the archive and streams the 64-byte header windows. Only when
  * both fail is the archive marked unreadable.
  */
+/** Which backend produced an inspection — u78 diagnostic. */
+enum class InspectionBackend { INAPP, EXTERNAL_7ZZ }
+
+/**
+ * u78: one-line hub diagnostic for a scanned archive
+ * ("2 FILES [bin, txt] VIA 7ZZ") — pure and unit-testable.
+ */
+fun scanDiagnosticLine(
+    entries: List<ArchiveEntryInfo>,
+    backend: InspectionBackend,
+): String {
+    val files = entries.filter { !it.isDirectory }
+    val exts = files.map { it.path.substringAfterLast('.', "").lowercase() }
+        .distinct().sorted()
+    val via = if (backend == InspectionBackend.EXTERNAL_7ZZ) "7ZZ" else "INAPP"
+    return "${files.size} FILES [${exts.joinToString(", ")}] VIA $via"
+}
+
 class ArchiveInspector(
     private val opener: ArchiveStreamOpener,
     private val externalSevenZ: ExternalSevenZ? = null,
@@ -65,6 +83,8 @@ class ArchiveInspector(
         val inspection: ArchiveInspection,
         /** First [HEADER_WINDOW_BYTES] of header-candidate entries, keyed by entry path. */
         val headers: Map<String, ByteArray>,
+        /** u78: which backend listed the archive — for hub diagnostics. */
+        val backend: InspectionBackend = InspectionBackend.INAPP,
     )
 
     @Throws(ArchiveReadException::class)
@@ -138,8 +158,11 @@ class ArchiveInspector(
     /**
      * 7z inspection with external fallback: the in-app SevenZFile path
      * first (fast, no process spawn); on any throwable the separate
-     * 7zz process tries. Cancellation is never swallowed. Only when
-     * both fail does the original in-app error propagate.
+     * 7zz process tries. Cancellation is never swallowed.
+     *
+     * u78: the external failure is no longer swallowed — when both
+     * backends fail, the detail names the 7zz error first so the hub
+     * can show what actually went wrong on-device.
      */
     private fun inspect7z(ref: ArchiveRef): InspectedArchive {
         val inAppError: Throwable = try {
@@ -155,8 +178,12 @@ class ArchiveInspector(
                 return inspect7zExternal(ext, ref)
             } catch (e: CancellationException) {
                 throw e
-            } catch (_: Throwable) {
-                // Fall through to the original in-app error below.
+            } catch (t: Throwable) {
+                val inAppMsg = inAppError.message?.replace(Regex("\\s+"), " ")
+                    ?.trim()?.take(160) ?: inAppError::class.simpleName ?: "UNKNOWN"
+                val extMsg = t.message?.replace(Regex("\\s+"), " ")
+                    ?.trim()?.take(160) ?: t::class.simpleName ?: "UNKNOWN"
+                throw ArchiveReadException("7ZZ FAILED: $extMsg | IN-APP: $inAppMsg", t)
             }
         }
         throw if (inAppError is ArchiveReadException) inAppError
@@ -188,7 +215,11 @@ class ArchiveInspector(
                     isDirectory = it.isDirectory,
                 )
             }
-            return InspectedArchive(buildInspection(ref, infos), headers)
+            return InspectedArchive(
+                buildInspection(ref, infos),
+                headers,
+                InspectionBackend.EXTERNAL_7ZZ,
+            )
         } finally {
             if (archive.deleteAfterUse) runCatching { archive.file.delete() }
         }

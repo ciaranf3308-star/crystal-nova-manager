@@ -116,6 +116,7 @@ class ImportQueue(private val file: File) {
         "isLooseFile" to item.isLooseFile,
         "claimedByItemId" to item.claimedByItemId,
         "addedAt" to item.addedAt,
+        "scanDiagnostic" to item.scanDiagnostic,
     )
 
     private fun encodeDetection(d: Detection): Map<String, Any?> = linkedMapOf(
@@ -163,6 +164,7 @@ class ImportQueue(private val file: File) {
                 isLooseFile = (map["isLooseFile"] as? Boolean) ?: false,
                 claimedByItemId = map["claimedByItemId"] as? String,
                 addedAt = (map["addedAt"] as? Number)?.toLong() ?: 0L,
+                scanDiagnostic = map["scanDiagnostic"] as? String,
             )
         } catch (_: Exception) {
             null

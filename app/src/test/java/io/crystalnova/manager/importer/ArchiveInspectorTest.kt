@@ -319,8 +319,11 @@ class ArchiveInspectorTest {
             inspector.inspect(ArchiveRef("game.7z", "u7", 100, ArchiveKind.SEVEN_Z))
             fail("expected ArchiveReadException")
         } catch (e: ArchiveReadException) {
-            // The OOM is contained — callers see the declared exception type.
-            assertTrue(e.message!!.contains("Could not read 7z"))
+            // u78: the 7zz failure is surfaced, not swallowed — the OOM
+            // no longer masquerades as the whole story.
+            assertTrue(e.message!!.startsWith("7ZZ FAILED:"))
+            assertTrue(e.message!!.contains("7zz exploded"))
+            assertTrue(e.message!!.contains("IN-APP:"))
         }
     }
 }

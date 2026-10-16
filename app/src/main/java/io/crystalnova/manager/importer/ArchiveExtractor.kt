@@ -134,7 +134,10 @@ open class ArchiveExtractor(
      * 7z extraction with external fallback: the in-app SevenZFile path
      * first; on any throwable the separate 7zz process tries.
      * Cancellation is never swallowed (and kills the 7zz process).
-     * Only when both fail does the original in-app error propagate.
+     *
+     * u78: the external failure is no longer swallowed — when both
+     * backends fail, the detail names the 7zz error first so the hub
+     * can show what actually went wrong on-device.
      */
     private fun extract7z(
         fs: ThemeFs,
@@ -158,8 +161,15 @@ open class ArchiveExtractor(
             } catch (e: CancellationException) {
                 runCatching { ext.runner.cancel() }
                 throw e
-            } catch (_: Throwable) {
-                // Fall through to the original in-app error below.
+            } catch (t: Throwable) {
+                val inAppMsg = inAppError.message?.replace(Regex("\\s+"), " ")
+                    ?.trim()?.take(160) ?: inAppError::class.simpleName ?: "UNKNOWN"
+                val extMsg = t.message?.replace(Regex("\\s+"), " ")
+                    ?.trim()?.take(160) ?: t::class.simpleName ?: "UNKNOWN"
+                throw ArchiveReadException(
+                    "7ZZ FAILED: $extMsg | IN-APP: $inAppMsg",
+                    t,
+                )
             }
         }
         throw if (inAppError is ArchiveReadException) inAppError

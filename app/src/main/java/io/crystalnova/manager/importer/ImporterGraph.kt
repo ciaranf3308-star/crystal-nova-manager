@@ -49,15 +49,19 @@ class ImporterGraph(context: Context) {
      * when the bundled binary is usable on this device. Null =
      * in-app commons-compress only (pre-existing behavior).
      */
+    private val sevenZRunner =
+        AndroidSevenZRunner(File(appContext.applicationInfo.nativeLibraryDir))
     private val externalSevenZ: ExternalSevenZ? = run {
-        val runner = AndroidSevenZRunner(File(appContext.applicationInfo.nativeLibraryDir))
-        if (!runner.available) null
+        if (!sevenZRunner.available) null
         else ExternalSevenZ(
-            runner = runner,
+            runner = sevenZRunner,
             archiveFile = androidEnv::externalArchiveFile,
             scratchDir = File(appContext.cacheDir, "sevenz"),
         )
     }
+
+    /** u78: hub-visible 7zz backend status line. */
+    val sevenZStatus: String = describeSevenZStatus(externalSevenZ, sevenZRunner)
 
     val engine: ImportEngine = ImportEngine(
         scope = scope,

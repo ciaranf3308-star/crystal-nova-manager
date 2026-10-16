@@ -306,6 +306,12 @@ data class ArchiveItem(
      */
     val claimedByItemId: String? = null,
     val addedAt: Long = 0L,
+    /**
+     * u78: one-line scan diagnostic for the hub ("<n> FILES [exts] VIA
+     * 7ZZ"), so one photo reveals what the detector actually saw.
+     * Null for items scanned before u78.
+     */
+    val scanDiagnostic: String? = null,
 ) {
     /** True when this file was claimed by a `.cue`/`.m3u` descriptor. */
     val isClaimed: Boolean
@@ -358,6 +364,11 @@ fun cleanDisplayTitle(fileName: String): String {
 fun shortUnreadableReason(detail: String?): String {
     val raw = detail?.trim().orEmpty()
     if (raw.isEmpty()) return "COULD NOT READ FILE"
+    // u78: the 7zz fallback now names its own failure — surface that
+    // instead of mislabeling it as an out-of-memory.
+    if (raw.startsWith("7ZZ FAILED:", ignoreCase = true)) {
+        return raw.substringBefore("|").trim().take(140).uppercase()
+    }
     // The OOM dump is long and meaningless to a human — name the
     // condition instead.
     if (raw.contains("Failed to allocate", ignoreCase = true) ||

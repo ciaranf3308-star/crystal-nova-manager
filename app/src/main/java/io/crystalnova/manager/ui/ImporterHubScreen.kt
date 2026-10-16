@@ -178,6 +178,8 @@ fun ImporterHubScreen(
                         if (hint.isNotEmpty()) {
                             DimLine(hint)
                         }
+                        // u78: 7zz backend state — one photo diagnoses it.
+                        DimLine(graph.sevenZStatus)
                     }
                 }
             }
@@ -359,6 +361,8 @@ fun ImporterHubScreen(
                                 ) {
                                     StatusLine("· ${item.archiveName}", Crystal.Ink)
                                     DimLine("THE SCAN COULDN'T IDENTIFY THIS FILE")
+                                    // u78: what the detector actually saw.
+                                    item.scanDiagnostic?.let { DimLine(it) }
                                 }
                             }
                         }

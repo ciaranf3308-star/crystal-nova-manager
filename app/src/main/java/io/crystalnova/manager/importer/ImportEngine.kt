@@ -431,6 +431,9 @@ class ImportEngine(
         } else {
             null
         }
+        // u78: one-line diagnostic so the hub can show what the
+        // detector actually saw (file count + extensions + backend).
+        val scanDiagnostic = scanDiagnosticLine(entries, inspected.backend)
         val platform =
             if (settings.autoIdentify && detection.confidence == Confidence.CONFIRMED) {
                 detection.platform
@@ -455,6 +458,7 @@ class ImportEngine(
                 null
             },
             addedAt = clock(),
+            scanDiagnostic = scanDiagnostic,
         )
     }
 
@@ -516,6 +520,8 @@ class ImportEngine(
             isLooseFile = true,
             relativePath = ref.relativePath,
             addedAt = clock(),
+            scanDiagnostic =
+                "1 FILES [${ref.name.substringAfterLast('.', "").lowercase()}] VIA LOOSE",
         )
     }
 

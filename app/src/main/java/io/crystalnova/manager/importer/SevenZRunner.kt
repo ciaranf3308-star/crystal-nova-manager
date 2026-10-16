@@ -235,3 +235,17 @@ class ExternalSevenZ(
     /** Scratch dir on the real filesystem for external extraction. */
     val scratchDir: File,
 )
+
+/**
+ * u78: hub-visible 7zz backend status. Pure and unit-testable — feed
+ * it faked runners. The reasons distinguish *why* the backend is off
+ * so one hub photo diagnoses the on-device state.
+ */
+fun describeSevenZStatus(externalSevenZ: ExternalSevenZ?, runner: SevenZRunner): String {
+    if (externalSevenZ != null) return "7ZZ: READY"
+    if (runner is AndroidSevenZRunner) {
+        if (!runner.abiSupported) return "7ZZ: OFF \u2014 WRONG ABI"
+        return "7ZZ: OFF \u2014 NOT EXECUTABLE"
+    }
+    return "7ZZ: OFF \u2014 NO BINARY"
+}
