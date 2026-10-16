@@ -3,6 +3,7 @@ package io.crystalnova.manager.importer
 import io.crystalnova.manager.storage.FsNode
 import io.crystalnova.manager.storage.ThemeFs
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -234,101 +235,113 @@ class ImportEngine(
     fun scan() {
         if (scanJob?.isActive == true || importJob?.isActive == true) return
         scanJob = scope.launch(ioDispatcher) {
-            _uiState.value = ImportUiState.Scanning(0, 0)
-            val outcome = try {
-                ArchiveScanner(env.downloadsListing()).scan()
-            } catch (_: SecurityException) {
-                _uiState.value = ImportUiState.Error(
-                    "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
-                    GrantKind.DOWNLOADS,
-                )
-                return@launch
-            } catch (e: Exception) {
-                _uiState.value = ImportUiState.Error(
-                    "COULD NOT READ DOWNLOADS: ${e.message}",
-                    GrantKind.DOWNLOADS,
-                )
-                return@launch
-            }
-
-            val known = queue.items.value.associateBy { it.archiveUri }.toMutableMap()
-            val scannedUris =
-                (outcome.archives.map { it.uri } + outcome.looseFiles.map { it.uri }).toSet()
-            for ((uri, item) in known) {
-                if (uri !in scannedUris && !env.archiveExists(uri)) {
-                    queue.update(item.id) { it.copy(sourceMissing = true) }
-                    // A missing descriptor frees its claimed files so
-                    // they surface as independent items again.
-                    queue.items.value
-                        .filter { it.claimedByItemId == item.id }
-                        .forEach { child ->
-                            queue.update(child.id) { it.copy(claimedByItemId = null) }
-                        }
-                }
-            }
-
-            var done = 0
-            val total = outcome.archives.size + outcome.looseFiles.size
-            // Archives first (largest first within each kind), then
-            // loose files — the same order the queue keeps.
-            for (ref in outcome.archives) {
-                done++
-                _uiState.value = ImportUiState.Scanning(done, total)
-                if (known.containsKey(ref.uri)) continue
-                val item = try {
-                    buildItem(ref)
-                } catch (e: ArchiveReadException) {
-                    ArchiveItem(
-                        id = UUID.randomUUID().toString(),
-                        archiveUri = ref.uri,
-                        archiveName = ref.name,
-                        displayTitle = cleanDisplayTitle(ref.name),
-                        archiveKind = ref.kind,
-                        archiveBytes = ref.size,
-                        detection = Detection(null, Confidence.UNKNOWN, recognizedAsGame = true),
-                        platform = null,
-                        plan = null,
-                        inspectFailed = true,
-                        relativePath = ref.relativePath,
-                        failureDetail = e.message,
-                        addedAt = clock(),
-                    )
-                } catch (e: SecurityException) {
-                    _uiState.value = ImportUiState.Error(
-                        "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
-                        GrantKind.DOWNLOADS,
-                    )
-                    return@launch
-                }
-                queue.add(item)
-                known[ref.uri] = item
-            }
-
-            // Loose files: classified by name/header only, never
-            // inspected as archives.
-            for (ref in outcome.looseFiles) {
-                done++
-                _uiState.value = ImportUiState.Scanning(done, total)
-                if (known.containsKey(ref.uri)) continue
-                val item = try {
-                    buildLooseItem(ref)
+            try {
+                _uiState.value = ImportUiState.Scanning(0, 0)
+                val outcome = try {
+                    ArchiveScanner(env.downloadsListing()).scan()
                 } catch (_: SecurityException) {
                     _uiState.value = ImportUiState.Error(
                         "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
                         GrantKind.DOWNLOADS,
                     )
                     return@launch
+                } catch (e: Exception) {
+                    _uiState.value = ImportUiState.Error(
+                        "COULD NOT READ DOWNLOADS: ${e.message}",
+                        GrantKind.DOWNLOADS,
+                    )
+                    return@launch
                 }
-                queue.add(item)
-                known[ref.uri] = item
+
+                val known = queue.items.value.associateBy { it.archiveUri }.toMutableMap()
+                val scannedUris =
+                    (outcome.archives.map { it.uri } + outcome.looseFiles.map { it.uri }).toSet()
+                for ((uri, item) in known) {
+                    if (uri in scannedUris) continue
+                    // A dead URI grant must surface as a missing source,
+                    // never as an app crash (u69).
+                    val missing = try {
+                        !env.archiveExists(uri)
+                    } catch (_: SecurityException) {
+                        true
+                    }
+                    if (missing) markSourceMissing(item)
+                }
+
+                var done = 0
+                val total = outcome.archives.size + outcome.looseFiles.size
+                // Archives first (largest first within each kind), then
+                // loose files — the same order the queue keeps.
+                for (ref in outcome.archives) {
+                    done++
+                    _uiState.value = ImportUiState.Scanning(done, total)
+                    if (known.containsKey(ref.uri)) continue
+                    val item = try {
+                        buildItem(ref)
+                    } catch (e: ArchiveReadException) {
+                        ArchiveItem(
+                            id = UUID.randomUUID().toString(),
+                            archiveUri = ref.uri,
+                            archiveName = ref.name,
+                            displayTitle = cleanDisplayTitle(ref.name),
+                            archiveKind = ref.kind,
+                            archiveBytes = ref.size,
+                            detection = Detection(null, Confidence.UNKNOWN, recognizedAsGame = true),
+                            platform = null,
+                            plan = null,
+                            inspectFailed = true,
+                            relativePath = ref.relativePath,
+                            failureDetail = e.message,
+                            addedAt = clock(),
+                        )
+                    } catch (e: SecurityException) {
+                        _uiState.value = ImportUiState.Error(
+                            "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
+                            GrantKind.DOWNLOADS,
+                        )
+                        return@launch
+                    }
+                    queue.add(item)
+                    known[ref.uri] = item
+                }
+
+                // Loose files: classified by name/header only, never
+                // inspected as archives.
+                for (ref in outcome.looseFiles) {
+                    done++
+                    _uiState.value = ImportUiState.Scanning(done, total)
+                    if (known.containsKey(ref.uri)) continue
+                    val item = try {
+                        buildLooseItem(ref)
+                    } catch (_: SecurityException) {
+                        _uiState.value = ImportUiState.Error(
+                            "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
+                            GrantKind.DOWNLOADS,
+                        )
+                        return@launch
+                    }
+                    queue.add(item)
+                    known[ref.uri] = item
+                }
+
+                // Pair .cue/.m3u descriptors with their loose sibling
+                // files so the tracks ride along with the descriptor.
+                claimLooseDescriptors()
+
+                lastUnsupportedCount = outcome.unsupported.size
+                emitClassifying()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // A scan must never crash the app: anything unexpected
+                // becomes an honest Error state instead. The grant is
+                // deliberately null — a generic failure must not blame
+                // the Downloads grant.
+                _uiState.value = ImportUiState.Error(
+                    "SCAN FAILED: ${failureDetail(e)}",
+                    null,
+                )
             }
-
-            // Pair .cue/.m3u descriptors with their loose sibling
-            // files so the tracks ride along with the descriptor.
-            claimLooseDescriptors()
-
-            lastUnsupportedCount = outcome.unsupported.size
-            emitClassifying()
         }
     }
 
@@ -590,6 +603,40 @@ class ImportEngine(
     }
 
     /**
+     * Flags a vanished source honestly. A missing descriptor frees its
+     * claimed files so they surface as independent items again.
+     */
+    private fun markSourceMissing(item: ArchiveItem) {
+        queue.update(item.id) { it.copy(sourceMissing = true) }
+        queue.items.value
+            .filter { it.claimedByItemId == item.id }
+            .forEach { child ->
+                queue.update(child.id) { it.copy(claimedByItemId = null) }
+            }
+    }
+
+    /** Sanitized one-line detail for unexpected-failure Error states. */
+    private fun failureDetail(e: Throwable): String {
+        val raw = e.message?.replace(Regex("\\s+"), " ")?.trim()?.take(120)
+        return raw?.takeIf { it.isNotEmpty() } ?: e::class.simpleName ?: "UNKNOWN"
+    }
+
+    /**
+     * Drops every source-missing item from the queue (u69: the hub's
+     * DISMISS MISSING control). Sources are untouched — nothing is
+     * deleted, the queue entry is just gone.
+     */
+    fun dismissMissingItems() {
+        queue.items.value.filter { it.sourceMissing }.forEach { removeItem(it.id) }
+    }
+
+    /** Removes one failed row and rebuilds the results screen. */
+    fun removeFailedItem(itemId: String) {
+        removeItem(itemId)
+        reviewFailures()
+    }
+
+    /**
      * Frees files claimed by a descriptor so they queue as
      * independent items again. Used when the descriptor leaves the
      * flow without importing (removed, skipped, not-a-game).
@@ -730,7 +777,20 @@ class ImportEngine(
         val ready = _uiState.value as? ImportUiState.Ready ?: return
         if (!ready.storageOk || importJob?.isActive == true) return
         cancelAfterCurrent = false
-        importJob = scope.launch(ioDispatcher) { runImport() }
+        importJob = scope.launch(ioDispatcher) {
+            try {
+                runImportBody()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Throwable) {
+                // Same bug class as the scan crash (u69): an import run
+                // must never kill the app either.
+                _uiState.value = ImportUiState.Error(
+                    "IMPORT FAILED: ${failureDetail(e)}",
+                    null,
+                )
+            }
+        }
     }
 
     /** Safe cancellation: finishes the current game, then stops. */
@@ -823,7 +883,7 @@ class ImportEngine(
         data class Failed(val reason: ImportFailureReason, val detail: String?) : ItemResult
     }
 
-    private suspend fun runImport() {
+    private suspend fun runImportBody() {
         val roms = env.romsFs()
         if (roms == null) {
             _uiState.value = ImportUiState.Error("ROM FOLDER NOT GRANTED — PICK IT IN SETTINGS", GrantKind.ROMS)

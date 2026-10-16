@@ -180,6 +180,13 @@ fun ImporterClassifyScreen(
                 onClick = { engine.ignoreNotAGame(item.id) },
                 danger = true,
             )
+            control(
+                key = "remove",
+                label = "REMOVE",
+                subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
+                onClick = { engine.removeItem(item.id) },
+                danger = true,
+            )
             // Undo the last platform tap: re-asks that exact console
             // choice as the next item. Disabled (D-pad skips it) until
             // a pick exists — same pattern as the storage-blocked

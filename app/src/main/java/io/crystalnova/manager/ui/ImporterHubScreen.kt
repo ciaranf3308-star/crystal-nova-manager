@@ -86,6 +86,9 @@ fun ImporterHubScreen(
     }
     val needsReview = queueItems.count { it.needsReview }
     val failed = queueItems.count { it.stage == ImportStage.FAILED }
+    val missing = queueItems.count {
+        it.sourceMissing && it.stage != ImportStage.COMPLETE && it.stage != ImportStage.SKIPPED
+    }
 
     ScreenScaffold(
         routeKey = "import-hub",
@@ -201,6 +204,18 @@ fun ImporterHubScreen(
                     if (failed > 0) {
                         StatusLine("$failed FAILED — RETRY OR SKIP", Crystal.Bad)
                     }
+                    if (missing > 0) {
+                        StatusLine("$missing SOURCE MISSING — FILE IS GONE", Crystal.Bad)
+                    }
+                }
+                if (missing > 0) {
+                    control(
+                        key = "dismiss-missing",
+                        label = "DISMISS $missing MISSING",
+                        subLabel = "DROPS THEM FROM THE QUEUE — NOTHING IS DELETED",
+                        onClick = { engine.dismissMissingItems() },
+                        danger = true,
+                    )
                 }
                 control(
                     key = "resume",

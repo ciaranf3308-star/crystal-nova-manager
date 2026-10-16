@@ -140,4 +140,11 @@ private fun ControllerGridContent.FailedSection(
         subLabel = "LEAVES THE SOURCE IN DOWNLOADS",
         onClick = { engine.skipFailedItem(row.itemId) },
     )
+    control(
+        key = "remove-${row.itemId}",
+        label = "REMOVE",
+        subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
+        onClick = { engine.removeFailedItem(row.itemId) },
+        danger = true,
+    )
 }

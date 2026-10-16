@@ -30,6 +30,8 @@ class ImportEngineTest {
         val roms: InMemoryThemeFs = InMemoryThemeFs(),
         var freeBytes: Long = 100L * 1024 * 1024 * 1024,
         var deleteHook: ((String) -> Unit)? = null,
+        /** Overrides archiveExists when set (u69: simulates dead URI grants). */
+        var existsHook: ((String) -> Boolean)? = null,
     ) : ImporterEnvironment {
         val deleted = mutableListOf<String>()
 
@@ -45,7 +47,8 @@ class ImportEngineTest {
         override fun romsFs(): ThemeFs = roms
 
         override fun archiveExists(uri: String): Boolean =
-            downloads.any { it.uri == uri } || zips.containsKey(uri)
+            existsHook?.invoke(uri)
+                ?: (downloads.any { it.uri == uri } || zips.containsKey(uri))
 
         override fun deleteArchive(uri: String): Boolean {
             deleteHook?.invoke(uri)
@@ -518,6 +521,56 @@ class ImportEngineTest {
         engine.scan()
         val error = engine.uiState.value as ImportUiState.Error
         assertEquals(GrantKind.DOWNLOADS, error.grant)
+    }
+
+    @Test fun `scan survives a dead uri grant and flags the item source-missing`() {
+        // u69: the stuck-item crash. A queued item whose URI grant dies
+        // used to kill the app on rescan (unguarded archiveExists threw
+        // SecurityException out of the scan coroutine). Now the item is
+        // flagged honestly and the user can dismiss it.
+        val env = envWith(
+            Triple("stuck.zip", "uri:stuck", mapOf("stuck.gba" to ByteArray(100))),
+        )
+        val h = harness(env)
+        h.engine.scan()
+        assertEquals(1, h.queue.items.value.size)
+
+        // The file vanishes from Downloads AND its grant dies.
+        env.downloads = emptyList()
+        env.zips.remove("uri:stuck")
+        env.existsHook = { uri -> throw SecurityException("grant lost: $uri") }
+
+        h.engine.scan() // must not throw
+        val item = h.queue.items.value.single()
+        assertTrue(item.sourceMissing)
+        val state = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(1, state.missing.size)
+
+        // ...and the hub's DISMISS MISSING clears it.
+        h.engine.dismissMissingItems()
+        assertTrue(h.queue.items.value.isEmpty())
+    }
+
+    @Test fun `scan turns an unexpected failure into an error state instead of crashing`() {
+        // u69: the scan catch-all. Any Throwable escaping the guarded
+        // regions (rethrowing CancellationException aside) must land
+        // the UI in Error — never propagate out of the coroutine.
+        val env = envWith(
+            Triple("weird.zip", "uri:weird", mapOf("weird.gba" to ByteArray(100))),
+        )
+        val h = harness(env)
+        h.engine.scan()
+        assertEquals(1, h.queue.items.value.size)
+
+        env.downloads = emptyList()
+        env.zips.remove("uri:weird")
+        env.existsHook = { throw IllegalStateException("boom") }
+
+        h.engine.scan() // must not throw
+        val error = h.engine.uiState.value as ImportUiState.Error
+        assertTrue(error.message.startsWith("SCAN FAILED:"))
+        assertTrue(error.message.contains("boom"))
+        assertEquals(null, error.grant)
     }
 
     @Test fun `skip during classification drops the item from the review list`() {
