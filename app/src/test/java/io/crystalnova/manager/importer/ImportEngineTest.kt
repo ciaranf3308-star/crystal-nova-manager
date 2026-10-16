@@ -7,6 +7,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayInputStream
@@ -631,6 +632,42 @@ class ImportEngineTest {
             "RAN OUT OF MEMORY READING IT — LIKELY CORRUPT",
             shortUnreadableReason(item.failureDetail),
         )
+    }
+
+    @Test fun `rescan retries previously unreadable items in place`() {
+        // u74: the user's 13 bricked 3DS 7z files. A rescan must
+        // re-run inspection for inspectFailed items (with the new
+        // external 7zz fallback now in place) and refresh the existing
+        // queue entry in place — same id — instead of skipping them as
+        // "known". Items that inspected fine stay untouched.
+        val env = envWith(
+            Triple("poison.zip", "uri:poison", mapOf("poison.gba" to ByteArray(100))),
+            Triple("good.zip", "uri:good", mapOf("good.gba" to ByteArray(100))),
+        )
+        env.oomUris += "uri:poison"
+        val h = harness(env)
+
+        h.engine.scan()
+        val bricked = h.queue.items.value.single { it.archiveUri == "uri:poison" }
+        assertTrue(bricked.inspectFailed)
+        val good = h.queue.items.value.single { it.archiveUri == "uri:good" }
+        assertFalse(good.inspectFailed)
+
+        // The poison clears (on device: u74's external 7zz backend now
+        // handles the dictionary). Rescan must retry it, in place.
+        env.oomUris.clear()
+        h.engine.scan()
+
+        assertEquals(2, h.queue.items.value.size)
+        val retried = h.queue.items.value.single { it.archiveUri == "uri:poison" }
+        assertEquals(bricked.id, retried.id)
+        assertFalse(retried.inspectFailed)
+        assertNull(retried.failureDetail)
+        assertEquals("poison", retried.displayTitle)
+        // The healthy item was never re-inspected: same instance id,
+        // still classified.
+        val stillGood = h.queue.items.value.single { it.archiveUri == "uri:good" }
+        assertEquals(good.id, stillGood.id)
     }
 
     @Test fun `removeItem drops an unreadable queue entry`() {

@@ -317,4 +317,45 @@ class ArchiveExtractorTest {
         assertEquals(2, report.fileCount)
         assertEquals(setOf("rom.gba", "readme.txt"), fs.children(staging).map { it.first }.toSet())
     }
+
+    // ---- u74: external 7zz fallback ----
+
+    @Test fun `7z extraction falls back to external runner when in-app OOMs`() {
+        // The in-app SevenZFile path dies allocating the dictionary;
+        // 7zz extracts to scratch and the payload mapping (unwrap
+        // depth) applies exactly as in the in-app path.
+        val oomOpener = object : ArchiveStreamOpener {
+            override fun openInput(uri: String): java.io.InputStream =
+                throw OutOfMemoryError("Failed to allocate a 268435472 byte allocation")
+            override fun openChannel(uri: String): ChannelHandle =
+                throw OutOfMemoryError("Failed to allocate a 268435472 byte allocation")
+        }
+        val runner = FakeSevenZRunner(
+            extractWrites = mapOf("disc/game.bin" to ByteArray(100) { 5 }),
+        )
+        val scratchParent = java.io.File(System.getProperty("java.io.tmpdir"))
+        val fs = InMemoryThemeFs()
+        val staging = fs.mkdir(fs.rootNode, "staging")
+        val extractor = ArchiveExtractor(
+            oomOpener,
+            ExternalSevenZ(
+                runner = runner,
+                archiveFile = { ExternalArchive(java.io.File("/tmp/fake.7z"), false) },
+                scratchDir = scratchParent,
+            ),
+        )
+        val plan = planFor(ImportTarget.GameFolder("Game"), unwrapDepth = 1, payloadBytes = 100)
+        val report = extractor.extract(
+            fs,
+            ArchiveRef("game.7z", "u7", 100, ArchiveKind.SEVEN_Z),
+            staging,
+            plan,
+        )
+        assertEquals(1, runner.extractCalls)
+        assertEquals(1, report.fileCount)
+        assertEquals(100L, report.bytesWritten)
+        assertEquals(setOf("game.bin"), fs.children(staging).map { it.first }.toSet())
+        val rom = fs.find(staging, "game.bin")!!
+        assertTrue(fs.openInput(rom).readBytes().all { it == 5.toByte() })
+    }
 }

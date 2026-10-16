@@ -188,4 +188,37 @@ class AndroidImporterEnvironment(private val context: Context) : ImporterEnviron
             0L
         }
     }
+
+    /**
+     * Resolves an archive ref to a real [File] for external processes
+     * (7zz cannot read SAF `content:` URIs). Direct `file:` URIs map
+     * straight through (never deleted by the caller); anything else is
+     * copied to a temp file under the app cache
+     * ([ExternalArchive.deleteAfterUse] = true). Null when the archive
+     * cannot be materialized. Never throws.
+     */
+    fun externalArchiveFile(ref: ArchiveRef): ExternalArchive? {
+        return try {
+            val parsed = Uri.parse(ref.uri)
+            if (parsed.scheme == "file") {
+                val f = parsed.path?.let(::File) ?: return null
+                if (!f.isFile) return null
+                ExternalArchive(f, deleteAfterUse = false)
+            } else {
+                val tmpDir = File(context.cacheDir, "sevenz-src").apply { mkdirs() }
+                // Opaque temp name: the archive filename is untrusted.
+                val tmp = File(tmpDir, "arc-${ref.uri.hashCode()}-${System.nanoTime()}.7z")
+                archiveOpener().openInput(ref.uri).use { input ->
+                    tmp.outputStream().use { out -> input.copyTo(out) }
+                }
+                if (!tmp.isFile || tmp.length() == 0L) {
+                    tmp.delete()
+                    return null
+                }
+                ExternalArchive(tmp, deleteAfterUse = true)
+            }
+        } catch (_: Exception) {
+            null
+        }
+    }
 }

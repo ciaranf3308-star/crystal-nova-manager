@@ -1,5 +1,6 @@
 package io.crystalnova.manager.importer
 
+import kotlinx.coroutines.CancellationException
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
@@ -44,8 +45,18 @@ class ChannelHandle(
  * ZIP goes through [ZipInputStream]; 7z through [SevenZFile] over a
  * zero-copy seekable channel (the 7z entry table is read from the
  * archive tail; content streams are never opened during inspection).
+ *
+ * 7z has an external fallback ([externalSevenZ]): some 7z archives
+ * (e.g. LZMA with a 256MB dictionary) cannot be touched in-app — the
+ * dictionary allocation alone exceeds the heap. When the in-app path
+ * throws anything, the separate 7zz process (own memory space)
+ * lists the archive and streams the 64-byte header windows. Only when
+ * both fail is the archive marked unreadable.
  */
-class ArchiveInspector(private val opener: ArchiveStreamOpener) {
+class ArchiveInspector(
+    private val opener: ArchiveStreamOpener,
+    private val externalSevenZ: ExternalSevenZ? = null,
+) {
 
     /** Entry extensions worth capturing header bytes for. */
     private val headerCandidates = setOf("iso", "rvz", "gcm", "bin", "img")
@@ -124,7 +135,66 @@ class ArchiveInspector(private val opener: ArchiveStreamOpener) {
         return InspectedArchive(buildInspection(ref, entries), headers)
     }
 
+    /**
+     * 7z inspection with external fallback: the in-app SevenZFile path
+     * first (fast, no process spawn); on any throwable the separate
+     * 7zz process tries. Cancellation is never swallowed. Only when
+     * both fail does the original in-app error propagate.
+     */
     private fun inspect7z(ref: ArchiveRef): InspectedArchive {
+        val inAppError: Throwable = try {
+            return inspect7zInApp(ref)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            t
+        }
+        val ext = externalSevenZ
+        if (ext != null && ext.runner.available) {
+            try {
+                return inspect7zExternal(ext, ref)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // Fall through to the original in-app error below.
+            }
+        }
+        throw if (inAppError is ArchiveReadException) inAppError
+        else ArchiveReadException("Could not read 7z: ${inAppError.message}", inAppError)
+    }
+
+    /**
+     * External 7z inspection via the 7zz process: `l -slt` lists from
+     * the header (no dictionary), and `x -so` streams each header
+     * window with the dictionary living in 7zz's process.
+     */
+    private fun inspect7zExternal(ext: ExternalSevenZ, ref: ArchiveRef): InspectedArchive {
+        val archive = ext.archiveFile(ref)
+            ?: throw ArchiveReadException("Could not read 7z: cannot materialize archive")
+        try {
+            val entries = ext.runner.list(archive.file)
+            val headers = mutableMapOf<String, ByteArray>()
+            for (e in entries) {
+                if (e.isDirectory) continue
+                val ext2 = e.path.substringAfterLast('.', "").lowercase()
+                if (ext2 !in headerCandidates || headers.size >= MAX_HEADER_ENTRIES) continue
+                val window = ext.runner.readFirstBytes(archive.file, e.path, HEADER_WINDOW_BYTES)
+                if (!window.isNullOrEmpty()) headers[e.path] = window
+            }
+            val infos = entries.map {
+                ArchiveEntryInfo(
+                    path = it.path,
+                    size = it.size.coerceAtLeast(0),
+                    isDirectory = it.isDirectory,
+                )
+            }
+            return InspectedArchive(buildInspection(ref, infos), headers)
+        } finally {
+            if (archive.deleteAfterUse) runCatching { archive.file.delete() }
+        }
+    }
+
+    private fun inspect7zInApp(ref: ArchiveRef): InspectedArchive {
         val entries = mutableListOf<ArchiveEntryInfo>()
         val headers = mutableMapOf<String, ByteArray>()
         try {

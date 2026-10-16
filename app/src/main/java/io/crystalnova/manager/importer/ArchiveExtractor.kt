@@ -2,7 +2,10 @@ package io.crystalnova.manager.importer
 
 import io.crystalnova.manager.storage.FsNode
 import io.crystalnova.manager.storage.ThemeFs
+import kotlinx.coroutines.CancellationException
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
+import java.io.File
+import java.io.FileInputStream
 import java.util.zip.ZipInputStream
 
 /**
@@ -22,8 +25,17 @@ import java.util.zip.ZipInputStream
  *   concurrently (see [ImportEngine]).
  *
  * Open so unit tests can spy on (never-)invocation.
+ *
+ * 7z has an external fallback ([externalSevenZ]): when the in-app
+ * SevenZFile path throws anything (e.g. an OOM from a 256MB LZMA
+ * dictionary), the separate 7zz process extracts to a scratch dir and
+ * the payload files are copied into the [ThemeFs] with the exact same
+ * mapping (unwrap depth, single-write mode, zip-slip sanitization).
  */
-open class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
+open class ArchiveExtractor(
+    private val opener: ArchiveStreamOpener,
+    private val externalSevenZ: ExternalSevenZ? = null,
+) {
 
     data class ExtractReport(
         val fileCount: Int,
@@ -118,7 +130,115 @@ open class ArchiveExtractor(private val opener: ArchiveStreamOpener) {
         return ExtractReport(files, bytes)
     }
 
+    /**
+     * 7z extraction with external fallback: the in-app SevenZFile path
+     * first; on any throwable the separate 7zz process tries.
+     * Cancellation is never swallowed (and kills the 7zz process).
+     * Only when both fail does the original in-app error propagate.
+     */
     private fun extract7z(
+        fs: ThemeFs,
+        ref: ArchiveRef,
+        stagingDir: FsNode,
+        plan: ImportPlan,
+        onProgress: (Long, Long) -> Unit,
+        directFileName: String?,
+    ): ExtractReport {
+        val inAppError: Throwable = try {
+            return extract7zInApp(fs, ref, stagingDir, plan, onProgress, directFileName)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (t: Throwable) {
+            t
+        }
+        val ext = externalSevenZ
+        if (ext != null && ext.runner.available) {
+            try {
+                return extract7zExternal(ext, fs, ref, stagingDir, plan, onProgress, directFileName)
+            } catch (e: CancellationException) {
+                runCatching { ext.runner.cancel() }
+                throw e
+            } catch (_: Throwable) {
+                // Fall through to the original in-app error below.
+            }
+        }
+        throw if (inAppError is ArchiveReadException) inAppError
+        else ArchiveReadException("Extraction failed: ${inAppError.message}", inAppError)
+    }
+
+    /**
+     * External 7z extraction: 7zz unpacks into a scratch dir on the
+     * real filesystem (its process, its memory), then payload files
+     * are copied into the [ThemeFs] with the same mapping the in-app
+     * path applies — unwrap depth, single-write mode, zip-slip
+     * sanitization. Scratch is always cleaned up.
+     */
+    private fun extract7zExternal(
+        ext: ExternalSevenZ,
+        fs: ThemeFs,
+        ref: ArchiveRef,
+        stagingDir: FsNode,
+        plan: ImportPlan,
+        onProgress: (Long, Long) -> Unit,
+        directFileName: String?,
+    ): ExtractReport {
+        val archive = ext.archiveFile(ref)
+            ?: throw ArchiveReadException("Extraction failed: cannot materialize archive")
+        val scratch = File(ext.scratchDir, "x-${System.nanoTime()}").apply { mkdirs() }
+        try {
+            val total = plan.payloadBytes.coerceAtLeast(1)
+            val ok = ext.runner.extract(archive.file, scratch) { frac ->
+                onProgress((frac.coerceIn(0f, 1f) * total).toLong(), total)
+            }
+            if (!ok) throw ArchiveReadException("Extraction failed: 7zz reported an error")
+            // Single-write mode: only this payload entry is kept.
+            val directName = directFileName
+                ?.takeIf { plan.target is ImportTarget.SingleFile }
+            val directTarget = directName
+                ?.let { listOf((plan.target as ImportTarget.SingleFile).fileName) }
+            var files = 0
+            var bytes = 0L
+            // Depth-first walk in deterministic name order.
+            val stack = ArrayDeque<File>()
+            stack.add(scratch)
+            while (stack.isNotEmpty()) {
+                val dir = stack.removeFirst()
+                val kids = dir.listFiles() ?: continue
+                for (kid in kids.sortedBy { it.name }) {
+                    if (kid.isDirectory) {
+                        stack.add(kid)
+                        continue
+                    }
+                    val rel = kid.relativeTo(scratch).path.replace(File.separatorChar, '/')
+                    val target = payloadSegments(rel, plan)
+                    val outSegments = when {
+                        target == null -> null
+                        directTarget != null && target != directTarget -> null
+                        directName != null -> listOf(directName)
+                        else -> target
+                    }
+                    if (outSegments != null) {
+                        FileInputStream(kid).use { input ->
+                            bytes += writeEntry(fs, stagingDir, outSegments, input) { chunkBytes ->
+                                onProgress(bytes + chunkBytes, total)
+                            }
+                        }
+                        files++
+                        if (files > MAX_ENTRIES) {
+                            throw ArchiveReadException("Archive has too many entries")
+                        }
+                    }
+                }
+            }
+            if (files == 0) throw ArchiveReadException("Archive contained no extractable files")
+            return ExtractReport(files, bytes)
+        } finally {
+            runCatching { scratch.deleteRecursively() }
+            if (archive.deleteAfterUse) runCatching { archive.file.delete() }
+        }
+    }
+
+    private fun extract7zInApp(
         fs: ThemeFs,
         ref: ArchiveRef,
         stagingDir: FsNode,

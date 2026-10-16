@@ -5,11 +5,13 @@ import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
+import java.io.InputStream
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -257,5 +259,68 @@ class ArchiveInspectorTest {
         )
         assertEquals(listOf("rom.gba"), paths)
         assertEquals(3, depth)
+    }
+
+    // ---- u74: external 7zz fallback ----
+
+    /** Opener whose 7z channel always dies the user's OOM death. */
+    private fun oomOpener() = object : ArchiveStreamOpener {
+        override fun openInput(uri: String): InputStream =
+            throw UnsupportedOperationException("no zip in this test")
+        override fun openChannel(uri: String): ChannelHandle =
+            throw OutOfMemoryError("Failed to allocate a 268435472 byte allocation")
+    }
+
+    private fun externalOnly(
+        runner: FakeSevenZRunner,
+    ) = ExternalSevenZ(
+        runner = runner,
+        archiveFile = { ref -> ExternalArchive(File("/tmp/fake-${ref.name}"), false) },
+        scratchDir = File("/tmp"),
+    )
+
+    @Test fun `7z inspection prefers the in-app path when it works`() {
+        val file7z = fixtures.create7z(mapOf("game.bin" to ByteArray(128)))
+        val runner = FakeSevenZRunner()
+        val inspector = ArchiveInspector(
+            ArchiveTestFixtures.FakeOpener(sevenZs = mapOf("u7" to file7z)),
+            externalOnly(runner),
+        )
+        val (inspection, _) = inspector.inspect(
+            ArchiveRef("game.7z", "u7", file7z.length(), ArchiveKind.SEVEN_Z),
+        )
+        // In-app won: the external process was never even started.
+        assertEquals(0, runner.listCalls)
+        assertTrue(inspection.entries.any { it.path == "game.bin" })
+    }
+
+    @Test fun `7z inspection falls back to external runner when in-app OOMs`() {
+        // u74: the user's 256MB-dictionary 3DS 7z files. The OOM must
+        // not propagate — the external listing + header windows take over.
+        val header = ByteArray(64) { 42 }
+        val runner = FakeSevenZRunner(
+            listResult = listOf(SevenZRunner.Entry("game.bin", 100, false)),
+            headerBytes = mapOf("game.bin" to header),
+        )
+        val inspector = ArchiveInspector(oomOpener(), externalOnly(runner))
+        val (inspection, headers) = inspector.inspect(
+            ArchiveRef("game.7z", "u7", 100, ArchiveKind.SEVEN_Z),
+        )
+        assertEquals(1, runner.listCalls)
+        assertEquals(listOf("game.bin"), runner.readCalls)
+        assertEquals(listOf("game.bin"), inspection.entries.map { it.path })
+        assertTrue(headers["game.bin"]!!.contentEquals(header))
+    }
+
+    @Test fun `7z inspection throws ArchiveReadException when both backends fail`() {
+        val runner = FakeSevenZRunner(listError = IllegalStateException("7zz exploded"))
+        val inspector = ArchiveInspector(oomOpener(), externalOnly(runner))
+        try {
+            inspector.inspect(ArchiveRef("game.7z", "u7", 100, ArchiveKind.SEVEN_Z))
+            fail("expected ArchiveReadException")
+        } catch (e: ArchiveReadException) {
+            // The OOM is contained — callers see the declared exception type.
+            assertTrue(e.message!!.contains("Could not read 7z"))
+        }
     }
 }

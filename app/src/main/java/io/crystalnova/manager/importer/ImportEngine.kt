@@ -275,8 +275,12 @@ class ImportEngine(
                 for (ref in outcome.archives) {
                     done++
                     _uiState.value = ImportUiState.Scanning(done, total)
-                    if (known.containsKey(ref.uri)) continue
-                    val item = try {
+                    val knownItem = known[ref.uri]
+                    // u74: previously-unreadable items retry automatically —
+                    // the external 7z backend may succeed where the in-app
+                    // inspection failed. Items that inspected fine stay skipped.
+                    if (knownItem != null && !knownItem.inspectFailed) continue
+                    val built = try {
                         buildItem(ref)
                     } catch (e: CancellationException) {
                         throw e
@@ -308,7 +312,19 @@ class ImportEngine(
                             addedAt = clock(),
                         )
                     }
-                    queue.add(item)
+                    // A retry refreshes the existing queue entry in place
+                    // (same id — claims and history references survive).
+                    val item = if (knownItem != null) {
+                        built.copy(
+                            id = knownItem.id,
+                            addedAt = knownItem.addedAt,
+                            claimedByItemId = knownItem.claimedByItemId,
+                        )
+                    } else {
+                        built
+                    }
+                    if (knownItem != null) queue.update(knownItem.id) { item }
+                    else queue.add(item)
                     known[ref.uri] = item
                 }
 
@@ -317,8 +333,10 @@ class ImportEngine(
                 for (ref in outcome.looseFiles) {
                     done++
                     _uiState.value = ImportUiState.Scanning(done, total)
-                    if (known.containsKey(ref.uri)) continue
-                    val item = try {
+                    val knownItem = known[ref.uri]
+                    // u74: previously-unreadable loose files retry too.
+                    if (knownItem != null && !knownItem.inspectFailed) continue
+                    val built = try {
                         buildLooseItem(ref)
                     } catch (e: CancellationException) {
                         throw e
@@ -348,7 +366,17 @@ class ImportEngine(
                             addedAt = clock(),
                         )
                     }
-                    queue.add(item)
+                    val item = if (knownItem != null) {
+                        built.copy(
+                            id = knownItem.id,
+                            addedAt = knownItem.addedAt,
+                            claimedByItemId = knownItem.claimedByItemId,
+                        )
+                    } else {
+                        built
+                    }
+                    if (knownItem != null) queue.update(knownItem.id) { item }
+                    else queue.add(item)
                     known[ref.uri] = item
                 }
 

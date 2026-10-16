@@ -28,7 +28,8 @@ class ImporterGraph(context: Context) {
         appContext.getSharedPreferences("crystal-nova-manager", Context.MODE_PRIVATE),
     )
 
-    val env: ImporterEnvironment = AndroidImporterEnvironment(appContext)
+    private val androidEnv = AndroidImporterEnvironment(appContext)
+    val env: ImporterEnvironment = androidEnv
 
     val queue: ImportQueue =
         ImportQueue(File(appContext.filesDir, "importer/queue.json")).also { it.load() }
@@ -42,14 +43,29 @@ class ImporterGraph(context: Context) {
 
     val psxSupport: PsxImportSupport = AndroidPsxImportSupport(appContext)
 
+    /**
+     * External 7z backend (separate 7zz process, own memory space),
+     * when the bundled binary is usable on this device. Null =
+     * in-app commons-compress only (pre-existing behavior).
+     */
+    private val externalSevenZ: ExternalSevenZ? = run {
+        val runner = AndroidSevenZRunner(File(appContext.applicationInfo.nativeLibraryDir))
+        if (!runner.available) null
+        else ExternalSevenZ(
+            runner = runner,
+            archiveFile = androidEnv::externalArchiveFile,
+            scratchDir = File(appContext.cacheDir, "sevenz"),
+        )
+    }
+
     val engine: ImportEngine = ImportEngine(
         scope = scope,
         ioDispatcher = Dispatchers.IO,
         env = env,
         queue = queue,
-        inspector = ArchiveInspector(env.archiveOpener()),
+        inspector = ArchiveInspector(env.archiveOpener(), externalSevenZ),
         detector = PlatformDetector(),
-        extractor = ArchiveExtractor(env.archiveOpener()),
+        extractor = ArchiveExtractor(env.archiveOpener(), externalSevenZ),
         mapping = mapping,
         settings = settings,
         history = history,
