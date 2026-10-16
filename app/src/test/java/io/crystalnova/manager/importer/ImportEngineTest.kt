@@ -32,6 +32,8 @@ class ImportEngineTest {
         var deleteHook: ((String) -> Unit)? = null,
         /** Overrides archiveExists when set (u69: simulates dead URI grants). */
         var existsHook: ((String) -> Boolean)? = null,
+        /** URIs whose archive open throws OutOfMemoryError (u71: poisonous archives). */
+        val oomUris: MutableSet<String> = mutableSetOf(),
     ) : ImporterEnvironment {
         val deleted = mutableListOf<String>()
 
@@ -39,7 +41,17 @@ class ImportEngineTest {
             override fun listFiles(): List<DownloadFile> = downloads
         }
 
-        override fun archiveOpener() = ArchiveTestFixtures.FakeOpener(zips.toMap())
+        override fun archiveOpener() = object : ArchiveStreamOpener {
+            private val delegate = ArchiveTestFixtures.FakeOpener(zips.toMap())
+            override fun openInput(uri: String): InputStream {
+                if (uri in oomUris) throw OutOfMemoryError("Failed to allocate a 268435472 byte allocation")
+                return delegate.openInput(uri)
+            }
+            override fun openChannel(uri: String): ChannelHandle {
+                if (uri in oomUris) throw OutOfMemoryError("Failed to allocate a 268435472 byte allocation")
+                return delegate.openChannel(uri)
+            }
+        }
 
         override fun openDownload(uri: String): InputStream =
             ByteArrayInputStream(loose[uri] ?: throw ArchiveReadException("no loose bytes for $uri"))
@@ -571,6 +583,32 @@ class ImportEngineTest {
         assertTrue(error.message.startsWith("SCAN FAILED:"))
         assertTrue(error.message.contains("boom"))
         assertEquals(null, error.grant)
+    }
+
+    @Test fun `scan contains an oom in one archive and keeps processing the rest`() {
+        // u71: the user's corrupt-7z OOM. A poisonous archive must land
+        // as an unreadable item — never abort the scan for the files
+        // waiting behind it.
+        val env = envWith(
+            Triple("poison.zip", "uri:poison", mapOf("poison.iso" to ByteArray(100))),
+            Triple("good.zip", "uri:good", mapOf("good.gba" to ByteArray(100))),
+        )
+        env.oomUris += "uri:poison"
+        val h = harness(env)
+
+        h.engine.scan() // must not throw
+
+        assertEquals(2, h.queue.items.value.size)
+        val poison = h.queue.items.value.single { it.archiveUri == "uri:poison" }
+        assertTrue(poison.inspectFailed)
+        assertTrue(poison.failureDetail?.startsWith("Could not inspect:") == true)
+        val good = h.queue.items.value.single { it.archiveUri == "uri:good" }
+        assertFalse(good.inspectFailed)
+        // The scan completed normally: classifying state, poison item
+        // surfaced under UNREADABLE FILES with its filename visible.
+        val state = h.engine.uiState.value as ImportUiState.Classifying
+        assertEquals(1, state.unreadable.size)
+        assertEquals("poison.zip", state.unreadable.single().archiveName)
     }
 
     @Test fun `skip during classification drops the item from the review list`() {

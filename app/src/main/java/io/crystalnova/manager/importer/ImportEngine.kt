@@ -278,7 +278,20 @@ class ImportEngine(
                     if (known.containsKey(ref.uri)) continue
                     val item = try {
                         buildItem(ref)
-                    } catch (e: ArchiveReadException) {
+                    } catch (e: CancellationException) {
+                        throw e
+                    } catch (e: SecurityException) {
+                        _uiState.value = ImportUiState.Error(
+                            "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
+                            GrantKind.DOWNLOADS,
+                        )
+                        return@launch
+                    } catch (e: Throwable) {
+                        // u71 contain-and-continue: one poisonous archive
+                        // (e.g. an OOM from a corrupt 7z header trusting a
+                        // size field) must never abort the whole scan — it
+                        // lands as an unreadable item and the scan moves on
+                        // to the next file.
                         ArchiveItem(
                             id = UUID.randomUUID().toString(),
                             archiveUri = ref.uri,
@@ -291,15 +304,9 @@ class ImportEngine(
                             plan = null,
                             inspectFailed = true,
                             relativePath = ref.relativePath,
-                            failureDetail = e.message,
+                            failureDetail = "Could not inspect: ${failureDetail(e)}",
                             addedAt = clock(),
                         )
-                    } catch (e: SecurityException) {
-                        _uiState.value = ImportUiState.Error(
-                            "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
-                            GrantKind.DOWNLOADS,
-                        )
-                        return@launch
                     }
                     queue.add(item)
                     known[ref.uri] = item
@@ -313,12 +320,33 @@ class ImportEngine(
                     if (known.containsKey(ref.uri)) continue
                     val item = try {
                         buildLooseItem(ref)
+                    } catch (e: CancellationException) {
+                        throw e
                     } catch (_: SecurityException) {
                         _uiState.value = ImportUiState.Error(
                             "DOWNLOADS ACCESS LOST — GRANT IT AGAIN",
                             GrantKind.DOWNLOADS,
                         )
                         return@launch
+                    } catch (e: Throwable) {
+                        // u71 contain-and-continue: a poisonous loose file
+                        // must not abort the scan either.
+                        ArchiveItem(
+                            id = UUID.randomUUID().toString(),
+                            archiveUri = ref.uri,
+                            archiveName = ref.name,
+                            displayTitle = cleanDisplayTitle(ref.name),
+                            archiveKind = ArchiveKind.LOOSE_FILE,
+                            archiveBytes = ref.size,
+                            detection = Detection(null, Confidence.UNKNOWN, recognizedAsGame = true),
+                            platform = null,
+                            plan = null,
+                            inspectFailed = true,
+                            isLooseFile = true,
+                            relativePath = ref.relativePath,
+                            failureDetail = "Could not inspect: ${failureDetail(e)}",
+                            addedAt = clock(),
+                        )
                     }
                     queue.add(item)
                     known[ref.uri] = item
@@ -492,7 +520,10 @@ class ImportEngine(
             if (!isDescriptorCandidate(queue.items.value.firstOrNull { it.id == cue.id } ?: continue)) continue
             val text = try {
                 env.openDownload(cue.archiveUri).bufferedReader().readText()
-            } catch (_: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // u71: a poisonous descriptor is skipped, never aborts.
                 continue
             }
             claimUnder(cue, CueParser.referencedFiles(text))
@@ -504,7 +535,10 @@ class ImportEngine(
             if (!isDescriptorCandidate(queue.items.value.firstOrNull { it.id == m3u.id } ?: continue)) continue
             val lines = try {
                 env.openDownload(m3u.archiveUri).bufferedReader().readLines()
-            } catch (_: Exception) {
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Throwable) {
+                // u71: a poisonous descriptor is skipped, never aborts.
                 continue
             }
             val names = lines.map { it.trim() }
