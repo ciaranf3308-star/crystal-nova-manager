@@ -11,4 +11,11 @@ import io.crystalnova.manager.importer.ImporterGraph
  */
 class CrystalManagerApp : Application() {
     val importerGraph: ImporterGraph by lazy { ImporterGraph(this) }
+
+    override fun onCreate() {
+        super.onCreate()
+        // u75: one-time 3DS ROM folder correction ("3ds" -> "n3ds").
+        // Runs on Dispatchers.IO inside the graph; never throws.
+        importerGraph.runStartupMigrations()
+    }
 }

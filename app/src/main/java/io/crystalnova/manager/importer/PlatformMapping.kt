@@ -21,6 +21,14 @@ class PlatformMapping(private val prefs: KeyValueStore) {
         const val KEY = "importer.platform_folders"
 
         /**
+         * Pre-u75 wrong N3DS default. ES-DE's actual 3DS system folder
+         * is "n3ds"; "3ds" never matched it, so 3DS imports landed in a
+         * folder ES-DE never looks at. [migrateN3dsDefault] corrects a
+         * stored "3ds".
+         */
+        const val LEGACY_N3DS_FOLDER = "3ds"
+
+        /**
          * ES-DE-conventional defaults. The button order below is also
          * the classification grid order — the Nova's configured
          * systems, most-used first.
@@ -30,7 +38,7 @@ class PlatformMapping(private val prefs: KeyValueStore) {
             PlatformId.GBC to "gbc",
             PlatformId.GB to "gb",
             PlatformId.NDS to "nds",
-            PlatformId.N3DS to "3ds",
+            PlatformId.N3DS to "n3ds",
             PlatformId.SNES to "snes",
             PlatformId.NES to "nes",
             PlatformId.N64 to "n64",
@@ -114,6 +122,25 @@ class PlatformMapping(private val prefs: KeyValueStore) {
     fun resetDefaults() {
         cache = DEFAULT_FOLDERS.toMutableMap()
         persist()
+    }
+
+    /**
+     * u75 one-time correction: the N3DS default shipped as "3ds", which
+     * is not ES-DE's 3DS folder ("n3ds"). When the stored N3DS value is
+     * exactly the old wrong default, replace it with the corrected
+     * default and persist. Any other stored value — including a folder
+     * the user customized themselves — is left alone; someone who
+     * truly wants "3ds" can set it back in settings.
+     *
+     * Returns true when a stored value was corrected.
+     */
+    fun migrateN3dsDefault(): Boolean {
+        val raw = prefs.getString(KEY) ?: return false
+        val stored = JsonRead.obj(raw)?.get(PlatformId.N3DS.name) as? String
+        if (stored != LEGACY_N3DS_FOLDER) return false
+        all()[PlatformId.N3DS] = DEFAULT_FOLDERS.getValue(PlatformId.N3DS)
+        persist()
+        return true
     }
 
     /** Snapshot of the current mapping in grid order. */

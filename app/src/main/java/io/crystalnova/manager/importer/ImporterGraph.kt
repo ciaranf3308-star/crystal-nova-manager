@@ -5,6 +5,7 @@ import io.crystalnova.manager.data.PrefKeyValueStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import java.io.File
 
 /**
@@ -71,4 +72,18 @@ class ImporterGraph(context: Context) {
         history = history,
         psxSupport = psxSupport,
     )
+
+    /**
+     * u75 one-time corrections (3DS ROM folder "3ds" -> "n3ds": stored
+     * default plus already-imported files). Idempotent; safe to call
+     * on every process start. File I/O runs on Dispatchers.IO and never
+     * throws — a failed run simply retries next time.
+     */
+    fun runStartupMigrations() {
+        scope.launch(Dispatchers.IO) {
+            runCatching {
+                N3dsFolderMigration.run(prefs, mapping, env::romsFs)
+            }
+        }
+    }
 }

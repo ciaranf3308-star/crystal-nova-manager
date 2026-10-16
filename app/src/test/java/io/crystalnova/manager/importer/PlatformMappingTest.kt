@@ -12,7 +12,7 @@ class PlatformMappingTest {
         assertEquals("gba", mapping.folderFor(PlatformId.GBA))
         assertEquals("ps2", mapping.folderFor(PlatformId.PS2))
         assertEquals("gc", mapping.folderFor(PlatformId.GAMECUBE))
-        assertEquals("3ds", mapping.folderFor(PlatformId.N3DS))
+        assertEquals("n3ds", mapping.folderFor(PlatformId.N3DS))
         // Genesis and Mega Drive share one default folder.
         assertEquals("genesis", mapping.folderFor(PlatformId.GENESIS))
         assertEquals("genesis", mapping.folderFor(PlatformId.MEGADRIVE))
@@ -67,5 +67,32 @@ class PlatformMappingTest {
         assertTrue(mapping.isValidFolder("gba"))
         assertTrue(mapping.isValidFolder("ps2-games"))
         assertTrue(mapping.isValidFolder("n64_v2"))
+    }
+
+    @Test fun `stored 3ds default migrates to n3ds`() {
+        val prefs = MapKeyValueStore()
+        prefs.putString(PlatformMapping.KEY, """{"N3DS":"3ds","PS2":"ps2"}""")
+        val mapping = PlatformMapping(prefs)
+        assertTrue(mapping.migrateN3dsDefault())
+        assertEquals("n3ds", mapping.folderFor(PlatformId.N3DS))
+        // Persists across instances, and the second run is a no-op.
+        assertEquals("n3ds", PlatformMapping(prefs).folderFor(PlatformId.N3DS))
+        assertFalse(PlatformMapping(prefs).migrateN3dsDefault())
+        // Other platforms untouched.
+        assertEquals("ps2", PlatformMapping(prefs).folderFor(PlatformId.PS2))
+    }
+
+    @Test fun `custom n3ds folder is left alone by migration`() {
+        val prefs = MapKeyValueStore()
+        prefs.putString(PlatformMapping.KEY, """{"N3DS":"my3ds"}""")
+        val mapping = PlatformMapping(prefs)
+        assertFalse(mapping.migrateN3dsDefault())
+        assertEquals("my3ds", mapping.folderFor(PlatformId.N3DS))
+    }
+
+    @Test fun `migration with no stored mapping is a no-op`() {
+        val mapping = PlatformMapping(MapKeyValueStore())
+        assertFalse(mapping.migrateN3dsDefault())
+        assertEquals("n3ds", mapping.folderFor(PlatformId.N3DS))
     }
 }

@@ -8,7 +8,7 @@ package io.crystalnova.manager.importer
  * re-detected after a table update.
  */
 object DetectionTables {
-    const val DETECTION_TABLES_VERSION = 1
+    const val DETECTION_TABLES_VERSION = 2
 
     /**
      * Entry extension (lowercase, no dot) -> platform. These are
@@ -111,6 +111,19 @@ object DetectionTables {
     val wiiMagic: ByteArray = byteArrayOf(
         0x5D, 0x1C, 0x9E.toByte(), 0xA3.toByte(),
     )
+
+    /**
+     * 3DS NCCH magic ("NCCH", bytes 4E 43 43 48) at file offset 0x100 —
+     * the start of the NCCH header inside a 3DS ROM image. `.bin` is an
+     * ambiguous container (PS1/PS2/3DS all use it), so this magic is
+     * what confirms N3DS.
+     */
+    val n3dsNcchMagic: ByteArray = byteArrayOf(
+        0x4E, 0x43, 0x43, 0x48,
+    )
+
+    /** File offset of the 3DS NCCH magic word. */
+    const val N3DS_NCCH_OFFSET: Long = 0x100
 
     /**
      * PlayStation serial ranges. The letter prefix alone does NOT

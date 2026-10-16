@@ -177,6 +177,68 @@ class PlatformDetectorTest {
         assertEquals(Confidence.CONFIRMED, d.confidence)
     }
 
+    @Test fun `3ds bin with NCCH at 0x100 confirms N3DS`() {
+        // A realistic 3DS ROM window: zeros up front, "NCCH" at 0x100.
+        val window = ByteArray(260).also {
+            it[0x100] = 0x4E
+            it[0x101] = 0x43
+            it[0x102] = 0x43
+            it[0x103] = 0x48
+        }
+        val header = PlatformDetector.HeaderReader { _, offset, length ->
+            val from = offset.toInt()
+            window.copyOfRange(from, minOf(window.size, from + length))
+        }
+        val d = detector.detect(
+            "game.7z",
+            listOf(entry("game.bin", 1_073_741_824L)),
+            header,
+        )
+        assertEquals(PlatformId.N3DS, d.platform)
+        assertEquals(Confidence.CONFIRMED, d.confidence)
+        assertTrue(d.recognizedAsGame)
+        assertTrue(d.signals.any { it.contains("NCCH") })
+    }
+
+    @Test fun `bin without NCCH stays unplatformed but recognized as game`() {
+        // Unchanged behavior: an ambiguous .bin with no magic is still
+        // game-shaped (ambiguousDiscExtension), just platform-unknown.
+        val window = ByteArray(260)
+        val header = PlatformDetector.HeaderReader { _, offset, length ->
+            val from = offset.toInt()
+            window.copyOfRange(from, minOf(window.size, from + length))
+        }
+        val d = detector.detect(
+            "game.7z",
+            listOf(entry("game.bin", 1_073_741_824L)),
+            header,
+        )
+        assertNull(d.platform)
+        assertEquals(Confidence.UNKNOWN, d.confidence)
+        assertTrue(d.recognizedAsGame)
+    }
+
+    @Test fun `NCCH at wrong offset does not confirm N3DS`() {
+        // Regression: the magic must sit exactly at 0x100.
+        val window = ByteArray(260).also {
+            it[0] = 0x4E
+            it[1] = 0x43
+            it[2] = 0x43
+            it[3] = 0x48
+        }
+        val header = PlatformDetector.HeaderReader { _, offset, length ->
+            val from = offset.toInt()
+            window.copyOfRange(from, minOf(window.size, from + length))
+        }
+        val d = detector.detect(
+            "game.7z",
+            listOf(entry("game.bin", 1_073_741_824L)),
+            header,
+        )
+        assertNull(d.platform)
+        assertTrue(d.recognizedAsGame)
+    }
+
     @Test fun `rvz without readable header falls back to alias`() {
         val d = detector.detect(
             "Mario Kart Double Dash [GC].zip",

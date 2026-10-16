@@ -454,15 +454,16 @@ class ImportEngine(
 
     /**
      * Builds a queue item for a loose (non-archive) file: one synthetic
-     * [ArchiveEntryInfo], a best-effort 64-byte header window read
-     * straight from Downloads, and a trivial [ImportPlan] — the
-     * [ArchiveInspector] is never involved.
+     * [ArchiveEntryInfo], a best-effort header window read (shared
+     * [ArchiveInspector.HEADER_WINDOW_BYTES]) straight from Downloads,
+     * and a trivial [ImportPlan] — the [ArchiveInspector] is never
+     * involved.
      */
     private fun buildLooseItem(ref: ArchiveRef): ArchiveItem {
         val entry = ArchiveEntryInfo(ref.name, ref.size, false)
         val window = try {
             env.openDownload(ref.uri).use { input ->
-                val buf = ByteArray(64)
+                val buf = ByteArray(ArchiveInspector.HEADER_WINDOW_BYTES)
                 var n = 0
                 while (n < buf.size) {
                     val r = input.read(buf, n, buf.size - n)

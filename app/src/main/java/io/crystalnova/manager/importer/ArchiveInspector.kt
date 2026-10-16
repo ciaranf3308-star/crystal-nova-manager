@@ -288,10 +288,11 @@ class ArchiveInspector(
     companion object {
         /**
          * Bounded header window captured per candidate disc image.
-         * Covers the GameCube/Wii magic word at disc offset 0x1C with
-         * room to spare; still tiny next to a multi-GB image.
+         * Covers the GameCube/Wii magic word at disc offset 0x1C and
+         * the 3DS NCCH magic at file offset 0x100; still tiny next to
+         * a multi-GB image.
          */
-        const val HEADER_WINDOW_BYTES = 64
+        const val HEADER_WINDOW_BYTES = 260
         const val MAX_HEADER_ENTRIES = 8
     }
 }

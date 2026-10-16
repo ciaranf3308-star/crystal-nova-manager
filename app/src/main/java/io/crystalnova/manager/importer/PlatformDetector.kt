@@ -6,7 +6,8 @@ package io.crystalnova.manager.importer
  * Signal tiers, strongest first:
  *   1. Direct ROM extensions (`.gba` -> GBA) — CONFIRMED.
  *   2. Disc-header magic (GameCube/Wii magic word at disc offset
- *      0x1C) — CONFIRMED.
+ *      0x1C; 3DS NCCH magic at file offset 0x100 inside `.bin`) —
+ *      CONFIRMED.
  *   3. Disc structures (1ST_READ.BIN, PSP_GAME/) and PlayStation
  *      serial ranges (SLUS-20554 -> PS2) — CONFIRMED, or LIKELY for
  *      the weak structural hints (EBOOT.PBP).
@@ -55,7 +56,8 @@ class PlatformDetector {
         // a header read; bounded to the first few candidates so a huge
         // archive does not do hundreds of seeks. The GameCube/Wii
         // magic word sits at disc offset 0x1C, so the read targets
-        // exactly those 4 bytes.
+        // exactly those 4 bytes; 3DS ROM images (ambiguous `.bin`
+        // containers) carry the NCCH magic at file offset 0x100.
         val headerSignals = mutableListOf<Signal>()
         files
             .mapIndexed { index, entry -> index to entry }
@@ -66,18 +68,28 @@ class PlatformDetector {
             .take(4)
             .forEach { (index, entry) ->
                 val head = readHeader.read(index, DetectionTables.DISC_MAGIC_OFFSET, 4)
-                    ?: return@forEach
-                when {
-                    head.startsWith(DetectionTables.gamecubeMagic) ->
+                if (head != null) {
+                    when {
+                        head.startsWith(DetectionTables.gamecubeMagic) ->
+                            headerSignals += Signal(
+                                PlatformId.GAMECUBE, Confidence.CONFIRMED,
+                                "${entryName(entry.path)} (disc header)", entry.size,
+                            )
+                        head.startsWith(DetectionTables.wiiMagic) ->
+                            headerSignals += Signal(
+                                PlatformId.WII, Confidence.CONFIRMED,
+                                "${entryName(entry.path)} (disc header)", entry.size,
+                            )
+                    }
+                }
+                if (entry.path.substringAfterLast('.', "").lowercase() == "bin") {
+                    val ncch = readHeader.read(index, DetectionTables.N3DS_NCCH_OFFSET, 4)
+                    if (ncch != null && ncch.startsWith(DetectionTables.n3dsNcchMagic)) {
                         headerSignals += Signal(
-                            PlatformId.GAMECUBE, Confidence.CONFIRMED,
-                            "${entryName(entry.path)} (disc header)", entry.size,
+                            PlatformId.N3DS, Confidence.CONFIRMED,
+                            "${entryName(entry.path)} (3DS NCCH header)", entry.size,
                         )
-                    head.startsWith(DetectionTables.wiiMagic) ->
-                        headerSignals += Signal(
-                            PlatformId.WII, Confidence.CONFIRMED,
-                            "${entryName(entry.path)} (disc header)", entry.size,
-                        )
+                    }
                 }
             }
 
