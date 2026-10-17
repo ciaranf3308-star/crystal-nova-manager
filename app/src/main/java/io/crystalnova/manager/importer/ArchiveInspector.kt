@@ -4,6 +4,8 @@ import kotlinx.coroutines.CancellationException
 import org.apache.commons.compress.archivers.sevenz.SevenZFile
 import java.io.ByteArrayOutputStream
 import java.io.Closeable
+import java.io.File
+import java.io.FileInputStream
 import java.io.InputStream
 import java.nio.channels.SeekableByteChannel
 import java.util.zip.ZipInputStream
@@ -191,15 +193,24 @@ class ArchiveInspector(
     }
 
     /**
-     * External 7z inspection via the 7zz process: `l -slt` lists from
-     * the header (no dictionary), and `x -so` streams each header
-     * window with the dictionary living in 7zz's process.
+     * u79: when the 7zz `l -slt` listing is suspicious — it succeeded
+     * but names no game files at all (proven on-device: a 1GB 7z
+     * listed as a lone .txt) — and the archive is large, the listing
+     * is untrustworthy. Extract and observe the ground truth instead.
      */
     private fun inspect7zExternal(ext: ExternalSevenZ, ref: ArchiveRef): InspectedArchive {
         val archive = ext.archiveFile(ref)
             ?: throw ArchiveReadException("Could not read 7z: cannot materialize archive")
         try {
             val entries = ext.runner.list(archive.file)
+            val listedFiles = entries.filter { !it.isDirectory }
+            val listingSuspicious = listedFiles.isEmpty() || listedFiles.all { e ->
+                e.path.substringAfterLast('.', "").lowercase() in
+                    DetectionTables.nonGameExtension
+            }
+            if (listingSuspicious && ref.size > EXTRACT_FALLBACK_MIN_ARCHIVE_BYTES) {
+                return inspect7zExtractAndScan(ext, ref, archive)
+            }
             val headers = mutableMapOf<String, ByteArray>()
             for (e in entries) {
                 if (e.isDirectory) continue
@@ -222,6 +233,79 @@ class ArchiveInspector(
             )
         } finally {
             if (archive.deleteAfterUse) runCatching { archive.file.delete() }
+        }
+    }
+
+    /**
+     * u79: extract-and-scan fallback. 7zz `x` runs in its own process
+     * with its own dictionary (no app-heap OOM); the extracted files
+     * on disk are the ground truth, bypassing the unreliable `l -slt`
+     * listing entirely. Scratch is always cleaned up.
+     */
+    private fun inspect7zExtractAndScan(
+        ext: ExternalSevenZ,
+        ref: ArchiveRef,
+        archive: ExternalArchive,
+    ): InspectedArchive {
+        val scratch = File(ext.scratchDir, "inspect-${System.nanoTime()}").apply { mkdirs() }
+        try {
+            checkExtractSpace(scratch.usableSpace, ref.size)?.let { throw ArchiveReadException(it) }
+            val ok = try {
+                ext.runner.extract(archive.file, scratch) {}
+            } catch (e: CancellationException) {
+                runCatching { ext.runner.cancel() }
+                throw e
+            } catch (t: Throwable) {
+                throw ArchiveReadException(
+                    t.message?.replace(Regex("\\s+"), " ")?.trim()?.take(160)
+                        ?: t::class.simpleName ?: "UNKNOWN",
+                    t,
+                )
+            }
+            if (!ok) {
+                // Distinguish disk-full from a generic 7zz failure so
+                // the hub can say something useful.
+                checkExtractSpace(scratch.usableSpace, ref.size)?.let { throw ArchiveReadException(it) }
+                throw ArchiveReadException("extraction reported an error")
+            }
+            // Ground truth: walk what 7zz actually wrote, in
+            // deterministic order.
+            val filePairs = mutableListOf<Pair<String, File>>()
+            val dirRels = mutableListOf<String>()
+            val stack = ArrayDeque<File>()
+            stack.add(scratch)
+            while (stack.isNotEmpty()) {
+                val dir = stack.removeFirst()
+                val kids = dir.listFiles() ?: continue
+                for (kid in kids.sortedBy { it.name }) {
+                    val rel = kid.relativeTo(scratch).path.replace(File.separatorChar, '/')
+                    if (kid.isDirectory) {
+                        dirRels += rel
+                        stack.add(kid)
+                    } else {
+                        filePairs += rel to kid
+                    }
+                }
+            }
+            val infos = dirRels.map { ArchiveEntryInfo(it, 0, true) } +
+                filePairs.map { (rel, f) -> ArchiveEntryInfo(rel, f.length(), false) }
+            // Header windows straight from disk — no 7zz -so round-trips.
+            val headers = mutableMapOf<String, ByteArray>()
+            for ((rel, f) in filePairs) {
+                val e = rel.substringAfterLast('.', "").lowercase()
+                if (e !in headerCandidates || headers.size >= MAX_HEADER_ENTRIES) continue
+                FileInputStream(f).use { input ->
+                    val win = readUpTo(input, HEADER_WINDOW_BYTES)
+                    if (win.isNotEmpty()) headers[rel] = win
+                }
+            }
+            return InspectedArchive(
+                buildInspection(ref, infos),
+                headers,
+                InspectionBackend.EXTERNAL_7ZZ,
+            )
+        } finally {
+            runCatching { scratch.deleteRecursively() }
         }
     }
 
@@ -325,6 +409,28 @@ class ArchiveInspector(
          */
         const val HEADER_WINDOW_BYTES = 260
         const val MAX_HEADER_ENTRIES = 8
+
+        /**
+         * u79: archives larger than this whose 7zz listing names no
+         * game files get the extract-and-scan fallback instead of
+         * trusting the listing.
+         */
+        const val EXTRACT_FALLBACK_MIN_ARCHIVE_BYTES = 50L * 1024 * 1024
+    }
+}
+
+/**
+ * u79: pure free-space preflight for extract-and-scan. Returns the
+ * error message when [usableBytes] is too small for an archive of
+ * [archiveBytes], null when extraction may proceed. The uncompressed
+ * payload needs headroom over the archive size; the post-failure
+ * check is the backstop.
+ */
+internal fun checkExtractSpace(usableBytes: Long, archiveBytes: Long): String? {
+    return if (usableBytes < archiveBytes * 2) {
+        "Not enough space to extract 7z for inspection"
+    } else {
+        null
     }
 }
 

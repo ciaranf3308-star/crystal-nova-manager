@@ -3,6 +3,7 @@ package io.crystalnova.manager.importer
 import org.apache.commons.compress.archivers.sevenz.SevenZArchiveEntry
 import org.apache.commons.compress.archivers.sevenz.SevenZOutputFile
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Assert.fail
@@ -12,6 +13,7 @@ import java.io.ByteArrayOutputStream
 import java.io.File
 import java.io.FileInputStream
 import java.io.InputStream
+import java.nio.file.Files
 import java.util.zip.ZipEntry
 import java.util.zip.ZipOutputStream
 
@@ -325,5 +327,104 @@ class ArchiveInspectorTest {
             assertTrue(e.message!!.contains("7zz exploded"))
             assertTrue(e.message!!.contains("IN-APP:"))
         }
+    }
+
+    private fun externalOnlyWithScratch(
+        runner: FakeSevenZRunner,
+        scratchParent: File,
+    ) = ExternalSevenZ(
+        runner = runner,
+        archiveFile = { ref -> ExternalArchive(File("/tmp/fake-${ref.name}"), false) },
+        scratchDir = scratchParent,
+    )
+
+    @Test fun `7z extract-and-scan fallback triggers for large docs-only listing`() {
+        // u79: the user's hostile 7z files — 7zz `l -slt` lists only
+        // the .txt, hiding the 1GB .bin. The fallback extracts and
+        // observes the ground truth on disk.
+        val scratchParent = Files.createTempDirectory("u79").toFile()
+        try {
+            val binBytes = ByteArray(300)
+            "NCCH".toByteArray(Charsets.US_ASCII).copyInto(binBytes, 0x100)
+            val runner = FakeSevenZRunner(
+                listResult = listOf(SevenZRunner.Entry("Vimm's Lair.txt", 303, false)),
+                extractWrites = mapOf("game.bin" to binBytes),
+            )
+            val inspector = ArchiveInspector(oomOpener(), externalOnlyWithScratch(runner, scratchParent))
+            val bigSize = 60L * 1024 * 1024
+            val (inspection, headers) = inspector.inspect(
+                ArchiveRef("game.7z", "u7", bigSize, ArchiveKind.SEVEN_Z),
+            )
+            // Fallback ran: 7zz extracted, ground truth used.
+            assertEquals(1, runner.extractCalls)
+            assertEquals(listOf("game.bin"), inspection.entries.map { it.path })
+            // Header window came straight from the extracted file on disk.
+            val win = headers["game.bin"]!!
+            assertEquals("NCCH", win.sliceArray(0x100..0x103).toString(Charsets.US_ASCII))
+            // Scratch cleaned up.
+            assertTrue(scratchParent.listFiles()!!.none { it.name.startsWith("inspect-") })
+        } finally {
+            scratchParent.deleteRecursively()
+        }
+    }
+
+    @Test fun `7z extract-and-scan fallback does not trigger for small docs-only listing`() {
+        val runner = FakeSevenZRunner(
+            listResult = listOf(SevenZRunner.Entry("notes.txt", 100, false)),
+        )
+        val inspector = ArchiveInspector(oomOpener(), externalOnly(runner))
+        val (inspection, _) = inspector.inspect(
+            ArchiveRef("game.7z", "u7", 1024, ArchiveKind.SEVEN_Z),
+        )
+        assertEquals(0, runner.extractCalls)
+        assertEquals(listOf("notes.txt"), inspection.entries.map { it.path })
+    }
+
+    @Test fun `7z extract-and-scan fallback does not trigger when listing has game files`() {
+        val runner = FakeSevenZRunner(
+            listResult = listOf(
+                SevenZRunner.Entry("game.bin", 100, false),
+                SevenZRunner.Entry("notes.txt", 100, false),
+            ),
+        )
+        val inspector = ArchiveInspector(oomOpener(), externalOnly(runner))
+        val bigSize = 60L * 1024 * 1024
+        val (inspection, _) = inspector.inspect(
+            ArchiveRef("game.7z", "u7", bigSize, ArchiveKind.SEVEN_Z),
+        )
+        // Fast path preserved: listing trusted, no extraction.
+        assertEquals(0, runner.extractCalls)
+        assertEquals(2, inspection.entries.size)
+    }
+
+    @Test fun `7z extract-and-scan failure surfaces 7zz error unsilenced`() {
+        val runner = FakeSevenZRunner(
+            listResult = listOf(SevenZRunner.Entry("notes.txt", 100, false)),
+            extractError = IllegalStateException("7zz exploded on extract"),
+        )
+        val inspector = ArchiveInspector(oomOpener(), externalOnly(runner))
+        val bigSize = 60L * 1024 * 1024
+        try {
+            inspector.inspect(ArchiveRef("game.7z", "u7", bigSize, ArchiveKind.SEVEN_Z))
+            fail("expected ArchiveReadException")
+        } catch (e: ArchiveReadException) {
+            // u78/u79: the 7zz failure is named, not swallowed and not
+            // mislabeled as an out-of-memory.
+            assertTrue(e.message!!.startsWith("7ZZ FAILED:"))
+            assertTrue(e.message!!.contains("7zz exploded on extract"))
+            assertFalse(e.message!!.contains("OutOfMemory"))
+        }
+    }
+
+    @Test fun `checkExtractSpace flags insufficient disk`() {
+        assertEquals(
+            "Not enough space to extract 7z for inspection",
+            checkExtractSpace(0, 100L * 1024 * 1024),
+        )
+        assertEquals(
+            "Not enough space to extract 7z for inspection",
+            checkExtractSpace(100L * 1024 * 1024, 100L * 1024 * 1024),
+        )
+        assertNull(checkExtractSpace(500L * 1024 * 1024, 100L * 1024 * 1024))
     }
 }
