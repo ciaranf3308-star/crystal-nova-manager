@@ -178,9 +178,10 @@ fun groupPsxSources(
  * the product requirement is ONE entry per game. Extensions ES-DE
  * indexes for PSX: cue, bin, chd, m3u, iso, pbp. A directory named
  * `*.m3u` counts as ONE entry (ES-DE's "directories interpreted as
- * files"); its children are not separate entries. This mirrors the
- * exporter rule in GameLibraryExport.kt — both must tell the same
- * one-game truth.
+ * files"); its children are not separate entries. This is purely a
+ * simulation of ES-DE's frontend view for the importer; the game list
+ * exporter (GameLibraryExport.kt) is a separate, verbatim dump of the
+ * real tree and does NOT collapse anything.
  */
 fun esdePsxEntries(files: List<String>, dirs: List<String>): List<String> {
     val indexed = setOf("cue", "bin", "chd", "m3u", "iso", "pbp")

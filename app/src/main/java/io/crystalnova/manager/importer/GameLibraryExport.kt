@@ -4,31 +4,25 @@ import io.crystalnova.manager.storage.FsNode
 import io.crystalnova.manager.storage.ThemeFs
 
 /**
- * Game List Export (u66): a faithful, read-only JSON dump of the REAL
- * ROM folder tree. COPY ALL puts the JSON on the clipboard so the user
- * can paste it into ChatGPT.
+ * Game List Export (u66, verbatim since u80): a literal, read-only JSON
+ * dump of the REAL ROM folder tree. COPY ALL puts the JSON on the
+ * clipboard so the user can paste it into ChatGPT.
  *
- * The old version walked the platform→folder mapping and silently
- * skipped every real folder the mapping didn't know (a 3DS folder
- * vanished entirely) while relabelling folders through stale
- * mappings. This version walks the ACTUAL children of the ROM root:
- * no mapping, no guessing, no filtering beyond hidden entries, no
- * title normalization, no extension stripping. What you see in your
- * file manager is what you get.
+ * The contract is ZERO interpretation:
+ * - Every folder under the ROM root appears, keyed by its real name.
+ * - Every file appears, at every depth, with its real name and its
+ *   full `/`-separated relative path.
+ * - No exclusions: hidden entries (names starting with '.') are
+ *   exported like everything else.
+ * - No collapsing: directories ending in `.m3u` are descended into
+ *   like any other directory — their contents are listed individually.
+ * - No invented names: loose files sitting directly in the ROM root
+ *   are keyed by the root folder's REAL name (see [LIBRARY_ROOT_KEY]
+ *   for the nameless fallback).
+ * - No mapping, no guessing, no title normalization, no extension
+ *   stripping. Empty folders are included too.
  *
- * The ONLY exclusion: entries whose name starts with '.' (system
- * temps like `.importing-*`, `.nomedia`). Everything else — every
- * folder, every file, every extension — is exported as-is, including
- * folders that are completely empty.
- *
- * ES-DE ".m3u directory" rule: a directory whose name ends with `.m3u`
- * (case-insensitive) is emitted as a SINGLE entry — the directory's
- * own relative path (e.g. `Metal Gear Solid.m3u`) — and is NOT
- * descended into. This mirrors ES-DE's "directories interpreted as
- * files": the PS1 pipeline installs multi-disc games as
- * `Metal Gear Solid.m3u/` containing per-disc CHDs, and ES-DE shows
- * exactly one frontend entry for it. The export must tell the same
- * one-game truth, so the child disc CHDs never appear as extra games.
+ * What the file manager shows is exactly what is exported.
  */
 
 /** One real folder under the ROM root: files are `/`-separated paths relative to it, sorted. */
@@ -37,7 +31,11 @@ data class LibraryFolder(
     val files: List<String>,
 )
 
-/** Key under which loose files sitting directly in the ROM root are collected. */
+/**
+ * Fallback key for loose files sitting directly in the ROM root, used
+ * only when the root folder itself has no name. Normally the bucket is
+ * keyed by the root's real name (see [scanGameLibrary]).
+ */
 const val LIBRARY_ROOT_KEY = "_root"
 
 /** Read-only scan result: folders sorted by name, files sorted within each folder. */
@@ -55,10 +53,13 @@ data class LibraryScan(val folders: List<LibraryFolder>) {
  *         "Pokemon Omega Ruby (USA).3ds",
  *         "sub/My Game.3ds"
  *       ],
- *       "_root": [
+ *       "roms": [
  *         "bios.bin"
  *       ]
  *     }
+ *
+ * ("roms" here is the real name of the ROM root folder, under which
+ * loose root files are collected.)
  *
  * Keys and paths are escaped with [JsonCodec.writeString].
  */
@@ -83,12 +84,13 @@ fun renderJson(folders: List<LibraryFolder>): String = buildString {
  * when the ROM root is not granted or vanished (the UI shows the grant
  * hint).
  *
- * READ ONLY: only root()/children()/isDirectory() are used — no
- * rename, move, delete, or write of any kind. Hidden entries (name
- * starts with '.') are the only exclusion; directories ending in
- * `.m3u` are emitted as single entries (see the file KDoc). Every
- * real folder is included, even when empty; loose files at the root
- * are collected under [LIBRARY_ROOT_KEY].
+ * READ ONLY: only root()/children()/isDirectory()/name() are used —
+ * no rename, move, delete, or write of any kind. The scan is a
+ * literal dump (see the file KDoc): no exclusions, no collapsing, no
+ * invented names. Every real folder is included, even when empty;
+ * loose files at the root are collected under the root folder's real
+ * name ([ThemeFs.name] of the root), falling back to
+ * [LIBRARY_ROOT_KEY] only when the root has no name.
  */
 fun scanGameLibrary(romsFs: ThemeFs?): LibraryScan? {
     val fs = romsFs ?: return null
@@ -97,7 +99,6 @@ fun scanGameLibrary(romsFs: ThemeFs?): LibraryScan? {
         val folders = mutableListOf<LibraryFolder>()
         val rootFiles = mutableListOf<String>()
         for ((name, node) in fs.children(root).sortedBy { it.first }) {
-            if (name.startsWith('.')) continue
             if (fs.isDirectory(node)) {
                 folders.add(LibraryFolder(name, walkFolder(fs, node)))
             } else {
@@ -106,7 +107,8 @@ fun scanGameLibrary(romsFs: ThemeFs?): LibraryScan? {
         }
         // The root bucket always exists: omitting things is what
         // caused this bug in the first place.
-        folders.add(LibraryFolder(LIBRARY_ROOT_KEY, rootFiles.sorted()))
+        val rootKey = fs.name(root)?.takeIf { it.isNotBlank() } ?: LIBRARY_ROOT_KEY
+        folders.add(LibraryFolder(rootKey, rootFiles.sorted()))
         LibraryScan(folders.sortedBy { it.name })
     } catch (_: SecurityException) {
         // Grant revoked mid-scan: the UI shows the grant hint.
@@ -122,15 +124,9 @@ private fun walkFolder(fs: ThemeFs, dir: FsNode): List<String> {
     while (stack.isNotEmpty()) {
         val (node, prefix) = stack.removeLast()
         for ((name, child) in fs.children(node).sortedBy { it.first }) {
-            if (name.startsWith('.')) continue
             val rel = if (prefix.isEmpty()) name else "$prefix/$name"
             if (fs.isDirectory(child)) {
-                // ES-DE ".m3u directory": one entry, never descended.
-                if (name.endsWith(".m3u", ignoreCase = true)) {
-                    files.add(rel)
-                } else {
-                    stack.addLast(child to rel)
-                }
+                stack.addLast(child to rel)
             } else {
                 files.add(rel)
             }
