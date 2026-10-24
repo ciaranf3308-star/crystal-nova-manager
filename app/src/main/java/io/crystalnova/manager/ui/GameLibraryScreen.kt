@@ -24,19 +24,23 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.text.AnnotatedString
 import io.crystalnova.manager.importer.ImporterGraph
 import io.crystalnova.manager.importer.LibraryScan
+import io.crystalnova.manager.importer.chunkLibraryFolder
 import io.crystalnova.manager.importer.scanGameLibrary
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * GAME LIBRARY (u83): read-only export of the ROM collection as JSON
+ * GAME LIBRARY (u84): read-only export of the ROM collection as JSON
  * that mirrors the real folder structure under the ROM root. COPY ALL
- * puts the full JSON on the clipboard for pasting into ChatGPT, and
- * each folder gets its own COPY control that copies ONLY that
- * folder's entries — one folder at a time stays under the clipboard
- * character limit that the full-library copy exceeds. No database,
- * no metadata, no management UI: scan -> JSON -> copy.
+ * puts the full JSON on the clipboard for pasting into ChatGPT, each
+ * folder gets its own COPY control that copies ONLY that folder's
+ * entries, and each folder is ALSO split into consecutive 50-file
+ * chunks with their own COPY controls — one chunk at a time stays
+ * under both the clipboard character limit and a chat input window,
+ * so the user can paste chunk after chunk into an LLM until the
+ * whole library is across. No database, no metadata, no management
+ * UI: scan -> JSON -> copy.
  *
  * The export walks the ACTUAL children of the ROM root — no
  * platform→folder mapping, no guessing, no filtering, no collapsing:
@@ -53,8 +57,8 @@ import kotlinx.coroutines.withContext
  * chips are a deterministic vertical stack of full-width rows —
  * folder name + file count, ellipsis if long — instead of a FlowRow
  * whose wrapping is unpredictable on the handheld. The per-folder
- * COPY controls are real grid controls below the summary, so D-pad
- * focus moves between them like any other control.
+ * and per-chunk COPY controls are real grid controls below the
+ * summary, so D-pad focus moves between them like any other control.
  */
 @Composable
 fun GameLibraryScreen(
@@ -165,6 +169,32 @@ fun GameLibraryScreen(
                             },
                         )
                     }
+                    // Chunked COPY (u84): even one folder can exceed
+                    // the clipboard limit when it holds many games, so
+                    // each folder is split into consecutive 50-file
+                    // chunks (see chunkLibraryFolder) with their own
+                    // controls. Each chunk copies through the exact
+                    // same single-folder JSON path — only that chunk's
+                    // files — so every copy is tiny enough for the
+                    // clipboard AND a chat input window. Empty folders
+                    // yield zero chunks, so they get no controls.
+                    for (folder in result.folders) {
+                        val chunks = chunkLibraryFolder(folder)
+                        for ((index, chunk) in chunks.withIndex()) {
+                            val chunkLabel = "${index + 1}/${chunks.size}"
+                            control(
+                                key = "copy-chunk-${folder.name}-${index + 1}",
+                                label = "COPY ${folder.name.uppercase()} $chunkLabel",
+                                subLabel = "${chunk.files.size} FILES",
+                                onClick = {
+                                    clipboard.setText(
+                                        AnnotatedString(LibraryScan(listOf(chunk)).exportText),
+                                    )
+                                    copiedLabel = "COPIED ${folder.name.uppercase()} $chunkLabel"
+                                },
+                            )
+                        }
+                    }
                 }
             }
         }
@@ -174,9 +204,9 @@ fun GameLibraryScreen(
 /**
  * Display-only folder rows: a deterministic vertical stack of
  * full-width rows inside the panel. Not focusable: the per-folder
- * COPY controls below the summary are the focusable folder actions,
- * so D-pad focus moves between REFRESH, COPY ALL, and the folder
- * COPY controls.
+ * and per-chunk COPY controls below the summary are the focusable
+ * folder actions, so D-pad focus moves between REFRESH, COPY ALL,
+ * and the folder/chunk COPY controls.
  */
 @Composable
 private fun SystemRow(text: String) {
