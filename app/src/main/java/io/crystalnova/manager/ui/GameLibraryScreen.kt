@@ -30,16 +30,19 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 /**
- * GAME LIBRARY (u66): read-only export of the ROM collection as JSON
+ * GAME LIBRARY (u83): read-only export of the ROM collection as JSON
  * that mirrors the real folder structure under the ROM root. COPY ALL
- * puts the JSON on the clipboard for pasting into ChatGPT. No
- * database, no metadata, no management UI: scan -> JSON -> copy.
+ * puts the full JSON on the clipboard for pasting into ChatGPT, and
+ * each folder gets its own COPY control that copies ONLY that
+ * folder's entries — one folder at a time stays under the clipboard
+ * character limit that the full-library copy exceeds. No database,
+ * no metadata, no management UI: scan -> JSON -> copy.
  *
  * The export walks the ACTUAL children of the ROM root — no
- * platform→folder mapping, no guessing, no filtering beyond hidden
- * entries. Every real folder appears under its real name, files keep
- * their full names and extensions, and empty folders are included.
- * What you see in your file manager is what you get.
+ * platform→folder mapping, no guessing, no filtering, no collapsing:
+ * every real folder appears under its real name, files keep their
+ * full names and extensions, and empty folders are included. What
+ * you see in your file manager is what you get.
  *
  * Pure function of the graph: the scan runs on IO and is strictly
  * read-only (see [scanGameLibrary]). A null scan means the ROM root
@@ -49,7 +52,9 @@ import kotlinx.coroutines.withContext
  * two-line sublabel (content-sized, no fixed height). The folder
  * chips are a deterministic vertical stack of full-width rows —
  * folder name + file count, ellipsis if long — instead of a FlowRow
- * whose wrapping is unpredictable on the handheld.
+ * whose wrapping is unpredictable on the handheld. The per-folder
+ * COPY controls are real grid controls below the summary, so D-pad
+ * focus moves between them like any other control.
  */
 @Composable
 fun GameLibraryScreen(
@@ -60,7 +65,7 @@ fun GameLibraryScreen(
     var refreshTick by remember { mutableStateOf(0) }
     var scan by remember { mutableStateOf<LibraryScan?>(null) }
     var scanning by remember { mutableStateOf(true) }
-    var justCopied by remember { mutableStateOf(false) }
+    var copiedLabel by remember { mutableStateOf<String?>(null) }
 
     LaunchedEffect(refreshTick) {
         scanning = true
@@ -69,10 +74,10 @@ fun GameLibraryScreen(
         }
         scanning = false
     }
-    if (justCopied) {
+    if (copiedLabel != null) {
         LaunchedEffect(Unit) {
             delay(2500)
-            justCopied = false
+            copiedLabel = null
         }
     }
 
@@ -121,12 +126,12 @@ fun GameLibraryScreen(
                     enabled = total > 0,
                     onClick = {
                         clipboard.setText(AnnotatedString(result.exportText))
-                        justCopied = true
+                        copiedLabel = "COPIED TO CLIPBOARD"
                     },
                 )
-                if (justCopied) {
+                if (copiedLabel != null) {
                     panel {
-                        StatusLine("COPIED TO CLIPBOARD", Crystal.Good)
+                        StatusLine(copiedLabel!!, Crystal.Good)
                     }
                 }
                 if (total == 0) {
@@ -141,6 +146,25 @@ fun GameLibraryScreen(
                             }
                         }
                     }
+                    // Per-folder COPY (u83): one folder's JSON is far
+                    // smaller than the whole library, so each copy
+                    // stays under the clipboard character limit that
+                    // COPY ALL exceeds. Same render path as COPY ALL,
+                    // restricted to a single folder — no new helper.
+                    // Empty folders get no copy control.
+                    for (folder in result.folders) {
+                        if (folder.files.isEmpty()) continue
+                        control(
+                            key = "copy-folder-${folder.name}",
+                            label = "COPY ${folder.name.uppercase()} — ${folder.files.size} FILES",
+                            onClick = {
+                                clipboard.setText(
+                                    AnnotatedString(LibraryScan(listOf(folder)).exportText),
+                                )
+                                copiedLabel = "COPIED ${folder.name.uppercase()}"
+                            },
+                        )
+                    }
                 }
             }
         }
@@ -149,9 +173,10 @@ fun GameLibraryScreen(
 
 /**
  * Display-only folder rows: a deterministic vertical stack of
- * full-width rows inside the panel. Not focusable: tapping a folder
- * to see its filenames is explicitly out of scope for this build, so
- * D-pad focus moves straight between REFRESH and COPY ALL.
+ * full-width rows inside the panel. Not focusable: the per-folder
+ * COPY controls below the summary are the focusable folder actions,
+ * so D-pad focus moves between REFRESH, COPY ALL, and the folder
+ * COPY controls.
  */
 @Composable
 private fun SystemRow(text: String) {
