@@ -3,6 +3,7 @@ package io.crystalnova.manager.ui
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.Composable
@@ -27,14 +28,12 @@ import io.crystalnova.manager.importer.labels
  * is strictly sequential and always on; there is no parallelism
  * toggle to show.
  *
- * u70: single-column list. Each platform group is a full-width
- * panel with a clear header (platform → destination folder) and a
- * deterministic vertical stack of readable game rows (filename +
- * size, ellipsis if long) — no FlowRow chip soup, no half-width
- * squeeze. IMPORT ALL is the first, biggest control after the
- * storage summary, carrying the storage numbers in its own sublabel
- * so the go/no-go is visible on the button itself. Conflict choices
- * get an unmistakable "▸ " marker plus SELECTED on the active option.
+ * u89 command-center layout (layout only): storage + counts as
+ * statTiles, each platform group under a ZoneHeader with its games
+ * as reclassify commandTiles, each conflict as a detail panel with
+ * its three choice tiles. Approve/reject/skip semantics are exactly
+ * as before — the choice tiles keep the "▸ " marker plus SELECTED on
+ * the active option.
  */
 @Composable
 fun ImporterReviewScreen(
@@ -46,7 +45,7 @@ fun ImporterReviewScreen(
     val engine = graph.engine
     val uiState by engine.uiState.collectAsState()
     // Per-conflict choice, pre-seeded with the persisted default.
-    // Hoisted here (not in the ControllerList content lambda) because
+    // Hoisted here (not in the ControllerGrid content lambda) because
     // that lambda is not a @Composable context.
     val conflicts = (uiState as? ImportUiState.ConflictReview)?.conflicts
     val choices = remember(conflicts) {
@@ -61,72 +60,62 @@ fun ImporterReviewScreen(
         onBack = onBack,
         fallbackFocusKey = "import-all",
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 2)),
             initialFocus = ::isInitialFocus,
         ) {
             when (val s = uiState) {
                 is ImportUiState.ConflictReview -> ConflictSection(s, graph, choices)
                 is ImportUiState.Ready -> ReadySection(s, graph, onStartImport)
                 is ImportUiState.Error -> {
-                    section {
-                        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                            StatusLine(s.message, Crystal.Bad)
-                        }
+                    panel {
+                        StatusStrip(s.message, attention = true)
                     }
-                    control(
+                    commandTile(
                         key = "dismiss-notice",
                         label = "DISMISS",
                         onClick = { engine.backToIdle() },
                     )
                 }
-                else -> section {
-                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        StatusLine("PREPARING…", Crystal.InkDim)
-                    }
+                else -> panel {
+                    StatusStrip("PREPARING…")
                 }
             }
         }
     }
 }
 
-private fun ControllerListContent.ReadySection(
+private fun ControllerGridContent.ReadySection(
     s: ImportUiState.Ready,
     graph: ImporterGraph,
     onStartImport: () -> Unit,
 ) {
     val engine = graph.engine
-    section {
-        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusLine(
-                    "${s.totalGames} GAME${if (s.totalGames == 1) "" else "S"} · " +
-                        "NEED ${formatBytes(s.estimatedBytes)}",
-                    Crystal.Joystick,
-                )
-                val freeLine = "FREE ${formatBytes(s.freeBytes)}"
-                StatusLine(
-                    if (s.storageOk) freeLine else "$freeLine — NOT ENOUGH HEADROOM",
-                    if (s.storageOk) Crystal.Good else Crystal.Bad,
-                )
-            }
-        }
+    panel {
+        ZoneHeader("STORAGE")
     }
+    statTile(
+        label = "GAMES",
+        value = "${s.totalGames}",
+        subline = "NEED ${formatBytes(s.estimatedBytes)}",
+    )
+    statTile(
+        label = "FREE",
+        value = formatBytes(s.freeBytes),
+        subline = if (s.storageOk) null else "NOT ENOUGH HEADROOM",
+    )
     for (group in s.groups) {
-        section {
-            CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                val folder = graph.mapping.folderFor(group.platform)
-                StatusLine(
-                    "${group.platform.labels().long.uppercase()} → /$folder",
-                    Crystal.Cream,
-                )
-            }
+        panel {
+            ZoneHeader(
+                "${group.platform.labels().long.uppercase()} → /${graph.mapping.folderFor(group.platform)}",
+            )
         }
-        // One control per game: a wrong console pick goes back to the
+        // One tile per game: a wrong console pick goes back to the
         // classify screen as the first item with a single tap.
         for (item in group.items) {
-            control(
+            commandTile(
                 key = "reclassify-${item.id}",
                 label = "· ${item.displayTitle} (${formatBytes(item.archiveBytes)})",
                 subLabel = "WRONG CONSOLE? TAP TO RE-CLASSIFY",
@@ -134,24 +123,15 @@ private fun ControllerListContent.ReadySection(
             )
         }
     }
-    section {
-        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusLine("SEQUENTIAL — ONE ITEM AT A TIME", Crystal.InkDim)
-                StatusLine("SOURCE DELETED ONLY AFTER VERIFY", Crystal.InkDim)
-            }
-        }
+    panel {
+        ZoneHeader("IMPORT")
+        StatusStrip("SEQUENTIAL — ONE ITEM AT A TIME")
+        StatusStrip("SOURCE DELETED ONLY AFTER VERIFY")
+        StatusStrip("▶ READY TO IMPORT")
     }
-    section {
-        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-            StatusLine("▶ READY TO IMPORT", Crystal.Joystick)
-        }
-    }
-    // The big primary action: content-sized (two-line sublabel carries
-    // the storage verdict, so the tile is naturally tall — no fixed
-    // height), first focusable in the zone, storage summary in the
-    // panel directly above it.
-    control(
+    // The big primary action: the storage verdict rides in its
+    // sublabel, so the tile carries the go/no-go itself.
+    commandTile(
         key = "import-all",
         label = "IMPORT ALL (${s.totalGames})",
         subLabel = "NEED ${formatBytes(s.estimatedBytes)} · FREE ${formatBytes(s.freeBytes)}\n" +
@@ -160,7 +140,7 @@ private fun ControllerListContent.ReadySection(
         enabled = s.storageOk,
         onClick = onStartImport,
     )
-    control(
+    commandTile(
         key = "back-classify",
         label = "BACK TO CLASSIFICATION",
         subLabel = "CHANGE A PLATFORM PICK",
@@ -168,28 +148,24 @@ private fun ControllerListContent.ReadySection(
     )
 }
 
-private fun ControllerListContent.ConflictSection(
+private fun ControllerGridContent.ConflictSection(
     s: ImportUiState.ConflictReview,
     graph: ImporterGraph,
     choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val engine = graph.engine
-    section {
-        CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusLine(
-                    "${s.conflicts.size} ALREADY IN THE LIBRARY",
-                    Crystal.Joystick,
-                )
-                StatusLine("DEFAULT: ${s.default.label()}", Crystal.InkDim)
-                StatusLine("PICK PER GAME, THEN CONFIRM.", Crystal.InkDim)
-            }
-        }
+    panel {
+        ZoneHeader("ALREADY IN THE LIBRARY")
+    }
+    statTile(label = "CONFLICTS", value = "${s.conflicts.size}")
+    statTile(label = "DEFAULT", value = s.default.label())
+    panel {
+        StatusStrip("PICK PER GAME, THEN CONFIRM.")
     }
     for (conflict in s.conflicts) {
         ConflictRow(conflict, choices)
     }
-    control(
+    commandTile(
         key = "confirm-conflicts",
         label = "CONFIRM + CONTINUE",
         onClick = {
@@ -200,22 +176,22 @@ private fun ControllerListContent.ConflictSection(
             )
         },
     )
-    control(
+    commandTile(
         key = "back-classify-2",
         label = "BACK TO CLASSIFICATION",
         onClick = { engine.backToClassifying() },
     )
 }
 
-private fun ControllerListContent.ConflictRow(
+private fun ControllerGridContent.ConflictRow(
     conflict: ItemConflict,
     choices: MutableMap<String, DuplicatePolicy>,
 ) {
     val current = choices[conflict.itemId] ?: conflict.resolution
-    section {
+    panel {
+        ZoneHeader("⚠ ${conflict.title}")
         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusLine("⚠ ${conflict.title}", Crystal.Bad)
                 StatusLine(
                     "EXISTS AS ${conflict.existingName}",
                     Crystal.InkDim,
@@ -224,22 +200,22 @@ private fun ControllerListContent.ConflictRow(
             }
         }
     }
-    // One choice per control: controller-simple, no nested focus grid.
+    // One choice per tile: controller-simple, no nested focus grid.
     // The active choice is unmistakable — "▸ " prefix on the label
     // plus SELECTED, visible with or without focus.
-    control(
+    commandTile(
         key = "conflict-skip-${conflict.itemId}",
         label = if (current == DuplicatePolicy.SKIP) "▸ SKIP" else "SKIP",
         subLabel = if (current == DuplicatePolicy.SKIP) "SELECTED" else "LEAVE THE LIBRARY COPY ALONE",
         onClick = { choices[conflict.itemId] = DuplicatePolicy.SKIP },
     )
-    control(
+    commandTile(
         key = "conflict-replace-${conflict.itemId}",
         label = if (current == DuplicatePolicy.REPLACE) "▸ REPLACE" else "REPLACE",
         subLabel = if (current == DuplicatePolicy.REPLACE) "SELECTED" else "OVERWRITE THE LIBRARY COPY",
         onClick = { choices[conflict.itemId] = DuplicatePolicy.REPLACE },
     )
-    control(
+    commandTile(
         key = "conflict-keepboth-${conflict.itemId}",
         label = if (current == DuplicatePolicy.KEEP_BOTH) "▸ KEEP BOTH" else "KEEP BOTH",
         subLabel = if (current == DuplicatePolicy.KEEP_BOTH) "SELECTED" else "IMPORT ALONGSIDE THE EXISTING COPY",

@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -47,6 +48,12 @@ import kotlinx.coroutines.withContext
  *
  * The folder editor is an inline text field: A opens the IME while it
  * is focused (the scaffold passes A through), DONE saves.
+ *
+ * u89 command-center layout (layout only): settings grouped into
+ * zones with ZoneHeader strips, grant states as statTiles, and every
+ * setting control — toggles, options, grants, folder picks, danger
+ * actions — as a commandTile in the width-aware grid. No control
+ * removed, reworded, or re-semantic'd; density up only.
  */
 @Composable
 fun ImporterSettingsScreen(
@@ -101,46 +108,32 @@ fun ImporterSettingsScreen(
         passThroughAWhen = { editorFocused },
         fallbackFocusKey = "grant-downloads",
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 2)),
             initialFocus = ::isInitialFocus,
         ) {
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    StatusLine("FOLDERS")
-                }
+            // ---- Zone: folders / grants ----
+            panel {
+                ZoneHeader("FOLDERS")
             }
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("DOWNLOADS (SOURCE)")
-                        StatusLine(
-                            if (downloadsOk) "GRANTED" else "NOT GRANTED",
-                            if (downloadsOk) Crystal.Good else Crystal.Bad,
-                        )
-                    }
-                }
-            }
-            control(
+            statTile(
+                label = "DOWNLOADS (SOURCE)",
+                value = if (downloadsOk) "GRANTED" else "NOT GRANTED",
+            )
+            commandTile(
                 key = "grant-downloads",
                 label = if (downloadsOk) "CHANGE DOWNLOADS FOLDER" else "GRANT DOWNLOADS FOLDER",
                 onClick = onGrantDownloads,
             )
             if (allFilesApi) {
-                section {
-                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("ALL FILES ACCESS")
-                            StatusLine(
-                                if (allFilesGranted) "GRANTED — DIRECT SCAN" else "NOT GRANTED",
-                                if (allFilesGranted) Crystal.Good else Crystal.Bad,
-                            )
-                        }
-                    }
-                }
+                statTile(
+                    label = "ALL FILES ACCESS",
+                    value = if (allFilesGranted) "GRANTED — DIRECT SCAN" else "NOT GRANTED",
+                )
                 if (!allFilesGranted) {
-                    control(
+                    commandTile(
                         key = "all-files-settings",
                         label = "OPEN SETTINGS",
                         subLabel = "ALLOW ALL FILES ACCESS FOR DIRECT SCAN",
@@ -148,56 +141,46 @@ fun ImporterSettingsScreen(
                     )
                 }
             }
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("ROM ROOT (DESTINATION)")
-                        StatusLine(
-                            if (romsOk) "GRANTED" else "NOT GRANTED",
-                            if (romsOk) Crystal.Good else Crystal.Bad,
-                        )
-                    }
-                }
-            }
-            control(
+            statTile(
+                label = "ROM ROOT (DESTINATION)",
+                value = if (romsOk) "GRANTED" else "NOT GRANTED",
+            )
+            commandTile(
                 key = "grant-roms",
                 label = if (romsOk) "CHANGE ROM ROOT FOLDER" else "GRANT ROM ROOT FOLDER",
                 onClick = onGrantRoms,
             )
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("PLATFORM FOLDERS")
-                        StatusLine("NAMES ONLY — NO / OR ..", Crystal.InkDim)
-                    }
-                }
+            // ---- Zone: per-platform folders ----
+            panel {
+                ZoneHeader("PLATFORM FOLDERS")
+                StatusStrip("NAMES ONLY — NO / OR ..")
             }
             for (platform in PlatformMapping.ORDERED) {
                 if (editingFolder == platform) {
-                    section {
+                    panel {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             FolderEditor(
-                            platform = platform,
-                            initial = mapping.folderFor(platform),
-                            scrollModifier = Modifier,
-                            onFocusChange = { editorFocused = it },
-                            onDone = { draft ->
-                                if (mapping.setFolder(platform, draft)) {
-                                    editingFolder = null
-                                    editorFocused = false
-                                    folderError = null
-                                    true
-                                } else {
-                                    folderError = "BAD FOLDER NAME — SINGLE SEGMENT ONLY"
-                                    false
-                                }
-                            },
-                        )
-                        folderError?.let { StatusLine(it, Crystal.Bad) }
+                                platform = platform,
+                                initial = mapping.folderFor(platform),
+                                scrollModifier = Modifier,
+                                onFocusChange = { editorFocused = it },
+                                onDone = { draft ->
+                                    if (mapping.setFolder(platform, draft)) {
+                                        editingFolder = null
+                                        editorFocused = false
+                                        folderError = null
+                                        true
+                                    } else {
+                                        folderError = "BAD FOLDER NAME — SINGLE SEGMENT ONLY"
+                                        false
+                                    }
+                                },
+                            )
+                            folderError?.let { StatusLine(it, Crystal.Bad) }
                         }
                     }
                 } else {
-                    control(
+                    commandTile(
                         key = "folder-${platform.name}",
                         label = platform.labels().long.uppercase(),
                         subLabel = "/${mapping.folderFor(platform)} — TAP TO EDIT",
@@ -208,22 +191,22 @@ fun ImporterSettingsScreen(
                     )
                 }
             }
-            section {
+            // ---- Zone: archive support (display only) ----
+            panel {
+                ZoneHeader("ARCHIVE SUPPORT")
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("ARCHIVE SUPPORT")
                         StatusLine("ZIP · 7Z", Crystal.Good)
                         StatusLine("RAR — DETECTED BUT NOT SUPPORTED", Crystal.Bad)
                         StatusLine("UNRELATED FILES ARE IGNORED", Crystal.InkDim)
                     }
                 }
             }
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    StatusLine("DEFAULTS")
-                }
+            // ---- Zone: defaults ----
+            panel {
+                ZoneHeader("DEFAULTS")
             }
-            control(
+            commandTile(
                 key = "default-duplicate",
                 label = "DUPLICATE DEFAULT: ${duplicateDefault.name}",
                 subLabel = "TAP TO CYCLE — APPLIES TO NEW CONFLICTS",
@@ -236,7 +219,7 @@ fun ImporterSettingsScreen(
                     settings.duplicateDefault = duplicateDefault
                 },
             )
-            control(
+            commandTile(
                 key = "default-delete",
                 label = "DELETE SOURCE AFTER VERIFY: ${if (deleteAfterSuccess) "ON" else "OFF"}",
                 subLabel = "SOURCE IS ALWAYS KEPT ON ANY FAILURE",
@@ -245,7 +228,7 @@ fun ImporterSettingsScreen(
                     settings.deleteAfterSuccess = deleteAfterSuccess
                 },
             )
-            control(
+            commandTile(
                 key = "default-autoidentify",
                 label = "AUTO-IDENTIFY CERTAIN GAMES: ${if (autoIdentify) "ON" else "OFF"}",
                 subLabel = "OFF SENDS EVERYTHING TO CLASSIFICATION",
@@ -254,7 +237,7 @@ fun ImporterSettingsScreen(
                     settings.autoIdentify = autoIdentify
                 },
             )
-            control(
+            commandTile(
                 key = "default-confirm",
                 label = "CONFIRM BEFORE IMPORT: ${if (confirmBeforeImport) "ON" else "OFF"}",
                 subLabel = "REVIEW SCREEN ALWAYS SHOWS FIRST",
@@ -263,13 +246,8 @@ fun ImporterSettingsScreen(
                     settings.confirmBeforeImport = confirmBeforeImport
                 },
             )
-            section {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("IMPORTS RUN SEQUENTIALLY — ONE ARCHIVE", Crystal.InkDim)
-                        StatusLine("AT A TIME. ALWAYS. NO TOGGLE.", Crystal.InkDim)
-                    }
-                }
+            panel {
+                StatusStrip("IMPORTS RUN SEQUENTIALLY — ONE ARCHIVE AT A TIME. ALWAYS. NO TOGGLE.")
             }
         }
     }
