@@ -4,8 +4,11 @@ package io.crystalnova.manager.ui
 
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsNodeInteraction
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import io.crystalnova.manager.data.EsdeThemeCatalog
 import io.crystalnova.manager.data.EsdeThemeCatalogState
 import io.crystalnova.manager.data.EsdeThemeDownloadState
@@ -114,9 +117,33 @@ class NovaHomeScreenTest : NovaUiTest() {
                 DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-current-download")),
                 DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-grant-folder-repick")),
                 DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-rollback-download")),
-                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-exit")),
             ),
         )
+        // EXIT is the last step, handled separately: it sits just below
+        // the fold, and focusing it from rollback would ask the scroll
+        // engine to scroll during the test frame's layout pass, which
+        // crashes LazyGridState.scrollToItem under Robolectric's
+        // frame-deferring interceptor. Swipe it into comfortable view
+        // first (a slow, short drag, so the focused rollback tile
+        // stays composed and focused); the step itself is still a
+        // real D-pad move from rollback to EXIT.
+        composeTestRule.onNodeWithTag(NOVA_VIEWPORT_TAG).performTouchInput {
+            swipeUp(
+                startY = height * 0.55f,
+                endY = height * 0.35f,
+                durationMillis = 1000,
+            )
+        }
+        composeTestRule.waitForIdle()
+        val rollback = tile("esde-rollback-download")
+        rollback.requestDpadFocus()
+        composeTestRule.waitForIdle()
+        rollback.assertIsFocused()
+        rollback.pressDpadDown()
+        composeTestRule.waitForIdle()
+        val exit = tile("home-exit")
+        exit.assertIsFocused()
+        assertInteractionInViewport(exit, "grid traversal exit")
     }
 
     @Test
@@ -211,19 +238,39 @@ class NovaHomeScreenTest : NovaUiTest() {
     fun exitControlPresent() {
         setHome()
 
-        composeTestRule.onNodeWithText("EXIT").assertExists()
-        // u89: EXIT sits below the fold in the tile grid, so reach it
-        // by D-pad (which scrolls it into view) instead of asserting
-        // it is in viewport before any movement.
+        // u89: EXIT sits below the fold in the tile grid, so the lazy
+        // grid has not composed it yet — no text/tag assertion can
+        // find it before it is scrolled into range. Walk to rollback
+        // by D-pad, swipe EXIT into comfortable view (see
+        // everyHomeControlReachableByDpadAndInViewport for why the
+        // swipe precedes the final D-pad step), then prove EXIT by
+        // D-pad: it exists, takes focus, and lands in viewport.
         val tile = { tag: String -> { composeTestRule.onNodeWithTag(tag) } }
         assertDpadGridTraversalInViewport(
             first = tile("esde-current-download"),
             moves = listOf(
                 DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-grant-folder-repick")),
                 DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-rollback-download")),
-                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-exit")),
             ),
         )
+        composeTestRule.onNodeWithTag(NOVA_VIEWPORT_TAG).performTouchInput {
+            swipeUp(
+                startY = height * 0.55f,
+                endY = height * 0.35f,
+                durationMillis = 1000,
+            )
+        }
+        composeTestRule.waitForIdle()
+        composeTestRule.onNodeWithText("EXIT").assertExists()
+        val rollback = tile("esde-rollback-download")
+        rollback.requestDpadFocus()
+        composeTestRule.waitForIdle()
+        rollback.assertIsFocused()
+        rollback.pressDpadDown()
+        composeTestRule.waitForIdle()
+        val exit = tile("home-exit")
+        exit.assertIsFocused()
+        assertInteractionInViewport(exit, "exit control")
     }
 
     // Non-gating per user 2026-09-23: D-pad order verified fine on Nova
