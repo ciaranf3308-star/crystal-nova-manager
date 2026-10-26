@@ -135,13 +135,13 @@ class NovaHomeScreenTest : NovaUiTest() {
             )
         }
         composeTestRule.waitForIdle()
-        val rollback = tile("esde-rollback-download")
+        val rollback = tile("esde-rollback-download")()
         rollback.requestDpadFocus()
         composeTestRule.waitForIdle()
         rollback.assertIsFocused()
         rollback.pressDpadDown()
         composeTestRule.waitForIdle()
-        val exit = tile("home-exit")
+        val exit = tile("home-exit")()
         exit.assertIsFocused()
         assertInteractionInViewport(exit, "grid traversal exit")
     }
@@ -262,13 +262,13 @@ class NovaHomeScreenTest : NovaUiTest() {
         }
         composeTestRule.waitForIdle()
         composeTestRule.onNodeWithText("EXIT").assertExists()
-        val rollback = tile("esde-rollback-download")
+        val rollback = tile("esde-rollback-download")()
         rollback.requestDpadFocus()
         composeTestRule.waitForIdle()
         rollback.assertIsFocused()
         rollback.pressDpadDown()
         composeTestRule.waitForIdle()
-        val exit = tile("home-exit")
+        val exit = tile("home-exit")()
         exit.assertIsFocused()
         assertInteractionInViewport(exit, "exit control")
     }
