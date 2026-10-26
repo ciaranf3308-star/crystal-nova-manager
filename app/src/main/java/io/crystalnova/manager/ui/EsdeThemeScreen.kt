@@ -7,7 +7,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -127,7 +126,7 @@ fun EsdeThemeScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(gridColumnsForWidth(LocalConfiguration.current.screenWidthDp, 3)),
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 3)),
             initialFocus = ::isInitialFocus,
         ) {
             panel {

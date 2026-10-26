@@ -9,7 +9,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.unit.dp
 import androidx.compose.runtime.remember
 import io.crystalnova.manager.importer.FailedRow
@@ -53,7 +52,7 @@ fun ImporterResultsScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(gridColumnsForWidth(LocalConfiguration.current.screenWidthDp, 2)),
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 2)),
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null) {

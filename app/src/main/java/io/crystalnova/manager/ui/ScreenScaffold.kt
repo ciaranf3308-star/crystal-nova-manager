@@ -3,6 +3,7 @@ package io.crystalnova.manager.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -11,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.withFrameNanos
@@ -68,11 +70,12 @@ import androidx.annotation.VisibleForTesting
  *         }
  *     }
  *     // or a plain Column for short screens; or ControllerGrid for card grids
- *     // (columns follow the width-aware rule in GridColumns.kt so narrow
- *     // portrait viewports get one column):
+ *     // (columns follow the width-aware rule in GridColumns.kt, reading
+ *     // the scaffold content width, so narrow portrait viewports get
+ *     // one column):
  *     // ControllerGrid(state = gridState, dispatcher = dispatcher,
  *     //                columns = GridCells.Fixed(gridColumnsForWidth(
- *     //                    LocalConfiguration.current.screenWidthDp, 3)),
+ *     //                    LocalContentWidth.current.value.toInt(), 3)),
  *     //                initialFocus = ::isInitialFocus) {
  *     //     control(key = "card-x", label = "X", onClick = { ... })
  *     // }
@@ -181,11 +184,17 @@ fun ScreenScaffold(
                 titleTrailing?.invoke()
             }
             Spacer(Modifier.height(8.dp))
-            Box(modifier = Modifier.weight(1f).fillMaxWidth()) {
-                val scope = remember(dispatcher, listState, gridState, initialKey) {
-                    ScaffoldContentScope(dispatcher, listState, gridState, initialKey)
+            // The content area's available width drives grid adaptivity
+            // (see LocalContentWidth): BoxWithConstraints remeasures on
+            // rotation, so grids recompute their column count without
+            // the activity being recreated (configChanges handles that).
+            BoxWithConstraints(modifier = Modifier.weight(1f).fillMaxWidth()) {
+                CompositionLocalProvider(LocalContentWidth provides maxWidth) {
+                    val scope = remember(dispatcher, listState, gridState, initialKey) {
+                        ScaffoldContentScope(dispatcher, listState, gridState, initialKey)
+                    }
+                    scope.content()
                 }
-                scope.content()
             }
             Spacer(Modifier.height(8.dp))
             ScaffoldFooter(isHome = isHome, backLabel = footerLabel)

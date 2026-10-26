@@ -17,7 +17,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -95,7 +94,7 @@ fun GameLibraryScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(gridColumnsForWidth(LocalConfiguration.current.screenWidthDp, 2)),
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 2)),
             initialFocus = ::isInitialFocus,
         ) {
             val result = scan
