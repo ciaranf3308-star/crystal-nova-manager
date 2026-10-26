@@ -40,12 +40,13 @@ private fun kindLabel(kind: ArchiveKind): String = when (kind) {
  * When nothing is left to review, DONE moves on: REVIEW when games
  * are actionable, otherwise back to the hub.
  *
- * 4:3 redesign: a 2-column grid with a clear three-zone hierarchy —
- * the item's identity in a prominent full-width panel at top
- * (title, filename, size, friendly detector clues), the 18 platform
- * choices as generous content-sized tiles, and SKIP / NOT A GAME as
- * a distinct action row at the bottom. Tiles size to their content;
- * long text ellipsizes — no fixed heights anywhere.
+ * u89 command-center layout (layout only): the 4:3 three-zone
+ * hierarchy is kept — item identity in a prominent full-width panel
+ * at top, the 18 platform choices as large commandTiles, SKIP /
+ * NOT A GAME / REMOVE / UNDO as tiles below — with ZoneHeader strips
+ * marking each zone. The detector's likely choice keeps its emphasis:
+ * it takes initial focus (one A press confirms) and carries the
+ * " ← DETECTOR GUESS" sublabel.
  */
 @Composable
 fun ImporterClassifyScreen(
@@ -91,13 +92,13 @@ fun ImporterClassifyScreen(
                     }
                 }
                 if ((state?.actionable ?: 0) > 0) {
-                    control(
+                    commandTile(
                         key = "done",
                         label = "DONE — REVIEW GAMES",
                         onClick = { engine.prepareImport() },
                     )
                 } else {
-                    control(
+                    commandTile(
                         key = "done",
                         label = "DONE — BACK TO HUB",
                         onClick = { onOpenHub() },
@@ -112,6 +113,7 @@ fun ImporterClassifyScreen(
             // screen is "what is THIS file", so it gets the biggest
             // panel and the biggest type. ----
             panel {
+                ZoneHeader("CLASSIFY THIS GAME")
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         StatusLine(
@@ -166,11 +168,11 @@ fun ImporterClassifyScreen(
             // off-screen while tapping tiles, so without this the user
             // had to scroll up to verify a tap registered. ----
             panel {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine("PICK THE PLATFORM — TAP SAVES + ADVANCES")
-                        val pick = state.lastPick
-                        if (pick != null) {
+                ZoneHeader("PICK THE PLATFORM — TAP SAVES + ADVANCES")
+                val pick = state.lastPick
+                if (pick != null) {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             StatusLine(
                                 "✓ ${pick.title} → ${pick.platformLabel} SAVED",
                                 Crystal.Good,
@@ -183,7 +185,7 @@ fun ImporterClassifyScreen(
                 val hint = if (platform == item.detection.platform &&
                     item.detection.confidence == Confidence.LIKELY
                 ) " ← DETECTOR GUESS" else null
-                control(
+                commandTile(
                     key = "platform-${platform.name}",
                     label = platform.labels().long.uppercase(),
                     subLabel = hint,
@@ -192,23 +194,21 @@ fun ImporterClassifyScreen(
             }
             // ---- Zone 3: the escape hatches, one unmistakable row. ----
             panel {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    StatusLine("NOT SURE? SKIP KEEPS IT FOR LATER.")
-                }
+                ZoneHeader("NOT SURE? SKIP KEEPS IT FOR LATER.")
             }
-            control(
+            commandTile(
                 key = "skip",
                 label = "SKIP FOR NOW",
                 onClick = { engine.skipItem(item.id) },
             )
-            control(
+            commandTile(
                 key = "not-a-game",
                 label = "NOT A GAME",
                 subLabel = "DROPS IT — NOTHING IS DELETED",
                 onClick = { engine.ignoreNotAGame(item.id) },
                 danger = true,
             )
-            control(
+            commandTile(
                 key = "remove",
                 label = "REMOVE",
                 subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
@@ -219,7 +219,7 @@ fun ImporterClassifyScreen(
             // choice as the next item. Disabled (D-pad skips it) until
             // a pick exists — same pattern as the storage-blocked
             // IMPORT ALL control.
-            control(
+            commandTile(
                 key = "undo-last-pick",
                 label = "↩ UNDO LAST PICK",
                 subLabel = "RE-ASK THE LAST CONSOLE CHOICE",

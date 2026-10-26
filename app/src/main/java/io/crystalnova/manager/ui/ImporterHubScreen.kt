@@ -4,6 +4,7 @@ import android.os.Build
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -33,22 +34,27 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
 /**
- * GAME IMPORTER hub — u77 redesign.
+ * GAME IMPORTER hub — u89 command-center layout (layout only; the
+ * u77 information architecture, labels, keys, and callbacks are
+ * unchanged).
  *
- * Information architecture (top to bottom, no scroll simulator):
- *   1. STATUS — one headline ("5 TO REVIEW • 2 FAILED") + the next step.
- *   2. PROGRESS — when scanning/importing: big bar, counts, current file.
- *   3. PRIMARY ACTIONS — SCAN always; RESUME only when actionable, with
- *      an honest label (CLASSIFY / REVIEW FAILURES / IMPORT).
- *   4. ACTIONABLE QUEUE — needs-review rows (tap to classify), failed
- *      rows (retry all / review each).
- *   5. PROBLEM LISTS — unreadable / not-recognized as collapsed counted
- *      rows that expand on demand; each item actionable inline.
- *   6. GRANTS — one dim line when all OK; buttons only on problems.
- *   7. HISTORY — collapsed. SETTINGS.
+ * Zones, top to bottom:
+ *   1. STATUS — queue state as a StatusStrip + hint + 7z line.
+ *   2. QUEUE COUNTS — statTiles for what is waiting.
+ *   3. PROGRESS — when scanning/importing: big bar, counts, current file.
+ *   4. PRIMARY ACTIONS — SCAN always; RESUME only when actionable,
+ *      with an honest label (CLASSIFY / REVIEW FAILURES / IMPORT).
+ *   5. ACTIONABLE QUEUE — needs-review tiles (tap to classify),
+ *      failed zone (retry all / review each).
+ *   6. PROBLEM ZONES — unreadable / not-recognized as collapsed
+ *      counted toggles that expand on demand; each item keeps its
+ *      detail panel grouped with its own action tiles.
+ *   7. GRANTS — one quiet strip when all OK; tiles only on problems.
+ *   8. HISTORY — collapsed. SETTINGS.
  *
  * Terminal/console style, ALL-CAPS, blue/cyan + small yellow accents,
- * no purple. D-pad first via the control() focus system.
+ * no purple. D-pad first via the grid focus system; the grid collapses
+ * to one column on narrow (portrait) viewports via gridColumnsForWidth.
  */
 @Composable
 fun ImporterHubScreen(
@@ -108,18 +114,13 @@ fun ImporterHubScreen(
     }
     val missingCount = liveItems.count { it.sourceMissing }
 
-    // Collapsed problem lists — remember at screen level (the list
+    // Collapsed problem lists — remember at screen level (the grid
     // content lambda is not a @Composable context).
     var unreadableExpanded by remember { mutableStateOf(false) }
     var notRecognizedExpanded by remember { mutableStateOf(false) }
     var historyExpanded by remember { mutableStateOf(false) }
 
-    val headlineColor = when {
-        summary.waiting == 0 -> Crystal.Good
-        summary.failed > 0 || summary.unreadable > 0 -> Crystal.Bad
-        summary.toReview > 0 || summary.notRecognized > 0 -> Crystal.Joystick
-        else -> Crystal.Good
-    }
+    val attention = summary.failed > 0 || summary.unreadable > 0
     val hint = when {
         uiState is ImportUiState.Scanning -> "WORKING THROUGH YOUR DOWNLOADS…"
         uiState is ImportUiState.Importing -> "IMPORT RUNNING — SEE BELOW"
@@ -150,20 +151,19 @@ fun ImporterHubScreen(
         onBack = onBack,
         fallbackFocusKey = fallbackFocusKey,
     ) {
-        ControllerList(
-            state = listState,
+        ControllerGrid(
+            state = gridState,
             dispatcher = dispatcher,
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 2)),
             initialFocus = ::isInitialFocus,
         ) {
             // ---- 0. error notice ----
             if (uiState is ImportUiState.Error) {
                 val err = uiState as ImportUiState.Error
-                section {
-                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        StatusLine(err.message, Crystal.Bad)
-                    }
+                panel {
+                    StatusStrip(err.message, attention = true)
                 }
-                control(
+                commandTile(
                     key = "dismiss-notice",
                     testTag = "hub-dismiss-notice",
                     label = "DISMISS",
@@ -171,10 +171,11 @@ fun ImporterHubScreen(
                 )
             }
             // ---- 1. status: what needs Ciaran, at a glance ----
-            section {
+            panel {
+                ZoneHeader("STATUS")
+                StatusStrip(summary.headline(), attention = attention)
                 CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        StatusLine(summary.headline(), headlineColor)
                         if (hint.isNotEmpty()) {
                             DimLine(hint)
                         }
@@ -183,13 +184,21 @@ fun ImporterHubScreen(
                     }
                 }
             }
+            // ---- 1b. queue counts as tiles ----
+            statTile(label = "WAITING", value = "${summary.waiting}")
+            statTile(label = "TO REVIEW", value = "${summary.toReview}")
+            statTile(label = "READY", value = "${summary.importable}")
+            statTile(label = "FAILED", value = "${summary.failed}")
+            statTile(label = "UNREADABLE", value = "${summary.unreadable}")
+            statTile(label = "NOT RECOGNIZED", value = "${summary.notRecognized}")
+            statTile(label = "MISSING", value = "${summary.missing}")
             // ---- 2. progress: unmissable, in the viewport ----
             if (uiState is ImportUiState.Scanning) {
                 val s = uiState as ImportUiState.Scanning
-                section {
+                panel {
+                    ZoneHeader("SCANNING DOWNLOADS")
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("SCANNING DOWNLOADS", Crystal.Joystick)
                             CrystalProgressBar(
                                 if (s.total > 0) s.done.toFloat() / s.total else 0f,
                             )
@@ -203,13 +212,12 @@ fun ImporterHubScreen(
             }
             if (uiState is ImportUiState.Importing) {
                 val imp = uiState as ImportUiState.Importing
-                section {
+                panel {
+                    ZoneHeader(
+                        "IMPORTING — GAME ${(imp.index + 1).coerceAtMost(imp.total)} OF ${imp.total}",
+                    )
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine(
-                                "IMPORTING — GAME ${(imp.index + 1).coerceAtMost(imp.total)} OF ${imp.total}",
-                                Crystal.Joystick,
-                            )
                             imp.current?.let { current ->
                                 StatusLine(current.title)
                                 current.progress?.let { p ->
@@ -226,7 +234,7 @@ fun ImporterHubScreen(
                         }
                     }
                 }
-                control(
+                commandTile(
                     key = "view-import",
                     testTag = "hub-view-import",
                     label = "VIEW IMPORT",
@@ -235,7 +243,10 @@ fun ImporterHubScreen(
                 )
             }
             // ---- 3. primary actions ----
-            control(
+            panel {
+                ZoneHeader("ACTIONS")
+            }
+            commandTile(
                 key = "scan",
                 testTag = "hub-scan",
                 label = "SCAN DOWNLOADS",
@@ -244,7 +255,7 @@ fun ImporterHubScreen(
                 onClick = { engine.scan() },
             )
             if (resumeLabel != null) {
-                control(
+                commandTile(
                     key = "resume",
                     testTag = "hub-resume",
                     label = resumeLabel,
@@ -262,19 +273,14 @@ fun ImporterHubScreen(
                     },
                 )
             }
-            // ---- 4a. needs review: tap a row to classify it ----
+            // ---- 4a. needs review: tap a tile to classify it ----
             if (reviewItems.isNotEmpty()) {
-                section {
-                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                        StatusLine(
-                            "NEEDS REVIEW (${reviewItems.size}) — TAP TO CLASSIFY",
-                            Crystal.Joystick,
-                        )
-                    }
+                panel {
+                    ZoneHeader("NEEDS REVIEW (${reviewItems.size}) — TAP TO CLASSIFY")
                 }
                 for (item in reviewItems) {
                     val guess = item.detection.platform?.labels()?.short
-                    control(
+                    commandTile(
                         key = "classify-${item.id}",
                         label = "▸ ${item.displayTitle}",
                         subLabel = if (guess != null) "DETECTOR GUESS: $guess — TAP TO CONFIRM"
@@ -288,23 +294,23 @@ fun ImporterHubScreen(
             }
             // ---- 4b. failed: retry all inline, or review each ----
             if (failedItems.isNotEmpty()) {
-                section {
+                panel {
+                    ZoneHeader("FAILED (${failedItems.size})")
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("FAILED (${failedItems.size})", Crystal.Bad)
                             for (item in failedItems) {
                                 DimLine("✗ ${item.displayTitle}")
                             }
                         }
                     }
                 }
-                control(
+                commandTile(
                     key = "retry-all-failed",
                     label = "RETRY ALL FAILED (${failedItems.size})",
                     subLabel = "RESETS THEM AND STARTS THE IMPORT",
                     onClick = { engine.retryFailed() },
                 )
-                control(
+                commandTile(
                     key = "review-failures",
                     label = "REVIEW EACH FAILURE",
                     subLabel = "RETRY · CHANGE PLATFORM · SKIP PER GAME",
@@ -313,7 +319,10 @@ fun ImporterHubScreen(
             }
             // ---- 5a. unreadable: collapsed, expandable, removable ----
             if (queueDecision.unreadable.isNotEmpty()) {
-                control(
+                panel {
+                    ZoneHeader("PROBLEM FILES")
+                }
+                commandTile(
                     key = "toggle-unreadable",
                     label = "UNREADABLE (${queueDecision.unreadable.size}) " +
                         if (unreadableExpanded) "▾" else "▸",
@@ -322,7 +331,7 @@ fun ImporterHubScreen(
                 )
                 if (unreadableExpanded) {
                     for (item in queueDecision.unreadable) {
-                        section {
+                        panel {
                             CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -332,7 +341,7 @@ fun ImporterHubScreen(
                                 }
                             }
                         }
-                        control(
+                        commandTile(
                             key = "remove-unreadable-${item.id}",
                             testTag = "hub-remove-unreadable",
                             label = "REMOVE THIS FILE",
@@ -345,7 +354,7 @@ fun ImporterHubScreen(
             }
             // ---- 5b. not recognized: collapsed, expandable, actionable ----
             if (notRecognizedItems.isNotEmpty()) {
-                control(
+                commandTile(
                     key = "toggle-notrecognized",
                     label = "NOT RECOGNIZED (${notRecognizedItems.size}) " +
                         if (notRecognizedExpanded) "▾" else "▸",
@@ -354,7 +363,7 @@ fun ImporterHubScreen(
                 )
                 if (notRecognizedExpanded) {
                     for (item in notRecognizedItems) {
-                        section {
+                        panel {
                             CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                                 Column(
                                     verticalArrangement = Arrangement.spacedBy(8.dp),
@@ -366,13 +375,13 @@ fun ImporterHubScreen(
                                 }
                             }
                         }
-                        control(
+                        commandTile(
                             key = "notgame-${item.id}",
                             label = "NOT A GAME",
                             subLabel = "DROPS IT — NOTHING IS DELETED",
                             onClick = { engine.ignoreNotAGame(item.id) },
                         )
-                        control(
+                        commandTile(
                             key = "remove-notrecognized-${item.id}",
                             label = "REMOVE",
                             subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
@@ -384,7 +393,7 @@ fun ImporterHubScreen(
             }
             // ---- 5c. missing sources ----
             if (missingCount > 0) {
-                control(
+                commandTile(
                     key = "dismiss-missing",
                     testTag = "hub-dismiss-missing",
                     label = "DISMISS $missingCount MISSING",
@@ -393,17 +402,17 @@ fun ImporterHubScreen(
                     danger = true,
                 )
             }
-            // ---- 6. grants: one quiet line when all OK ----
+            // ---- 6. grants: one quiet strip when all OK ----
             val grantsOk = downloadsOk && romsOk && (!allFilesApi || allFilesGranted)
             if (grantsOk) {
-                section {
-                    DimLine("GRANTS OK — DOWNLOADS + ROMS READY")
+                panel {
+                    StatusStrip("GRANTS OK — DOWNLOADS + ROMS READY")
                 }
             } else {
-                section {
+                panel {
+                    ZoneHeader("GRANTS NEED ATTENTION")
                     CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            StatusLine("GRANTS NEED ATTENTION", Crystal.Bad)
                             if (!downloadsOk && !allFilesGranted) {
                                 DimLine("DOWNLOADS: NOT GRANTED")
                             }
@@ -417,7 +426,7 @@ fun ImporterHubScreen(
                     }
                 }
                 if (probe != null && !downloadsOk && !allFilesGranted) {
-                    control(
+                    commandTile(
                         key = "grant-downloads",
                         testTag = "hub-grant-downloads",
                         label = "GRANT DOWNLOADS FOLDER",
@@ -426,7 +435,7 @@ fun ImporterHubScreen(
                     )
                 }
                 if (allFilesApi && !allFilesGranted) {
-                    control(
+                    commandTile(
                         key = "all-files-settings",
                         testTag = "hub-all-files-settings",
                         label = "OPEN SETTINGS",
@@ -435,7 +444,7 @@ fun ImporterHubScreen(
                     )
                 }
                 if (probe != null && !romsOk) {
-                    control(
+                    commandTile(
                         key = "grant-roms",
                         testTag = "hub-grant-roms",
                         label = "GRANT ROM ROOT FOLDER",
@@ -445,14 +454,14 @@ fun ImporterHubScreen(
             }
             // ---- 7. history: collapsed ----
             if (history.isNotEmpty()) {
-                control(
+                commandTile(
                     key = "toggle-history",
                     label = "RECENT IMPORTS (${history.size}) " +
                         if (historyExpanded) "▾" else "▸",
                     onClick = { historyExpanded = !historyExpanded },
                 )
                 if (historyExpanded) {
-                    section {
+                    panel {
                         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
                             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                                 for (entry in history.take(8)) {
@@ -468,7 +477,7 @@ fun ImporterHubScreen(
                     }
                 }
             }
-            control(
+            commandTile(
                 key = "settings",
                 testTag = "hub-settings",
                 label = "IMPORTER SETTINGS",

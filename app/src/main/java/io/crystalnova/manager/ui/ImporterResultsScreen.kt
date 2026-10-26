@@ -25,12 +25,12 @@ import io.crystalnova.manager.importer.labels
  * the finished items and returns to the hub — or back to
  * classification when work remains.
  *
- * u70: 2-column grid. Failure rows are full-width panels — title,
- * platform, and the failure reason each on their own line, wrapping
- * freely, never clipped — followed by the four actions (RETRY /
- * PLATFORM / SKIP / REMOVE) in a clean 2×2. The old 3-column layout
- * left the fourth button stranded on its own row and squeezed the
- * long sublabels ("RETRIES THIS GAME AS …") into ~270dp cells.
+ * u89 command-center layout (layout only): result counts as statTiles,
+ * each failed row as a full-width detail panel (title, platform, and
+ * the failure reason each on their own line, wrapping freely, never
+ * clipped) with its four actions as commandTiles. The old 3-column
+ * layout left the fourth button stranded on its own row; the u70
+ * 2-column grid keeps the 2×2 action grouping.
  */
 @Composable
 fun ImporterResultsScreen(
@@ -56,39 +56,38 @@ fun ImporterResultsScreen(
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null) {
-                panel { StatusLine("…", Crystal.InkDim) }
+                panel { StatusStrip("…") }
                 return@ControllerGrid
             }
             panel {
-                CrystalPanel(modifier = Modifier.fillMaxWidth()) {
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        val headline = if (state.cancelled) "RUN CANCELLED" else "RUN FINISHED"
-                        StatusLine(headline, Crystal.Joystick)
-                        StatusLine(
-                            "${state.succeeded} IMPORTED · ${state.failed.size} FAILED · " +
-                                "${state.skipped} SKIPPED",
-                            if (state.failed.isEmpty()) Crystal.Good else Crystal.Ink,
-                        )
-                        if (state.deletedSources > 0) {
-                            StatusLine(
-                                "${state.deletedSources} SOURCE ARCHIVE${if (state.deletedSources == 1) "" else "S"} " +
-                                    "DELETED AFTER VERIFY",
-                                Crystal.InkDim,
-                            )
-                        }
-                        if (state.failed.isNotEmpty()) {
-                            StatusLine(
-                                "FAILED SOURCES WERE KEPT — RETRY OR SKIP BELOW",
-                                Crystal.Bad,
-                            )
+                ZoneHeader(if (state.cancelled) "RUN CANCELLED" else "RUN FINISHED")
+                if (state.deletedSources > 0 || state.failed.isNotEmpty()) {
+                    CrystalPanel(modifier = Modifier.fillMaxWidth()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            if (state.deletedSources > 0) {
+                                StatusLine(
+                                    "${state.deletedSources} SOURCE ARCHIVE${if (state.deletedSources == 1) "" else "S"} " +
+                                        "DELETED AFTER VERIFY",
+                                    Crystal.InkDim,
+                                )
+                            }
+                            if (state.failed.isNotEmpty()) {
+                                StatusLine(
+                                    "FAILED SOURCES WERE KEPT — RETRY OR SKIP BELOW",
+                                    Crystal.Bad,
+                                )
+                            }
                         }
                     }
                 }
             }
+            statTile(label = "IMPORTED", value = "${state.succeeded}")
+            statTile(label = "FAILED", value = "${state.failed.size}")
+            statTile(label = "SKIPPED", value = "${state.skipped}")
             for (row in state.failed) {
                 FailedSection(row, platforms, platformOverride, graph)
             }
-            control(
+            commandTile(
                 key = "done",
                 label = "DONE",
                 onClick = { engine.dismissResults() },
@@ -108,9 +107,9 @@ private fun ControllerGridContent.FailedSection(
     // Full-width failure card: every line wraps freely — the reason
     // is never clipped, however long it gets.
     panel {
+        ZoneHeader("✗ ${row.title}")
         CrystalPanel(modifier = Modifier.fillMaxWidth()) {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                StatusLine("✗ ${row.title}", Crystal.Bad)
                 val platformName = row.platform?.labels()?.long?.uppercase() ?: "UNKNOWN PLATFORM"
                 StatusLine("PLATFORM: $platformName", Crystal.Ink)
                 StatusLine("REASON: ${row.reason.label()}", Crystal.InkDim)
@@ -125,7 +124,7 @@ private fun ControllerGridContent.FailedSection(
         }
     }
     // One action per tile: controller-simple, no nested focus grid.
-    control(
+    commandTile(
         key = "retry-${row.itemId}",
         label = "RETRY",
         subLabel = if (chosen != null) "RETRIES THIS GAME AS ${chosen.labels().short}"
@@ -138,7 +137,7 @@ private fun ControllerGridContent.FailedSection(
             }
         },
     )
-    control(
+    commandTile(
         key = "platform-${row.itemId}",
         label = "PLATFORM: ${(chosen ?: row.platform)?.labels()?.short ?: "?"}",
         subLabel = "TAP TO CYCLE — THEN RETRY",
@@ -148,13 +147,13 @@ private fun ControllerGridContent.FailedSection(
             platformOverride[row.itemId] = next
         },
     )
-    control(
+    commandTile(
         key = "skip-${row.itemId}",
         label = "SKIP",
         subLabel = "LEAVES THE SOURCE IN DOWNLOADS",
         onClick = { engine.skipFailedItem(row.itemId) },
     )
-    control(
+    commandTile(
         key = "remove-${row.itemId}",
         label = "REMOVE",
         subLabel = "DROPS IT FROM THE QUEUE — NOTHING IS DELETED",
