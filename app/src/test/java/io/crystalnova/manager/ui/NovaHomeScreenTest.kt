@@ -97,23 +97,24 @@ class NovaHomeScreenTest : NovaUiTest() {
     fun everyHomeControlReachableByDpadAndInViewport() {
         // Granted, ES-DE installed, catalog ready with a rollback
         // entry, theme up to date, manager idle. The home is a 3-column
-        // tile grid; the walk below uses only geometrically certain
-        // moves — same-row horizontals and same-column verticals (the
-        // full-span status panels between tile rows are non-focusable,
-        // so D-pad skips straight past them).
+        // tile grid in COMMAND/STATUS zones; the walk below uses only
+        // geometrically certain moves — same-row horizontals and
+        // same-column verticals to the next focusable below (the
+        // full-span panels and non-focusable statTiles between tile
+        // rows are skipped by D-pad focus).
         setHome()
 
         val tile = { tag: String -> { composeTestRule.onNodeWithTag(tag) } }
         assertDpadGridTraversalInViewport(
-            first = tile("esde-grant-folder-repick"),
+            first = tile("esde-current-download"),
             moves = listOf(
                 DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("esde-launch")),
-                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("esde-current-download")),
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("home-check-update")),
                 DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-launch")),
-                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-grant-folder-repick")),
+                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-current-download")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-grant-folder-repick")),
                 DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-rollback-download")),
-                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-check-update")),
-                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("home-exit")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-exit")),
             ),
         )
     }
@@ -122,7 +123,10 @@ class NovaHomeScreenTest : NovaUiTest() {
     fun grantAndRetryPathReachableByDpad() {
         // No grant, catalog down: the grant CTA and the catalog retry
         // are the screen's two recovery actions. Tile rows here:
-        // (grant-folder / launch), (retry), (check-update / exit).
+        // (retry / launch / check-update), (grant-folder), then the
+        // STATUS tiles and EXIT. The walk uses only geometrically
+        // certain moves — same-row horizontals and same-column
+        // verticals to the next focusable below.
         setHome(
             catalogState = EsdeThemeCatalogState.Unavailable("OFFLINE"),
             installed = null,
@@ -135,11 +139,13 @@ class NovaHomeScreenTest : NovaUiTest() {
         assertDpadGridTraversalInViewport(
             first = tile("esde-grant-folder"),
             moves = listOf(
+                DpadMove(SemanticsNodeInteraction::pressDpadUp, tile("esde-retry")),
                 DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("esde-launch")),
-                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-grant-folder")),
-                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-retry")),
-                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-check-update")),
-                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("home-exit")),
+                DpadMove(SemanticsNodeInteraction::pressDpadRight, tile("home-check-update")),
+                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-launch")),
+                DpadMove(SemanticsNodeInteraction::pressDpadLeft, tile("esde-retry")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-grant-folder")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-exit")),
             ),
         )
     }
@@ -149,10 +155,12 @@ class NovaHomeScreenTest : NovaUiTest() {
         setHome(installed = EsdeThemeInstalled("1.2.0", 4))
 
         composeTestRule.onNodeWithText("UPDATE v1.3.0").assertExists()
-        composeTestRule.onNodeWithText(
-            "LATEST: v1.3.0 — UPDATE AVAILABLE",
-            substring = true,
-        ).assertExists()
+        // u89: the theme state is split across tile nodes — the
+        // current tile's sublabel and the LATEST status tile — so the
+        // old single-line "LATEST: v1.3.0 — UPDATE AVAILABLE" string
+        // no longer exists as one node.
+        composeTestRule.onNodeWithText("v1.3.0 — UPDATE AVAILABLE").assertExists()
+        composeTestRule.onNodeWithText("LATEST").assertExists()
         assertNodeInViewport("esde-current-download")
     }
 
@@ -160,11 +168,13 @@ class NovaHomeScreenTest : NovaUiTest() {
     fun themeUpToDate_showsHonestStatus() {
         setHome()
 
-        composeTestRule.onNodeWithText(
-            "LATEST: v1.3.0 — UP TO DATE",
-            substring = true,
-        ).assertExists()
-        composeTestRule.onNodeWithText("INSTALLED: v1.3.0").assertExists()
+        // u89: the theme state is split across tile nodes — the
+        // current tile's label/sublabel and the INSTALLED status
+        // tile — so the old single-line "LATEST: … — UP TO DATE" /
+        // "INSTALLED: …" strings no longer exist as one node each.
+        composeTestRule.onNodeWithText("REINSTALL v1.3.0").assertExists()
+        composeTestRule.onNodeWithText("v1.3.0 — UP TO DATE").assertExists()
+        composeTestRule.onNodeWithText("INSTALLED").assertExists()
     }
 
     @Test
@@ -202,7 +212,18 @@ class NovaHomeScreenTest : NovaUiTest() {
         setHome()
 
         composeTestRule.onNodeWithText("EXIT").assertExists()
-        assertNodeInViewport("home-exit")
+        // u89: EXIT sits below the fold in the tile grid, so reach it
+        // by D-pad (which scrolls it into view) instead of asserting
+        // it is in viewport before any movement.
+        val tile = { tag: String -> { composeTestRule.onNodeWithTag(tag) } }
+        assertDpadGridTraversalInViewport(
+            first = tile("esde-current-download"),
+            moves = listOf(
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-grant-folder-repick")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("esde-rollback-download")),
+                DpadMove(SemanticsNodeInteraction::pressDpadDown, tile("home-exit")),
+            ),
+        )
     }
 
     // Non-gating per user 2026-09-23: D-pad order verified fine on Nova
