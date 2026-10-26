@@ -6,6 +6,7 @@ import io.crystalnova.manager.data.EsdeThemeCatalogState
 import io.crystalnova.manager.data.EsdeThemeDownloadState
 import io.crystalnova.manager.data.EsdeThemeEntry
 import io.crystalnova.manager.data.EsdeThemeInstalled
+import io.crystalnova.manager.importer.DashboardData
 import io.crystalnova.manager.updater.AppUpdateState
 import java.io.File
 
@@ -53,6 +54,8 @@ fun HomeScreen(
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
     importerAttention: Boolean = false,
+    /** Health dashboard data (u88). Null renders loading. */
+    dashboardData: DashboardData? = null,
     /** Opens the game library export screen. Null hides the entry. */
     onOpenLibrary: (() -> Unit)? = null,
     /** B on HOME exits the app. */
@@ -91,6 +94,7 @@ fun HomeScreen(
         onOpenImporter = onOpenImporter,
         importerStatusLine = importerStatusLine,
         importerAttention = importerAttention,
+        healthDashboardData = dashboardData,
         onOpenLibrary = onOpenLibrary,
         modifier = modifier,
     )

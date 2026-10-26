@@ -14,6 +14,7 @@ import io.crystalnova.manager.data.EsdeThemeCatalogState
 import io.crystalnova.manager.data.EsdeThemeDownloadState
 import io.crystalnova.manager.data.EsdeThemeEntry
 import io.crystalnova.manager.data.EsdeThemeInstalled
+import io.crystalnova.manager.importer.DashboardData
 import io.crystalnova.manager.updater.AppUpdateState
 import java.io.File
 
@@ -87,6 +88,8 @@ fun EsdeThemeScreen(
     onOpenImporter: (() -> Unit)? = null,
     importerStatusLine: String = "",
     importerAttention: Boolean = false,
+    /** Health dashboard data (u88 home only). Null renders loading. */
+    healthDashboardData: DashboardData? = null,
     /** The game library export entry (u56 home only). Null hides it. */
     onOpenLibrary: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
@@ -129,6 +132,15 @@ fun EsdeThemeScreen(
             columns = GridCells.Fixed(gridColumnsForWidth(LocalContentWidth.current.value.toInt(), 3)),
             initialFocus = ::isInitialFocus,
         ) {
+            // ---- health dashboard (u88 home only): first, above
+            // everything else. Display-only panels — no focus impact.
+            if (isHome) {
+                healthDashboardPanels(
+                    healthDashboardData,
+                    importerStatusLine,
+                    importerAttention,
+                )
+            }
             panel {
                 BasicText(
                     text = contentHeader,

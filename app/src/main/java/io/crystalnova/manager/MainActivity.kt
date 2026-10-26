@@ -24,9 +24,11 @@ import io.crystalnova.manager.data.GitHubRepository
 import io.crystalnova.manager.data.PrefKeyValueStore
 import io.crystalnova.manager.importer.AndroidImporterEnvironment
 import io.crystalnova.manager.importer.AllFilesAccess
+import io.crystalnova.manager.importer.DashboardData
 import io.crystalnova.manager.importer.ImportService
 import io.crystalnova.manager.importer.ImportStage
 import io.crystalnova.manager.importer.ImportUiState
+import io.crystalnova.manager.importer.loadDashboardData
 import io.crystalnova.manager.storage.EsdeThemeInstaller
 import io.crystalnova.manager.storage.EsdeThemeInstallResult
 import io.crystalnova.manager.storage.SafThemeFs
@@ -429,6 +431,40 @@ class MainActivity : ComponentActivity() {
                                 "UPDATE THE MANAGER FIRST."
                         else null
                     }
+                    // ---- u88 health dashboard: live queue counts
+                    // mirror the Hub's live definition (not complete /
+                    // skipped / claimed); failed is the FAILED subset.
+                    // The loader runs on IO and keeps the previous
+                    // data visible while refreshing — never blocks UI.
+                    val dashboardPending = importQueueItems.count {
+                        it.stage != ImportStage.COMPLETE &&
+                            it.stage != ImportStage.SKIPPED && !it.isClaimed
+                    }
+                    val dashboardFailed = importQueueItems.count {
+                        it.stage == ImportStage.FAILED && !it.isClaimed
+                    }
+                    val installedForHealth = esdeThemeLibrary.installedTheme()
+                    val themeOutOfDateForHealth = catalog != null &&
+                        (installedForHealth == null ||
+                            installedForHealth.versionCode < catalog.versionCode)
+                    var dashboardData by remember { mutableStateOf<DashboardData?>(null) }
+                    LaunchedEffect(
+                        dashboardPending,
+                        dashboardFailed,
+                        esdeCatalog,
+                        importerGrantRev,
+                    ) {
+                        dashboardData = withContext(Dispatchers.IO) {
+                            loadDashboardData(
+                                context = applicationContext,
+                                romsFs = graph.env.romsFs(),
+                                downloadsPending = dashboardPending,
+                                failedImports = dashboardFailed,
+                                themeOutOfDate = themeOutOfDateForHealth,
+                                themeCatalogReady = catalog != null,
+                            )
+                        }
+                    }
                     HomeScreen(
                         catalogState = esdeCatalog,
                         downloadState = esdeDownload,
@@ -458,6 +494,7 @@ class MainActivity : ComponentActivity() {
                         onOpenLibrary = { nav.navigate(Dest.GameLibrary) },
                         importerStatusLine = importerStatusLine,
                         importerAttention = importerAttention,
+                        dashboardData = dashboardData,
                         onExit = pop,
                     )
                 }
