@@ -1,9 +1,17 @@
 package io.crystalnova.manager.ui
 
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.LazyListState
@@ -14,16 +22,23 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusManager
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
@@ -33,6 +48,10 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
@@ -642,6 +661,154 @@ class ControllerGridContent(
                 testTag = testTag,
                 subLabel = subLabel,
             )
+        }
+    }
+
+    /**
+     * One display-only status cell (see CommandCenter.kt [StatusTile]).
+     * NON-spanning, so several tiles share a row. Same index
+     * bookkeeping as [control]: one scroll index, key mapping, one
+     * grid item. Carries no focus wiring — focus never lands here.
+     */
+    fun statTile(
+        key: Any? = null,
+        label: String,
+        value: String,
+        subline: String? = null,
+        barFraction: Float? = null,
+    ) {
+        val index = nextIndex++
+        if (key != null) keyToIndex[key] = index
+        gridScope.item(key = key) {
+            StatusTile(
+                label = label,
+                value = value,
+                subline = subline,
+                barFraction = barFraction,
+            )
+        }
+    }
+
+    /**
+     * One TALL focusable command tile: a [CrystalButton] in tile form
+     * (min height 96.dp, centered label + optional subLabel) with the
+     * button's wiring mirrored exactly — dispatcher registration,
+     * focus requester, onFocusChanged -> dispatcher.onFocused(key),
+     * focusable(enabled), clickable, controllerScrollItem with this
+     * item's own index, and testTag support. Visuals mirror
+     * [CrystalButton]: Tile background, Cream background + 3dp
+     * Joystick border when focused, TileDeep/InkDim when disabled,
+     * Bad border/text when danger (focused treatment wins over danger,
+     * exactly as in [CrystalButton]).
+     */
+    fun commandTile(
+        key: Any?,
+        label: String,
+        subLabel: String? = null,
+        onClick: () -> Unit,
+        enabled: Boolean = true,
+        danger: Boolean = false,
+        requestInitialFocus: Boolean = initialFocus(key),
+        testTag: String? = null,
+    ) {
+        val index = nextIndex++
+        if (key != null) keyToIndex[key] = index
+        // Hoisted: the item{} lambda's scope receiver shadows this class,
+        // so its private members are unreachable via implicit receiver inside.
+        val eng = engine
+        val disp = dispatcher
+        gridScope.item(key = key) {
+            var focused by remember { mutableStateOf(false) }
+            val focusRequester = remember { FocusRequester() }
+            val scrollModifier = Modifier.controllerScrollItem(eng, index)
+            val tagModifier = if (testTag != null) Modifier.testTag(testTag) else Modifier
+            LaunchedEffect(key, onClick) {
+                disp.register(key, onClick)
+                disp.registerFocusRequester(key, focusRequester)
+            }
+            LaunchedEffect(requestInitialFocus) {
+                if (requestInitialFocus) focusRequester.requestFocus()
+            }
+            val bg = when {
+                !enabled -> Crystal.TileDeep
+                focused -> Crystal.Cream
+                else -> Crystal.Tile
+            }
+            val fg = when {
+                !enabled -> Crystal.InkDim
+                focused -> Crystal.CreamInk
+                danger -> Crystal.Bad
+                else -> Crystal.Ink
+            }
+            val borderColor = when {
+                focused -> Crystal.Joystick
+                danger -> Crystal.Bad
+                else -> Crystal.Frame
+            }
+            Box(
+                contentAlignment = Alignment.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(min = 96.dp)
+                    // The focus-scroll observer sits upstream of the
+                    // focus target (before focusRequester/onFocusChanged/
+                    // focusable), exactly as in CrystalButton, so D-pad
+                    // focus on this tile is always observed and scrolled
+                    // to a comfortable viewport position. The test tag
+                    // rides the same node, above focus/click.
+                    .then(scrollModifier)
+                    .then(tagModifier)
+                    .focusRequester(focusRequester)
+                    .onFocusChanged {
+                        focused = it.isFocused
+                        if (it.isFocused) disp.onFocused(key)
+                    }
+                    .focusable(enabled = enabled)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(bg)
+                    .border(
+                        if (focused) 3.dp else 2.dp,
+                        borderColor,
+                        RoundedCornerShape(2.dp),
+                    )
+                    .clickable(enabled = enabled, onClick = onClick)
+                    .padding(vertical = 10.dp, horizontal = 16.dp),
+            ) {
+                if (subLabel == null) {
+                    BasicText(
+                        text = label,
+                        style = TextStyle(
+                            fontFamily = Crystal.Mono,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = Crystal.ButtonSize,
+                            color = fg,
+                            textAlign = TextAlign.Center,
+                        ),
+                    )
+                } else {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        BasicText(
+                            text = label,
+                            style = TextStyle(
+                                fontFamily = Crystal.Mono,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = Crystal.ButtonSize,
+                                color = fg,
+                                textAlign = TextAlign.Center,
+                            ),
+                        )
+                        BasicText(
+                            text = subLabel,
+                            style = TextStyle(
+                                fontFamily = Crystal.Mono,
+                                fontSize = Crystal.SmallSize,
+                                color = if (focused) Crystal.CreamInk else Crystal.InkDim,
+                                textAlign = TextAlign.Center,
+                            ),
+                        )
+                    }
+                }
+            }
         }
     }
 }
