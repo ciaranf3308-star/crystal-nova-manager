@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -72,7 +73,7 @@ fun ImporterClassifyScreen(
         ControllerGrid(
             state = gridState,
             dispatcher = dispatcher,
-            columns = GridCells.Fixed(2),
+            columns = GridCells.Fixed(gridColumnsForWidth(LocalConfiguration.current.screenWidthDp, 2)),
             initialFocus = ::isInitialFocus,
         ) {
             if (state == null || state.needsReview.isEmpty()) {

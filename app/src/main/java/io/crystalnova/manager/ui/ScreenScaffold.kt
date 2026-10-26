@@ -67,9 +67,13 @@ import androidx.annotation.VisibleForTesting
  *             }
  *         }
  *     }
- *     // or a plain Column for short screens; or ControllerGrid for card grids:
+ *     // or a plain Column for short screens; or ControllerGrid for card grids
+ *     // (columns follow the width-aware rule in GridColumns.kt so narrow
+ *     // portrait viewports get one column):
  *     // ControllerGrid(state = gridState, dispatcher = dispatcher,
- *     //                columns = GridCells.Fixed(3), initialFocus = ::isInitialFocus) {
+ *     //                columns = GridCells.Fixed(gridColumnsForWidth(
+ *     //                    LocalConfiguration.current.screenWidthDp, 3)),
+ *     //                initialFocus = ::isInitialFocus) {
  *     //     control(key = "card-x", label = "X", onClick = { ... })
  *     // }
  * }
